@@ -8,6 +8,10 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
+/* ============================================================
+   APP ROOT
+============================================================ */
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -15,25 +19,19 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Firebase Offline Demo',
-      theme: ThemeData(
-        useMaterial3: true,
-        primarySwatch: Colors.blue,
-      ),
+      title: 'Firestore Offline First',
+      theme: ThemeData(useMaterial3: true),
       home: const FamilyFormPage(),
     );
   }
 }
 
 /* ============================================================
-   FAMILY FORM PAGE (CREATE / EDIT)
+   FAMILY FORM PAGE (INSTANT SAVE – OFFLINE FIRST)
 ============================================================ */
 
 class FamilyFormPage extends StatefulWidget {
-  final String? docId;
-  final Map<String, dynamic>? record;
-
-  const FamilyFormPage({super.key, this.docId, this.record});
+  const FamilyFormPage({super.key});
 
   @override
   State<FamilyFormPage> createState() => _FamilyFormPageState();
@@ -41,21 +39,10 @@ class FamilyFormPage extends StatefulWidget {
 
 class _FamilyFormPageState extends State<FamilyFormPage> {
   final _formKey = GlobalKey<FormState>();
-  bool _saving = false;
 
   final _familyId = TextEditingController();
   final _houseNo = TextEditingController();
   final _head = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.record != null) {
-      _familyId.text = widget.record!['family_id'] ?? '';
-      _houseNo.text = widget.record!['house_no'] ?? '';
-      _head.text = widget.record!['head_of_family'] ?? '';
-    }
-  }
 
   @override
   void dispose() {
@@ -65,46 +52,34 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     super.dispose();
   }
 
-  Future<void> _save() async {
+  /// 🔥 OFFLINE-FIRST SAVE (NO AWAIT, NO LOADING)
+  void _save() {
     if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _saving = true);
 
     final data = {
       'family_id': _familyId.text,
       'house_no': _houseNo.text,
       'head_of_family': _head.text,
 
-      // 🔑 OFFLINE-SAFE TIMESTAMPS
+      // Offline-safe timestamps
       'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
       'serverUpdatedAt': FieldValue.serverTimestamp(),
     };
 
-    try {
-      await FirebaseFirestore.instance
-          .collection('client')
-          .doc(_familyId.text)
-          .set(data, SetOptions(merge: true));
+    // 🚀 FIRE-AND-FORGET WRITE
+    FirebaseFirestore.instance
+        .collection('client')
+        .doc(_familyId.text)
+        .set(data, SetOptions(merge: true));
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Saved (works offline)'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _clear();
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      setState(() => _saving = false);
-    }
-  }
+    // UI updates immediately
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Saved locally (syncing automatically)'),
+        backgroundColor: Colors.green,
+      ),
+    );
 
-  void _clear() {
     _familyId.clear();
     _houseNo.clear();
     _head.clear();
@@ -151,10 +126,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const CircularProgressIndicator()
-                  : const Text('SAVE'),
+              onPressed: _save,
+              child: const Text('SAVE'),
             ),
           ],
         ),
@@ -164,7 +137,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 }
 
 /* ============================================================
-   RECORDS PAGE (OFFLINE SAFE LIST)
+   RECORDS PAGE (OFFLINE SAFE + SYNC STATUS)
 ============================================================ */
 
 class RecordsPage extends StatelessWidget {
@@ -173,62 +146,73 @@ class RecordsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: const Text('All Records')),
-        body: StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('client')
-              .snapshots(includeMetadataChanges: true),
-          builder: (context, snapshot) {
-            // 1️⃣ Show error if any
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
+      appBar: AppBar(title: const Text('All Records')),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('client')
+            .orderBy('clientUpdatedAt', descending: true)
+            .snapshots(includeMetadataChanges: true),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
 
-            // 2️⃣ FIRST LOAD ONLY (no cache, no server)
-            if (!snapshot.hasData) {
-              return const Center(child: Text('Loading records...'));
-            }
+          if (!snapshot.hasData) {
+            return const Center(child: Text('Loading...'));
+          }
 
-            final docs = snapshot.data!.docs;
+          final docs = snapshot.data!.docs;
 
-            // 3️⃣ Data loaded but empty
-            if (docs.isEmpty) {
-              return const Center(child: Text('No records found'));
-            }
+          if (docs.isEmpty) {
+            return const Center(child: Text('No records found'));
+          }
 
-            // 4️⃣ Normal state (ONLINE or OFFLINE)
-            final fromCache = snapshot.data!.metadata.isFromCache;
+          final fromCache = snapshot.data!.metadata.isFromCache;
+          final hasPendingWrites = snapshot.data!.metadata.hasPendingWrites;
 
-            return Column(
-              children: [
-                // 🔔 Offline / Online indicator
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  color: fromCache
-                      ? Colors.orange.shade100
-                      : Colors.green.shade100,
-                  child: Text(
-                    fromCache ? 'Offline mode' : 'Online mode',
-                    textAlign: TextAlign.center,
-                  ),
+          return Column(
+            children: [
+              // 🔔 OFFLINE / ONLINE / SYNC STATUS
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                color:
+                    fromCache ? Colors.orange.shade100 : Colors.green.shade100,
+                child: Text(
+                  fromCache
+                      ? 'Offline mode (showing cached data)'
+                      : hasPendingWrites
+                          ? 'Online – syncing changes...'
+                          : 'Online – all data synced',
+                  textAlign: TextAlign.center,
                 ),
+              ),
 
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: docs.length,
-                    itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
-                      return ListTile(
-                        title: Text(data['family_id'] ?? 'N/A'),
-                        subtitle: Text(data['house_no'] ?? ''),
-                      );
-                    },
-                  ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+
+                    final pending = doc.metadata.hasPendingWrites;
+
+                    return ListTile(
+                      title: Text(data['family_id'] ?? 'N/A'),
+                      subtitle: Text(
+                        '${data['house_no'] ?? ''} | ${data['head_of_family'] ?? ''}',
+                      ),
+                      trailing: pending
+                          ? const Icon(Icons.sync, color: Colors.orange)
+                          : const Icon(Icons.check, color: Colors.green),
+                    );
+                  },
                 ),
-              ],
-            );
-          },
-        ));
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
