@@ -1852,11 +1852,21 @@ class _RecordsPageState extends State<RecordsPage> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('client')
-          .orderBy('clientUpdatedAt', descending: true)
           .snapshots(includeMetadataChanges: true),
       builder: (context, snapshot) {
-        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
-        final docs = snapshot.data?.docs ?? [];
+        final rawDocs = snapshot.data?.docs ?? [];
+        
+        // Sort in Dart: Latest first, records without timestamp at the end
+        final docs = List<QueryDocumentSnapshot>.from(rawDocs);
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aVal = aData['clientUpdatedAt'] ?? 0;
+          final bVal = bData['clientUpdatedAt'] ?? 0;
+          return bVal.compareTo(aVal);
+        });
+
+        final count = docs.length;
         final hasTemporary = docs.any((doc) =>
             (doc.data() as Map<String, dynamic>)['is_temporary'] == true);
 
@@ -1947,7 +1957,7 @@ class _RecordsPageState extends State<RecordsPage> {
                                       : null,
                                   cells: [
                                     DataCell(
-                                      Text(data['family_id'] ?? '',
+                                      Text(data['family_id'] ?? doc.id,
                                           style: TextStyle(
                                             fontWeight: isTemp
                                                 ? FontWeight.bold
