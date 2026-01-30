@@ -78,6 +78,14 @@ flutter_lints
 2.19
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/flutter_lints-2.0.3/
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/flutter_lints-2.0.3/lib/
+http
+3.4
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/http-1.6.0/
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/http-1.6.0/lib/
+http_parser
+3.4
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/http_parser-4.1.2/
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/http_parser-4.1.2/lib/
 js
 2.19
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/js-0.6.7/
@@ -202,6 +210,10 @@ test_api
 3.5
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/test_api-0.7.4/
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/test_api-0.7.4/lib/
+typed_data
+3.5
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/typed_data-1.4.0/
+file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/typed_data-1.4.0/lib/
 vector_math
 2.14
 file:///Users/jayanthrachamadugu/.pub-cache/hosted/pub.dev/vector_math-2.1.4/

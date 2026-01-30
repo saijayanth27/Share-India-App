@@ -11,7 +11,6 @@ class RecordsTablePage extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('client')
-            .orderBy('clientUpdatedAt', descending: true)
             .snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -22,7 +21,15 @@ class RecordsTablePage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snapshot.data!.docs;
+          final rawDocs = snapshot.data!.docs;
+          final docs = List<QueryDocumentSnapshot>.from(rawDocs);
+          docs.sort((a, b) {
+            final aData = a.data() as Map<String, dynamic>;
+            final bData = b.data() as Map<String, dynamic>;
+            final aVal = aData['clientUpdatedAt'] ?? 0;
+            final bVal = bData['clientUpdatedAt'] ?? 0;
+            return bVal.compareTo(aVal);
+          });
 
           if (docs.isEmpty) {
             return const Center(child: Text('No records found'));
@@ -48,7 +55,7 @@ class RecordsTablePage extends StatelessWidget {
 
                   return DataRow(
                     cells: [
-                      DataCell(Text(data['family_id'] ?? '')),
+                      DataCell(Text(data['family_id'] ?? doc.id)),
                       DataCell(Text(data['house_no'] ?? '')),
                       DataCell(Text(data['head_of_family'] ?? '')),
                       DataCell(
