@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import 'zoho_creator_service.dart';
+import 'bpgluco.dart';
+import 'app_drawer.dart';
+import 'health_ocr_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,8 +45,9 @@ final Map<String, Map<String, List<String>>> locationData = {
 
 class FamilyFormPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
+  final String? docId;
 
-  const FamilyFormPage({super.key, this.existingData});
+  const FamilyFormPage({super.key, this.existingData, this.docId});
 
   @override
   State<FamilyFormPage> createState() => _FamilyFormPageState();
@@ -58,6 +62,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   Map<String, dynamic> locationData = {};
   bool isLoadingLocations = true;
   bool _isSaving = false;
+  String? zohoId;
 
   String? ownHouse;
   String? selectedState;
@@ -65,11 +70,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   String? selectedMandal;
   String? selectedVillage;
 
-  bool familyIdReadOnly = false;
+  bool familyIdReadOnly = true;
 
   String? familyType;
   String? familyStatus;
-  String? cookingLocation;
+  List<String> cookingLocations = [];
   final _cookingLocationOther = TextEditingController();
   String? typeofhouse;
   int? noOfRooms;
@@ -108,33 +113,30 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   final _govtHospitalOther = TextEditingController();
   final _toiletOther = TextEditingController();
   Future<void> fetchLocations() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('locations')
-        .doc('telangana')
-        .get();
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('locations')
+          .doc('telangana')
+          .get()
+          .timeout(const Duration(seconds: 10));
 
-    if (doc.exists) {
-      setState(() {
-        locationData = doc.data()!;
-        isLoadingLocations = false;
-      });
-
-      // DEBUG PRINTS
-      print('STATE CODE: ${locationData['state_code']}');
-
-      final districts = locationData['districts'] as Map<String, dynamic>;
-      districts.forEach((dName, dData) {
-        print('DISTRICT: $dName  CODE: ${dData['code']}');
-
-        final mandals = dData['mandals'] as Map<String, dynamic>;
-        mandals.forEach((mName, mData) {
-          print('  MANDAL: $mName  CODE: ${mData['code']}');
-
-          final villages = mData['Villages'] as Map<String, dynamic>;
-          villages.forEach((vName, vData) {
-            print('    VILLAGE: $vName  CODE: ${vData['code']}');
-          });
+      if (doc.exists) {
+        setState(() {
+          locationData = doc.data()!;
+          isLoadingLocations = false;
         });
+
+        // Debug prints omitted for brevity or kept if needed
+      } else {
+        setState(() {
+          isLoadingLocations = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching locations: $e');
+      setState(() {
+        isLoadingLocations = false;
+        // Optionally set a fallback or error state if needed
       });
     }
   }
@@ -148,7 +150,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       final data = widget.existingData!;
 
       // ===== BASIC DETAILS =====
-      _familyId.text = data['family_id'] ?? '';
+      _familyId.text = data['family_id'] ?? widget.docId ?? '';
       _houseNo.text = data['house_no'] ?? '';
       _head.text = data['head_of_family'] ?? '';
       familyIdReadOnly = true;
@@ -162,7 +164,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       // ===== NEW FIELDS =====
       familyType = data['family_type'];
       familyStatus = data['family_status'];
-      cookingLocation = data['cooking_location'];
+      cookingLocations = List<String>.from(data['cooking_location'] ?? []);
       _cookingLocationOther.text = data['cooking_location_other'] ?? '';
 
       // ===== HOUSE DETAILS =====
@@ -220,7 +222,14 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       householdAssets = List<String>.from(data['household_assets'] ?? []);
 
       // ===== AGRICULTURE LAND =====
-      hasAgricultureLand = data['agriculture_land'];
+      final agriRaw = data['agriculture_land'];
+      if (agriRaw == 'yes' || agriRaw == '(1) Yes') {
+        hasAgricultureLand = '(1) Yes';
+      } else if (agriRaw == 'no' || agriRaw == '(2) No') {
+        hasAgricultureLand = '(2) No';
+      } else {
+        hasAgricultureLand = agriRaw;
+      }
       agricultureLandArea = data['agriculture_land_area'];
       agricultureLandUnit = data['agriculture_land_unit'];
 
@@ -240,6 +249,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       govtHospitalReasons =
           List<String>.from(data['govt_hospital_reasons'] ?? []);
       _govtHospitalOther.text = data['govt_hospital_other'] ?? '';
+
+      // ===== ZOHO ID =====
+      zohoId = data['zoho_id'];
     }
   }
 
@@ -265,7 +277,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       _houseNo.clear();
       _head.clear();
 
-      familyIdReadOnly = false;
+      // familyIdReadOnly = false; (now permanently true)
 
       selectedState = null;
       selectedDistrict = null;
@@ -274,7 +286,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 
       familyType = null;
       familyStatus = null;
-      cookingLocation = null;
+      cookingLocations = [];
       _cookingLocationOther.clear();
       ownHouse = null;
       typeofhouse = null;
@@ -312,13 +324,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       healthCarePlace = null;
       govtHospitalReasons = [];
       _govtHospitalOther.clear();
+      zohoId = null;
     });
   }
 
   void _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_isSaving) return;
-
     setState(() => _isSaving = true);
     debugPrint('SAVE: Started save process...');
 
@@ -334,6 +346,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       debugPrint('SAVE: Original ID: $finalId (isTemp=$isTemp)');
 
       final data = {
+        'family_id': finalId,
         'state': selectedState,
         'district': selectedDistrict,
         'mandal': selectedMandal,
@@ -349,7 +362,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         'floor_type': floorType,
         'no_of_rooms': noOfRooms,
         'separate_kitchen': separateKitchen,
-        'cooking_location': cookingLocation,
+        'cooking_location': cookingLocations,
         'cooking_location_other': _cookingLocationOther.text,
         'cooking_fuel_types': cookingFuelTypes,
         'cooking_fuel_other': _cookingFuelOther.text,
@@ -380,6 +393,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         'health_care_place': healthCarePlace,
         'govt_hospital_reasons': govtHospitalReasons,
         'govt_hospital_other': _govtHospitalOther.text,
+        'zoho_id': zohoId,
+        'needs_zoho_sync': true,
+        'is_temporary': false, // Ensure this is set for updates
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'serverUpdatedAt': FieldValue.serverTimestamp(),
       };
@@ -388,16 +404,27 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 
       if (isEditing) {
         debugPrint('SAVE: Editing existing record $finalId');
-        await FirebaseFirestore.instance
+        final oldId = widget.docId;
+        if (oldId != null && oldId != finalId) {
+          debugPrint('SAVE: Family Id changed. Deleting $oldId');
+          // No await here to avoid blocking UI if offline
+          FirebaseFirestore.instance.collection('client').doc(oldId).delete();
+        }
+
+        // Fire and forget local write for immediate feedback
+        FirebaseFirestore.instance
             .collection('client')
             .doc(finalId)
-            .set(data, SetOptions(merge: true))
-            .timeout(const Duration(seconds: 5));
+            .set(data, SetOptions(merge: true));
+        
         saveHandled = true;
-        // Sync to Zoho Creator
-        await ZohoCreatorService().syncRecord({'family_id': finalId, ...data});
+        
+        // Sync to Zoho in the background if we think we are online
+        if (isOnline) {
+          _triggerZohoSync(finalId, data);
+        }
       } else if (isOnline) {
-        debugPrint('SAVE: Online mode, attempting atomic save with 10s timeout');
+        debugPrint('SAVE: Online mode, attempting transaction with 5s timeout');
         try {
           // Determine prefix
           String prefix = '';
@@ -408,78 +435,68 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
             prefix = finalId.substring(0, finalId.length - 3);
           }
 
-          if (prefix.isEmpty) throw 'Cannot determine village prefix';
-
-          final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
-          
-          // Pre-fetch legacy ID if needed (OUTSIDE transaction)
-          int legacySuffix = 0;
-          try {
-            final counterSnap = await counterRef.get();
-            if (!counterSnap.exists) {
-              final query = await FirebaseFirestore.instance
-                  .collection('client')
-                  .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
-                  .where(FieldPath.documentId, isLessThan: prefix + 'z')
-                  .limitToLast(1)
-                  .get();
-              if (query.docs.isNotEmpty) {
-                final lastId = query.docs.first.id;
-                if (!lastId.startsWith('OFF_')) {
-                  legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
+          if (prefix.isNotEmpty) {
+            final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
+            
+            // Pre-fetch legacy ID (quick check)
+            int legacySuffix = 0;
+            try {
+              final counterSnap = await counterRef.get().timeout(const Duration(seconds: 2));
+              if (!counterSnap.exists) {
+                final query = await FirebaseFirestore.instance
+                    .collection('client')
+                    .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
+                    .where(FieldPath.documentId, isLessThan: prefix + 'z')
+                    .limitToLast(1)
+                    .get().timeout(const Duration(seconds: 2));
+                if (query.docs.isNotEmpty) {
+                  final lastId = query.docs.first.id;
+                  if (!lastId.startsWith('OFF_')) {
+                    legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
+                  }
                 }
               }
-            }
-          } catch (e) {
-            debugPrint('SAVE: Legacy prefix lookup error: $e');
-          }
+            } catch (_) {}
 
-          await FirebaseFirestore.instance.runTransaction((transaction) async {
-            final counterSnap = await transaction.get(counterRef);
-            int lastSuffix = legacySuffix;
-            if (counterSnap.exists) {
-              lastSuffix = counterSnap.data()?['last_suffix'] ?? 0;
-            }
+            await FirebaseFirestore.instance.runTransaction((transaction) async {
+              final counterSnap = await transaction.get(counterRef);
+              int lastSuffix = legacySuffix;
+              if (counterSnap.exists) {
+                lastSuffix = counterSnap.data()?['last_suffix'] ?? 0;
+              }
 
-            final nextSuffix = lastSuffix + 1;
-            final newId = '$prefix${nextSuffix.toString().padLeft(3, '0')}';
+              final nextSuffix = lastSuffix + 1;
+              final newId = '$prefix${nextSuffix.toString().padLeft(3, '0')}';
+              
+              final finalData = Map<String, dynamic>.from(data);
+              finalData['family_id'] = newId;
+              finalData['is_temporary'] = false;
+
+              transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
+              transaction.set(FirebaseFirestore.instance.collection('client').doc(newId), finalData);
+              finalId = newId;
+            }).timeout(const Duration(seconds: 5));
             
-            final finalData = Map<String, dynamic>.from(data);
-            finalData['family_id'] = newId;
-            finalData['is_temporary'] = false;
-
-            transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
-            transaction.set(FirebaseFirestore.instance.collection('client').doc(newId), finalData);
-            finalId = newId;
-          }).timeout(const Duration(seconds: 10));
-          
-          saveHandled = true;
-          debugPrint('SAVE: Online transaction successful');
-          // Sync to Zoho Creator
-          await ZohoCreatorService().syncRecord({'family_id': finalId, ...data});
-        } catch (e) {
-          debugPrint('SAVE: Online attempt failed: $e. Falling back to offline save.');
-          final errStr = e.toString().toLowerCase();
-          if (mounted && (errStr.contains('unknown') || errStr.contains('developer') || errStr.contains('permission'))) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                backgroundColor: Colors.orange,
-                content: Text('Note: Counter service unavailable. Saving with temporary ID.'),
-              ),
-            );
+            saveHandled = true;
+            _triggerZohoSync(finalId, data);
           }
-          // Fall through to offline save logic below
+        } catch (e) {
+          debugPrint('SAVE: Online transaction failed/timed out: $e');
         }
       }
 
       if (!saveHandled) {
-        debugPrint('SAVE: Performing offline/fallback save');
-        String? villagePrefix;
-        final parts = finalId.split('_');
-        if (parts.length >= 2) {
-          villagePrefix = parts[1];
-        } else if (finalId.length >= 3 && !finalId.startsWith('OFF_')) {
+        debugPrint('SAVE: Fallback to offline local save');
+        String villagePrefix = '';
+        if (isTemp) {
+          final parts = finalId.split('_');
+          if (parts.length >= 2) villagePrefix = parts[1];
+        } else if (finalId.length >= 3) {
           villagePrefix = finalId.substring(0, finalId.length - 3);
+        }
+
+        // Generate OFF ID if not already one
+        if (!finalId.startsWith('OFF_')) {
           finalId = 'OFF_${villagePrefix}_${DateTime.now().millisecondsSinceEpoch}';
         }
 
@@ -488,42 +505,51 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         finalData['is_temporary'] = true;
         finalData['village_prefix'] = villagePrefix;
 
-        try {
-          // Perform save and proceed immediately (it will queue in cache)
-          FirebaseFirestore.instance
-              .collection('client')
-              .doc(finalId)
-              .set(finalData);
-          debugPrint('SAVE: Fallback save queued with ID $finalId');
-        } catch (e) {
-          debugPrint('SAVE: Fallback save error: $e');
-        }
+        FirebaseFirestore.instance
+            .collection('client')
+            .doc(finalId)
+            .set(finalData);
+        debugPrint('SAVE: Local save queued for ID $finalId');
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: Colors.green,
-            content: Text('Record saved (ID: $finalId)'),
+            backgroundColor: isOnline ? Colors.green : Colors.orange,
+            content: Text(isOnline ? 'Record saved (ID: $finalId)' : 'Saved offline (ID: $finalId) - will sync automatically'),
           ),
         );
-        if (widget.existingData == null) {
-          _resetForm();
-        }
+        if (widget.existingData == null) _resetForm();
+        if (Navigator.canPop(context)) Navigator.pop(context);
       }
     } catch (e) {
       debugPrint('SAVE CRITICAL ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Critical save error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-        debugPrint('SAVE: Process finished');
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  // New helper method for background sync
+  void _triggerZohoSync(String fId, Map<String, dynamic> fData) {
+    ZohoCreatorService().syncRecord({'family_id': fId, ...fData}).then((returnedZohoId) {
+      if (returnedZohoId != null) {
+        FirebaseFirestore.instance
+            .collection('client')
+            .doc(fId)
+            .update({
+              'zoho_id': returnedZohoId.toString(),
+              'needs_zoho_sync': false,
+            });
+        debugPrint('SAVE: Background Zoho sync successful for $fId');
+      }
+    }).catchError((e) {
+      debugPrint('SAVE: Background Zoho sync failed for $fId: $e');
+    });
   }
 
   void _openList() async {
@@ -531,8 +557,6 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       context,
       MaterialPageRoute(builder: (_) => const RecordsPage()),
     );
-    // Reset form when returning from list ONLY if we are in "New" mode.
-    // If we are Editing, we don't want to wipe the form.
     if (mounted && widget.existingData == null) {
       _resetForm();
     }
@@ -700,6 +724,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           IconButton(icon: const Icon(Icons.list), onPressed: _openList),
         ],
       ),
+      drawer: const AppDrawer(),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -736,7 +761,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 fixedDropdown(
                   label: 'District',
                   value: selectedDistrict,
-                  items: selectedState == null
+                  items: selectedState == null || locationData['districts'] == null
                       ? []
                       : (locationData['districts'] as Map<String, dynamic>)
                           .keys
@@ -753,7 +778,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 fixedDropdown(
                   label: 'Mandal',
                   value: selectedMandal,
-                  items: selectedDistrict == null
+                  items: selectedDistrict == null ||
+                          locationData['districts'] == null ||
+                          locationData['districts'][selectedDistrict] == null
                       ? []
                       : (locationData['districts'][selectedDistrict]['mandals']
                               as Map<String, dynamic>)
@@ -770,7 +797,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 fixedDropdown(
                   label: 'Village',
                   value: selectedVillage,
-                  items: selectedMandal == null
+                  items: selectedMandal == null ||
+                          locationData['districts'] == null ||
+                          locationData['districts'][selectedDistrict] == null ||
+                          locationData['districts'][selectedDistrict]['mandals']
+                                  [selectedMandal] == null
                       ? []
                       : (locationData['districts'][selectedDistrict]['mandals']
                                   [selectedMandal]['Villages']
@@ -873,7 +904,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Yes'),
+                        title: const Text('(1) Yes'),
                         value: '(1) Yes',
                         groupValue: ownHouse,
                         onChanged: (v) => setState(() => ownHouse = v),
@@ -883,7 +914,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('No'),
+                        title: const Text('(2) No'),
                         value: '(2) No',
                         groupValue: ownHouse,
                         onChanged: (v) => setState(() => ownHouse = v),
@@ -904,7 +935,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                           contentPadding: EdgeInsets.symmetric(
                               horizontal: 12, vertical: 14),
                         ),
-                        value: typeofhouse,
+                        value: ['(3) KACHHA', '(2) SEMI PUCCA', '(1) PUCCA'].contains(typeofhouse) 
+                            ? typeofhouse : null,
                         items: const [
                           DropdownMenuItem(
                               value: '(3) KACHHA', child: Text('(3) KACHHA')),
@@ -939,7 +971,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     labelText: 'Type of Roof',
                     border: OutlineInputBorder(),
                   ),
-                  value: roofType,
+                  value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(roofType) 
+                      ? roofType : null,
                   items: const [
                     DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
                     DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
@@ -954,7 +987,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     labelText: 'Type of Wall',
                     border: OutlineInputBorder(),
                   ),
-                  value: wallType,
+                  value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(wallType) 
+                      ? wallType : null,
                   items: const [
                     DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
                     DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
@@ -969,7 +1003,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     labelText: 'Type of Floor',
                     border: OutlineInputBorder(),
                   ),
-                  value: floorType,
+                  value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(floorType) 
+                      ? floorType : null,
                   items: const [
                     DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
                     DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
@@ -989,18 +1024,25 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   ].map((val) {
                     return SizedBox(
                       width: 170,
-                      child: RadioListTile(
+                      child: CheckboxListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         title: Text(val),
-                        value: val,
-                        groupValue: cookingLocation,
-                        onChanged: (v) => setState(() => cookingLocation = v),
+                        value: cookingLocations.contains(val),
+                        onChanged: (v) {
+                          setState(() {
+                            if (v!) {
+                              cookingLocations.add(val);
+                            } else {
+                              cookingLocations.remove(val);
+                            }
+                          });
+                        },
                       ),
                     );
                   }).toList(),
                 ),
-                if (cookingLocation == '(4) Other')
+                if (cookingLocations.contains('(4) Other'))
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: TextFormField(
@@ -1022,7 +1064,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     labelText: 'Primary Cooking Fuel',
                     border: OutlineInputBorder(),
                   ),
-                  value: cookingFuel,
+                  value: ['firewood', 'lpg', 'electric', 'others'].contains(cookingFuel) 
+                      ? cookingFuel : null,
                   items: const [
                     DropdownMenuItem(
                         value: 'firewood', child: Text('Firewood')),
@@ -1203,7 +1246,17 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     value: waterTreatment.contains(val),
                     onChanged: (v) {
                       setState(() {
-                        v! ? waterTreatment.add(val) : waterTreatment.remove(val);
+                        if (v == true) {
+                          if (val == '(7) None') {
+                            waterTreatment = ['(7) None'];
+                          } else {
+                            waterTreatment.remove('(7) None');
+                            waterTreatment.remove('none');
+                            waterTreatment.add(val);
+                          }
+                        } else {
+                          waterTreatment.remove(val);
+                        }
                       });
                     },
                   );
@@ -1224,9 +1277,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   value: waterTreatment.contains('filter'),
                   onChanged: (v) {
                     setState(() {
-                      v!
-                          ? waterTreatment.add('filter')
-                          : waterTreatment.remove('filter');
+                      if (v!) {
+                        waterTreatment.add('filter');
+                        waterTreatment.remove('(7) None');
+                        waterTreatment.remove('none');
+                      } else {
+                        waterTreatment.remove('filter');
+                      }
                     });
                   },
                 ),
@@ -1235,9 +1292,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   value: waterTreatment.contains('chemical'),
                   onChanged: (v) {
                     setState(() {
-                      v!
-                          ? waterTreatment.add('chemical')
-                          : waterTreatment.remove('chemical');
+                      if (v!) {
+                        waterTreatment.add('chemical');
+                        waterTreatment.remove('(7) None');
+                        waterTreatment.remove('none');
+                      } else {
+                        waterTreatment.remove('chemical');
+                      }
                     });
                   },
                 ),
@@ -1246,9 +1307,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   value: waterTreatment.contains('none'),
                   onChanged: (v) {
                     setState(() {
-                      v!
-                          ? waterTreatment.add('none')
-                          : waterTreatment.remove('none');
+                      if (v!) {
+                        waterTreatment = ['none'];
+                      } else {
+                        waterTreatment.remove('none');
+                      }
                     });
                   },
                 ),
@@ -1310,8 +1373,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     '(1) Flush Toilet',
                     '(2) Toilet ST',
                     '(3) Pit toilet',
-                    '(4) Open Field',
-                    '(77) Other'
+                    '(4) Open Field'
                   ].map((val) {
                     return SizedBox(
                       width: 150,
@@ -1492,7 +1554,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                         value: '(1) Yes',
                         groupValue: hasAgricultureLand,
                         onChanged: (v) =>
-                            setState(() => hasAgricultureLand = v),
+                            setState(() {
+                              hasAgricultureLand = v;
+                              if (v == '(2) No') {
+                                agricultureLandArea = null;
+                                agricultureLandUnit = null;
+                              }
+                            }),
                       ),
                     ),
                     Expanded(
@@ -1503,101 +1571,135 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                         value: '(2) No',
                         groupValue: hasAgricultureLand,
                         onChanged: (v) =>
-                            setState(() => hasAgricultureLand = v),
+                            setState(() {
+                              hasAgricultureLand = v;
+                              if (v == '(2) No') {
+                                agricultureLandArea = null;
+                                agricultureLandUnit = null;
+                              }
+                            }),
                       ),
                     ),
                   ],
                 ),
-                if (hasAgricultureLand == 'yes') ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          initialValue: agricultureLandArea,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Land Area',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 14),
-                          ),
-                          onChanged: (v) => agricultureLandArea = v,
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        key: ValueKey('agriArea_${hasAgricultureLand}_$agricultureLandArea'),
+                        initialValue: agricultureLandArea,
+                        enabled: hasAgricultureLand == '(1) Yes',
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Number (Area)',
+                          border: const OutlineInputBorder(),
+                          filled: hasAgricultureLand != '(1) Yes',
+                          fillColor: Colors.grey[100],
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 14),
                         ),
+                        onChanged: (v) => agricultureLandArea = v,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          value: agricultureLandUnit,
-                          decoration: const InputDecoration(
-                            labelText: 'Unit',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 14),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'acre', child: Text('Acre')),
-                            DropdownMenuItem(
-                                value: 'hectare', child: Text('Hectare')),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => agricultureLandUnit = v),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        value: (agricultureLandUnit == 'Acres' || agricultureLandUnit == 'Guntas') 
+                            ? agricultureLandUnit : null,
+                        decoration: InputDecoration(
+                          labelText: 'Land Unit',
+                          border: const OutlineInputBorder(),
+                          filled: hasAgricultureLand != '(1) Yes',
+                          fillColor: Colors.grey[100],
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 14),
                         ),
+                        items: hasAgricultureLand == '(1) Yes' ? const [
+                          DropdownMenuItem(value: 'Acres', child: Text('Acres')),
+                          DropdownMenuItem(value: 'Guntas', child: Text('Guntas'))
+                        ] : [],
+                        onChanged: hasAgricultureLand == '(1) Yes' ? (v) =>
+                            setState(() => agricultureLandUnit = v) : null,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '17. Land is irrigated?',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600, color: Colors.grey[700]),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          initialValue: irrigatedLandArea,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Irrigated Area',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 14),
-                          ),
-                          onChanged: (v) => irrigatedLandArea = v,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '17. Land is irrigated?',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        key: ValueKey('irrArea_${irrigatedNone}_$irrigatedLandArea'),
+                        initialValue: irrigatedLandArea,
+                        enabled: !irrigatedNone,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Number (Irrigated)',
+                          helperText: 'Number you Hold',
+                          border: const OutlineInputBorder(),
+                          filled: irrigatedNone,
+                          fillColor: Colors.grey[100],
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 14),
                         ),
+                        onChanged: (v) => irrigatedLandArea = v,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          value: irrigatedLandUnit,
-                          decoration: const InputDecoration(
-                            labelText: 'Unit',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 14),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'acre', child: Text('Acre')),
-                            DropdownMenuItem(
-                                value: 'hectare', child: Text('Hectare')),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => irrigatedLandUnit = v),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        value: (irrigatedLandUnit == 'Acres' || irrigatedLandUnit == 'Guntas') 
+                            ? irrigatedLandUnit : null,
+                        decoration: InputDecoration(
+                          labelText: 'Land Unit',
+                          border: const OutlineInputBorder(),
+                          filled: irrigatedNone,
+                          fillColor: Colors.grey[100],
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 14),
                         ),
+                        items: !irrigatedNone ? const [
+                          DropdownMenuItem(value: 'Acres', child: Text('Acres')),
+                          DropdownMenuItem(value: 'Guntas', child: Text('Guntas')),
+                        ] : [],
+                        onChanged: !irrigatedNone ? (v) =>
+                            setState(() => irrigatedLandUnit = v) : null,
                       ),
-                    ],
-                  ),
-                  CheckboxListTile(
-                    title: const Text('None Irrigated'),
-                    value: irrigatedNone,
-                    onChanged: (v) => setState(() => irrigatedNone = v!),
-                  ),
-                ],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        children: [
+                          const Text('None', style: TextStyle(fontSize: 12)),
+                          Checkbox(
+                            value: irrigatedNone,
+                            onChanged: (v) => setState(() {
+                              irrigatedNone = v!;
+                              if (irrigatedNone) {
+                                irrigatedLandArea = null;
+                                irrigatedLandUnit = null;
+                              }
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const Divider(height: 24),
                 Text(
                   '18. Own any cattle',
@@ -1617,7 +1719,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     value: cattleOwned.contains(val),
                     onChanged: (v) {
                       setState(() {
-                        v! ? cattleOwned.add(val) : cattleOwned.remove(val);
+                        if (v == true) {
+                          if (val == '(5) None') {
+                            cattleOwned = ['(5) None'];
+                          } else {
+                            cattleOwned.remove('(5) None');
+                            cattleOwned.add(val);
+                          }
+                        } else {
+                          cattleOwned.remove(val);
+                        }
                       });
                     },
                   );
@@ -1763,59 +1874,350 @@ class _RecordsPageState extends State<RecordsPage> {
   StreamSubscription? _connectivitySubscription;
   Timer? _autoSyncTimer;
 
-  Future<void> _importFromZoho() async {
+  // Search state
+  final TextEditingController _searchController = TextEditingController();
+  String _activeSearchQuery = '';
+  bool _isSearchingActive = false;
+  bool _hasSearched = false;
+  String _searchField = 'All';
+  int _importedCountProgress = 0;
+  int _totalRecordCount = 0;
+  int _currentLimit = 300;
+  bool _isLoadingMore = false;
+
+  // Mapping of UI Label to Firestore/Zoho Data Key
+  final Map<String, String> _fieldMapping = {
+    'State': 'state',
+    'District': 'district',
+    'Mandal': 'mandal',
+    'Village': 'village',
+    'House No': 'house_no',
+    'Head': 'head_of_family',
+    'Fam Type': 'family_type',
+    'Fam Status': 'family_status',
+    'Own House': 'own_house',
+    'Rooms': 'no_of_rooms',
+    'House Type': 'type_of_house',
+    'Wall': 'wall_type',
+    'Roof': 'roof_type',
+    'Floor': 'floor_type',
+    'Sep Kitchen': 'separate_kitchen',
+    'Cook Loc': 'cooking_location',
+    'Cook Loc Other': 'cooking_location_other',
+    'Fuel Types': 'cooking_fuel_types',
+    'Fuel Other': 'cooking_fuel_other',
+    'Fuel Main': 'cooking_fuel_main',
+    'Lighting': 'lighting_source',
+    'Water Sources': 'water_sources',
+    'Water Src Other': 'water_source_other',
+    'Water Main': 'water_main_source',
+    'Treatment': 'water_treatment',
+    'Treat Other': 'water_treatment_other',
+    'All Purpose Src': 'water_all_sources',
+    'All Purpose Other': 'water_all_other',
+    'All Purpose Main': 'water_all_main',
+    'Toilet': 'toilet_facility',
+    'Toilet Other': 'toilet_facility_other',
+    'Ration Card': 'ration_card',
+    'Religion': 'religion',
+    'Caste': 'caste',
+    'Assets': 'household_assets',
+    // Individual Assets
+    'Mattress': 'household_assets',
+    'Cot/bed': 'household_assets',
+    'Electric Fan': 'household_assets',
+    'Pressure cooker': 'household_assets',
+    'sewing Machine': 'household_assets',
+    'Refrigerator': 'household_assets',
+    'Mobile phone': 'household_assets',
+    'Any phone': 'household_assets',
+    'Bicycle': 'household_assets',
+    'Scooter': 'household_assets',
+    'Animal cart': 'household_assets',
+    'Chair': 'household_assets',
+    'Table': 'household_assets',
+    'Radio': 'household_assets',
+    'Mixer': 'household_assets',
+    'Colour TV': 'household_assets',
+    'A/C': 'household_assets',
+    'Water pump': 'household_assets',
+    'Computer': 'household_assets',
+    'Tractor': 'household_assets',
+    'Car': 'household_assets',
+    'Thresher': 'household_assets',
+    // Agriculture
+    'Agri Land': 'agriculture_land',
+    'Agri Area': 'agriculture_land_area',
+    'Agri Unit': 'agriculture_land_unit',
+    'Irrigated': 'irrigated_land_area',
+    'Irrigated Unit': 'irrigated_land_unit',
+    'Irrigated None': 'irrigated_none',
+    // Cattle
+    'Cattle': 'cattle_owned',
+    'Cattle Other': 'cattle_other',
+    // Health
+    'Health Place': 'health_care_place',
+    'Hosp Avoid Reasons': 'govt_hospital_reasons',
+    'Hosp Avoid Other': 'govt_hospital_other',
+  };
+
+  void _deleteRecord(String docId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Record'),
+        content: const Text('Are you sure you want to delete this record?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              FirebaseFirestore.instance
+                  .collection('client')
+                  .doc(docId)
+                  .delete();
+              Navigator.pop(context);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  DataCell _buildDataCell(String label, Map<String, dynamic> record, QueryDocumentSnapshot doc) {
+    if (label == 'Family ID') return DataCell(Text(record['family_id'] ?? doc.id));
+    if (label == 'Sync') {
+      final isTemp = record['is_temporary'] == true;
+      final needsSync = record['needs_zoho_sync'] == true;
+      return DataCell(
+        (isTemp || needsSync)
+            ? const Icon(Icons.timer, color: Colors.orange, size: 18)
+            : const Icon(Icons.check_circle, color: Colors.green, size: 18),
+      );
+    }
+    if (label == 'Actions') {
+      return DataCell(
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: Colors.grey),
+          onSelected: (value) {
+            if (value == 'edit') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => FamilyFormPage(
+                    existingData: record,
+                    docId: doc.id,
+                  ),
+                ),
+              );
+            } else if (value == 'delete') {
+              _deleteRecord(doc.id);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'edit',
+              child: ListTile(
+                leading: Icon(Icons.edit, color: Colors.blue),
+                title: Text('Edit'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                leading: Icon(Icons.delete, color: Colors.red),
+                title: Text('Delete'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final key = _fieldMapping[label];
+    if (key == null) return const DataCell(Text(''));
+
+    final value = record[key];
+
+    // Handle Individual Assets
+    const assets = [
+      'Mattress', 'Cot/bed', 'Electric Fan', 'Pressure cooker',
+      'sewing Machine', 'Refrigerator', 'Mobile phone', 'Any phone',
+      'Bicycle', 'Scooter', 'Animal cart', 'Chair', 'Table',
+      'Radio', 'Mixer', 'Colour TV', 'A/C', 'Water pump',
+      'Computer', 'Tractor', 'Car', 'Thresher'
+    ];
+    if (assets.contains(label)) {
+      final assetList = record['household_assets'] as List? ?? [];
+      return DataCell(Text(assetList.contains(label) ? '(1) Yes' : '(2) No'));
+    }
+
+    if (value is List) {
+      return DataCell(Text(value.join(", ")));
+    }
+
+    return DataCell(Text(value?.toString() ?? ''));
+  }
+
+  DataColumn _buildSearchColumn(String label) {
+    return DataColumn(
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (label != 'Sync' && label != 'Actions')
+            IconButton(
+              icon: const Icon(Icons.search, size: 16),
+              onPressed: () => setState(() {
+                _searchField = label;
+                _isSearchingActive = true;
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performFullZohoSync({bool silent = false}) async {
+    if (_isSyncing) {
+      debugPrint('IMPORT: Already syncing, ignoring request.');
+      return;
+    }
+    
     final connectivityResult = await Connectivity().checkConnectivity();
     if (connectivityResult == ConnectivityResult.none) {
-      if (mounted) {
+      if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No internet connection. Cannot import.')),
+          const SnackBar(content: Text('No internet connection. Cannot sync with Zoho.')),
         );
       }
       return;
     }
 
-    setState(() => _isSyncing = true);
+    if (mounted) {
+      setState(() {
+        _isSyncing = true;
+        _importedCountProgress = 0;
+      });
+    }
+    
     int imported = 0;
     int errors = 0;
+    final Set<String> fetchedZohoIds = {};
 
     try {
-      final records = await ZohoCreatorService().fetchRecords();
-      if (records.isEmpty) {
-        if (mounted) {
+      debugPrint('IMPORT: Starting full Zoho fetch...');
+      await ZohoCreatorService().fetchRecords(
+        onBatch: (batch) async {
+          final writeBatch = FirebaseFirestore.instance.batch();
+          int batchSaved = 0;
+
+          for (final data in batch) {
+            final zidRaw = data['zoho_id']?.toString();
+            if (zidRaw == null || zidRaw.isEmpty) continue;
+
+            final zohoId = zidRaw.trim();
+            fetchedZohoIds.add(zohoId);
+
+            try {
+              final docRef = FirebaseFirestore.instance.collection('client').doc(zohoId);
+              writeBatch.set(docRef, data, SetOptions(merge: true));
+              batchSaved++;
+              imported++;
+            } catch (e) {
+              debugPrint('IMPORT ERROR for Zoho ID $zohoId: $e');
+              errors++;
+            }
+          }
+
+          if (batchSaved > 0) {
+            await writeBatch.commit();
+          }
+          
+          if (mounted) {
+            setState(() {
+              _importedCountProgress = imported;
+              if (imported % 1000 == 0) _totalRecordCount = imported;
+            });
+          }
+        },
+      );
+
+      debugPrint('IMPORT: Zoho fetch complete. Found ${fetchedZohoIds.length} records. Starting cleanup...');
+
+      // --- DELETE STALE RECORDS ---
+      if (fetchedZohoIds.isNotEmpty) {
+        if (!silent && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No records found in Zoho to import.')),
+            const SnackBar(content: Text('Verification: Deleting stale records...'), duration: Duration(seconds: 3)),
           );
         }
-      } else {
-        for (final data in records) {
-          final familyId = data['family_id'];
-          if (familyId == null || familyId.isEmpty) continue;
 
-          try {
-            await FirebaseFirestore.instance
-                .collection('client')
-                .doc(familyId)
-                .set(data, SetOptions(merge: true));
-            imported++;
-          } catch (e) {
-            debugPrint('IMPORT ERROR for $familyId: $e');
-            errors++;
+        // Force server fetch to ensure we see the latest state and don't rely on cache
+        final snapshot = await FirebaseFirestore.instance
+            .collection('client')
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(minutes: 5));
+        
+        debugPrint('IMPORT: Firebase snapshot fetched (${snapshot.docs.length} docs).');
+        
+        int deletedCount = 0;
+        final deleteBatch = FirebaseFirestore.instance.batch();
+        int batchSize = 0;
+
+        for (var doc in snapshot.docs) {
+          final docId = doc.id.trim();
+          final data = doc.data() as Map<String, dynamic>;
+          final zid = data['zoho_id']?.toString().trim();
+          
+          bool isLocalTemp = docId.startsWith('OFF_');
+          // If it's not a temp record, and it's NOT in our list from Zoho, it should be deleted
+          // We check if the docId is a Zoho ID OR if there's a zoho_id field
+          bool isZohoRecord = RegExp(r'^\d{15,}$').hasMatch(docId) || (zid != null && zid.isNotEmpty);
+
+          if (!isLocalTemp && isZohoRecord) {
+            final idToCheck = (zid != null && zid.isNotEmpty) ? zid : docId;
+            if (!fetchedZohoIds.contains(idToCheck)) {
+              debugPrint('IMPORT: Deleting record missing from Zoho: $idToCheck');
+              deleteBatch.delete(doc.reference);
+              deletedCount++;
+              batchSize++;
+              
+              if (batchSize >= 400) {
+                await deleteBatch.commit();
+                batchSize = 0;
+              }
+            }
           }
         }
-        if (mounted) {
+        
+        if (batchSize > 0) {
+          await deleteBatch.commit();
+        }
+        debugPrint('IMPORT: Cleanup complete. Deleted $deletedCount records.');
+      }
+      
+      if (mounted) {
+        setState(() => _totalRecordCount = imported);
+        if (!silent) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Imported $imported records ($errors errors).'),
+              content: Text('Sync successful! Updated $imported records.'),
               backgroundColor: errors == 0 ? Colors.green : Colors.orange,
             ),
           );
         }
       }
     } catch (e) {
-      debugPrint('GLOBAL IMPORT ERROR: $e');
-      if (mounted) {
+      debugPrint('GLOBAL SYNC ERROR: $e');
+      if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Sync error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -1826,24 +2228,47 @@ class _RecordsPageState extends State<RecordsPage> {
   @override
   void initState() {
     super.initState();
-    // 1. Initial sync on load
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncPendingRecords(isAuto: true));
+    // Start startup tasks concurrently but wrapped to ensure one failure doesn't stop others
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _runStartupTasks();
+    });
 
-    // 2. Sync on connectivity change
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) async {
-      if (result != ConnectivityResult.none) {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((dynamic result) async {
+      ConnectivityResult finalResult;
+      if (result is List) {
+        finalResult = result.isNotEmpty ? result.first : ConnectivityResult.none;
+      } else {
+        finalResult = result;
+      }
+      if (finalResult != ConnectivityResult.none) {
         _syncPendingRecords(isAuto: true);
       }
     });
 
-    // 3. Periodic sync check (every 1 minute)
     _autoSyncTimer = Timer.periodic(const Duration(minutes: 1), (_) => _syncPendingRecords(isAuto: true));
+  }
+
+  Future<void> _runStartupTasks() async {
+    // 1. First sync any data created while offline TO Zoho
+    try {
+      await _syncPendingRecords(isAuto: true);
+    } catch (e) {
+      debugPrint('Startup: Pending sync failed: $e');
+    }
+
+    // 2. Then pull everything FROM Zoho and clean up deletions
+    try {
+      await _performFullZohoSync(silent: true);
+    } catch (e) {
+      debugPrint('Startup: Full sync failed: $e');
+    }
   }
 
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
     _autoSyncTimer?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -1919,14 +2344,14 @@ class _RecordsPageState extends State<RecordsPage> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('client')
-          .where('is_temporary', isEqualTo: true)
+          .where('needs_zoho_sync', isEqualTo: true)
           .get()
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
 
       if (snapshot.docs.isEmpty) {
         if (!isAuto && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No temporary records to sync.')),
+            const SnackBar(content: Text('No records to sync.')),
           );
         }
         setState(() => _isSyncing = false);
@@ -1936,103 +2361,88 @@ class _RecordsPageState extends State<RecordsPage> {
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final oldId = doc.id;
-        String? prefix = data['village_prefix'] as String?;
-        
-        // Fallback: Recover prefix from ID if missing in data
-        if ((prefix == null || prefix.isEmpty) && oldId.startsWith('OFF_')) {
-          final parts = oldId.split('_');
-          if (parts.length >= 2) {
-            prefix = parts[1];
-            debugPrint('SYNC: Recovered prefix $prefix from ID $oldId');
+        final isTemp = data['is_temporary'] == true;
+
+        if (isTemp) {
+          // --- Case 1: Temporary Record (Needs Permanent ID + Sync) ---
+          String? prefix = data['village_prefix'] as String?;
+          if ((prefix == null || prefix.isEmpty) && oldId.startsWith('OFF_')) {
+            final parts = oldId.split('_');
+            if (parts.length >= 2) prefix = parts[1];
           }
-        }
 
-        debugPrint('SYNC: Processing $oldId (prefix=$prefix)');
+          if (prefix == null || prefix.isEmpty) {
+            debugPrint('SYNC: Skipping temp doc $oldId due to missing prefix');
+            continue;
+          }
 
-        if (prefix == null || prefix.isEmpty) {
-          debugPrint('SYNC ERROR: Missing village_prefix for doc $oldId');
-          errorCount++;
-          continue;
-        }
-
-        try {
-          final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
-          
-          // Pre-fetch legacy ID if needed (OUTSIDE transaction)
-          int legacySuffix = 0;
           try {
-            final counterSnap = await counterRef.get();
-            if (!counterSnap.exists) {
-              final query = await FirebaseFirestore.instance
-                  .collection('client')
-                  .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
-                  .where(FieldPath.documentId, isLessThan: prefix + 'z')
-                  .limitToLast(1)
-                  .get();
-              if (query.docs.isNotEmpty) {
-                final lastId = query.docs.first.id;
-                if (!lastId.startsWith('OFF_')) {
-                  legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
+            final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
+            int legacySuffix = 0;
+            try {
+              final counterSnap = await counterRef.get();
+              if (!counterSnap.exists) {
+                final query = await FirebaseFirestore.instance
+                    .collection('client')
+                    .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
+                    .where(FieldPath.documentId, isLessThan: prefix + 'z')
+                    .limitToLast(1)
+                    .get();
+                if (query.docs.isNotEmpty) {
+                  final lastId = query.docs.first.id;
+                  if (!lastId.startsWith('OFF_')) {
+                    legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
+                  }
                 }
               }
+            } catch (_) {}
+
+            await FirebaseFirestore.instance.runTransaction((transaction) async {
+              final counterSnap = await transaction.get(counterRef);
+              int lastSuffix = counterSnap.exists ? (counterSnap.data()?['last_suffix'] ?? 0) : legacySuffix;
+              final nextSuffix = lastSuffix + 1;
+              final finalizedId = '$prefix${nextSuffix.toString().padLeft(3, '0')}';
+
+              transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
+
+              final newData = Map<String, dynamic>.from(data);
+              newData['family_id'] = finalizedId;
+              newData['is_temporary'] = false;
+              newData.remove('village_prefix');
+              newData['serverUpdatedAt'] = FieldValue.serverTimestamp();
+
+              transaction.set(FirebaseFirestore.instance.collection('client').doc(finalizedId), newData);
+              transaction.delete(doc.reference);
+
+              final zohoId = await ZohoCreatorService().syncRecord(newData);
+              if (zohoId != null) {
+                final finalZohoId = zohoId.toString();
+                newData['zoho_id'] = finalZohoId;
+                newData['needs_zoho_sync'] = false;
+                transaction.set(FirebaseFirestore.instance.collection('client').doc(finalZohoId), newData);
+                transaction.delete(FirebaseFirestore.instance.collection('client').doc(finalizedId));
+              }
+            }).timeout(const Duration(seconds: 15));
+            syncCount++;
+          } catch (e) {
+            debugPrint('SYNC TEMP ERROR for $oldId: $e');
+            errorCount++;
+          }
+        } else {
+          // --- Case 2: Permanent Record Update (Already has permanent ID/Zoho ID) ---
+          try {
+            final zohoId = await ZohoCreatorService().syncRecord(data);
+            if (zohoId != null) {
+              await doc.reference.update({
+                'needs_zoho_sync': false,
+                'zoho_id': zohoId.toString(),
+              });
+              syncCount++;
+              debugPrint('SYNC UPDATE: Successfully updated Zoho for ${doc.id}');
             }
           } catch (e) {
-            debugPrint('SYNC: Legacy lookup failed: $e');
-          }
-
-          String? finalizedId;
-          
-          await FirebaseFirestore.instance.runTransaction((transaction) async {
-            final counterSnap = await transaction.get(counterRef);
-            int lastSuffix = legacySuffix;
-            
-            if (counterSnap.exists) {
-              lastSuffix = counterSnap.data()?['last_suffix'] ?? 0;
-            }
-
-            final nextSuffix = lastSuffix + 1;
-            finalizedId = '$prefix${nextSuffix.toString().padLeft(3, '0')}';
-
-            debugPrint('SYNC: Transaction block for $oldId: Assigning $finalizedId');
-
-            transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
-
-            final newData = Map<String, dynamic>.from(data);
-            newData['family_id'] = finalizedId;
-            newData['is_temporary'] = false;
-            newData.remove('village_prefix');
-            newData['serverUpdatedAt'] = FieldValue.serverTimestamp();
-
-            transaction.set(
-              FirebaseFirestore.instance.collection('client').doc(finalizedId!),
-              newData,
-            );
-            transaction.delete(doc.reference);
-            debugPrint('SYNC: Transaction block for $oldId: Set/Delete operations queued');
-            // Sync to Zoho Creator
-            await ZohoCreatorService().syncRecord(newData);
-          }).timeout(const Duration(seconds: 10));
-          
-          syncCount++;
-          debugPrint('SYNC: Successfully finalized $oldId as $finalizedId');
-        } catch (e) {
-          debugPrint('SYNC FAILED for $oldId: $e');
-          errorCount++;
-          
-          final errStr = e.toString().toLowerCase();
-          // Stop batch only for clear network/connectivity issues
-          bool isHardNetworkError = errStr.contains('timeout') || 
-                                   errStr.contains('resolve') || 
-                                   errStr.contains('unavailable') ||
-                                   errStr.contains('network') ||
-                                   errStr.contains('no internet');
-
-          if (isHardNetworkError) {
-            debugPrint('SYNC: Connectivity issue detected, stopping batch');
-            break;
-          } else {
-            // Log other errors but keep trying next records
-            debugPrint('SYNC: Non-network error for $oldId ($e). Continuing...');
+            debugPrint('SYNC UPDATE ERROR for ${doc.id}: $e');
+            errorCount++;
           }
         }
       }
@@ -2048,6 +2458,9 @@ class _RecordsPageState extends State<RecordsPage> {
           );
         }
       }
+
+      // TRIGGER BACKGROUND HEALTH OCR
+      HealthOCRService.processPendingReadings();
     } catch (e) {
       debugPrint('Global sync error: $e');
       if (mounted) {
@@ -2067,17 +2480,108 @@ class _RecordsPageState extends State<RecordsPage> {
     }
   }
 
+  Stream<QuerySnapshot> _buildStream() {
+    Query query = FirebaseFirestore.instance.collection('client');
+
+    if (_activeSearchQuery.isEmpty) {
+      return query
+          .orderBy('clientUpdatedAt', descending: true)
+          .limit(_currentLimit)
+          .snapshots(includeMetadataChanges: true);
+    }
+
+    // Search Mode
+    if (_searchField == 'Family ID') {
+      return query
+          .where('family_id', isGreaterThanOrEqualTo: _activeSearchQuery)
+          .where('family_id',
+              isLessThanOrEqualTo: '$_activeSearchQuery\uf8ff')
+          .limit(_currentLimit)
+          .snapshots(includeMetadataChanges: true);
+    } else if (_fieldMapping.containsKey(_searchField)) {
+      final key = _fieldMapping[_searchField]!;
+      return query
+          .where(key, isGreaterThanOrEqualTo: _activeSearchQuery)
+          .where(key, isLessThanOrEqualTo: '$_activeSearchQuery\uf8ff')
+          .limit(_currentLimit)
+          .snapshots(includeMetadataChanges: true);
+    } else {
+      // 'All' search: We fetch a larger batch for local filtering
+      // as Firestore doesn't support 'search all fields'.
+      return query
+          .limit(_currentLimit > 1000 ? _currentLimit : 1000)
+          .snapshots(includeMetadataChanges: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('client')
-          .snapshots(includeMetadataChanges: true),
+      stream: _buildStream(),
       builder: (context, snapshot) {
         final rawDocs = snapshot.data?.docs ?? [];
         
+        // Filter by search query
+            var docs = List<QueryDocumentSnapshot>.from(rawDocs);
+            if (_activeSearchQuery.isNotEmpty) {
+              final query = _activeSearchQuery.toLowerCase();
+              docs = docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+
+                if (_searchField == 'Family ID') {
+                  final famId = data['family_id']?.toString() ?? '';
+                  return famId.toLowerCase().contains(query);
+                } else if (_fieldMapping.containsKey(_searchField)) {
+                  final key = _fieldMapping[_searchField]!;
+                  final value = data[key];
+                  if (value == null) return false;
+                  if (value is List) {
+                    return value.any((item) =>
+                        item.toString().toLowerCase().contains(query));
+                  }
+                  return value.toString().toLowerCase().contains(query);
+                } else {
+                  // 'All' search: Check all values in the record data
+                  bool matchFound = data.values.any((value) {
+                    if (value == null) return false;
+                    if (value is List) {
+                      return value.any((item) =>
+                          item.toString().toLowerCase().contains(query));
+                    }
+                    return value.toString().toLowerCase().contains(query);
+                  });
+                  // Also check the doc ID (Family ID) in 'All' search
+                  if (matchFound) return true;
+                  return doc.id.toLowerCase().contains(query);
+                }
+              }).toList();
+            }
+
+            if (docs.isEmpty && _hasSearched) {
+              return Scaffold(
+                appBar: AppBar(
+                    title: Text('All Records (${rawDocs.length})'),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () => setState(() {
+                          _activeSearchQuery = '';
+                          _hasSearched = false;
+                          _searchController.clear();
+                          _isSearchingActive = false;
+                        }),
+                      )
+                    ]),
+                body: const Center(
+                  child: Text(
+                    'No records found matching your search.',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ),
+              );
+            }
+
         // Sort in Dart: Latest first, records without timestamp at the end
-        final docs = List<QueryDocumentSnapshot>.from(rawDocs);
         docs.sort((a, b) {
           final aData = a.data() as Map<String, dynamic>;
           final bData = b.data() as Map<String, dynamic>;
@@ -2086,14 +2590,98 @@ class _RecordsPageState extends State<RecordsPage> {
           return bVal.compareTo(aVal);
         });
 
-        final count = docs.length;
+        final count = snapshot.data?.size ?? 0;
+        
+        // Update Total Count via Aggregate Query (Fast)
+        if (snapshot.hasData) {
+          // Update total count live from the database
+          FirebaseFirestore.instance.collection('client').count().get().then((agg) {
+            if (mounted && _totalRecordCount != agg.count) {
+              setState(() => _totalRecordCount = agg.count ?? 0);
+            }
+          });
+        }
+
+        final loadedCount = docs.length;
+        final titleText = _isSyncing 
+            ? 'Importing $_importedCountProgress... (Total: $_totalRecordCount)' 
+            : 'Records ($loadedCount / $_totalRecordCount)';
         final hasTemporary = docs.any((doc) =>
             (doc.data() as Map<String, dynamic>)['is_temporary'] == true);
 
         return Scaffold(
           appBar: AppBar(
-            title: Text('All Records ($count)'),
+            title: _isSearchingActive
+                ? Row(
+                    children: [
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.filter_list),
+                        initialValue: _searchField,
+                        onSelected: (val) => setState(() => _searchField = val),
+                        itemBuilder: (context) {
+                          final items = <String>['All', 'Family ID'];
+                          items.addAll(_fieldMapping.keys);
+                          return items
+                              .map((f) =>
+                                  PopupMenuItem(value: f, child: Text(f)))
+                              .toList();
+                        },
+                      ),
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Search $_searchField...',
+                            border: InputBorder.none,
+                            hintStyle: const TextStyle(color: Colors.black54),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.search, color: Colors.blue),
+                              onPressed: () {
+                                setState(() {
+                                  _activeSearchQuery = _searchController.text;
+                                  _hasSearched = true;
+                                });
+                              },
+                            ),
+                          ),
+                          style: const TextStyle(
+                              color: Colors.black87, fontSize: 18),
+                          onSubmitted: (value) {
+                            setState(() {
+                              _activeSearchQuery = value;
+                              _hasSearched = true;
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                : const Text('Records', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             actions: [
+              if (_isSearchingActive)
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    setState(() {
+                      _isSearchingActive = false;
+                      _activeSearchQuery = '';
+                      _hasSearched = false;
+                      _searchField = 'All';
+                      _searchController.clear();
+                    });
+                  },
+
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () {
+                    setState(() {
+                      _isSearchingActive = true;
+                    });
+                  },
+                ),
               IconButton(
                 icon: const Icon(Icons.delete_forever, color: Colors.red),
                 tooltip: 'Delete All Local Records',
@@ -2102,10 +2690,11 @@ class _RecordsPageState extends State<RecordsPage> {
               IconButton(
                 icon: const Icon(Icons.cloud_download),
                 tooltip: 'Import from Zoho',
-                onPressed: _importFromZoho,
+                onPressed: () => _performFullZohoSync(silent: false),
               ),
             ],
           ),
+          drawer: const AppDrawer(),
           body: !snapshot.hasData
               ? const Center(child: Text('Loading...'))
               : Builder(builder: (context) {
@@ -2123,192 +2712,102 @@ class _RecordsPageState extends State<RecordsPage> {
                         child: Text(
                           _syncErrorMessage != null
                               ? 'Sync error: $_syncErrorMessage'
-                              : fromCache
-                                  ? 'Offline mode'
-                                  : syncing || _isSyncing
-                                      ? 'Online – syncing...'
-                                      : 'Online – synced',
+                              : '${fromCache ? 'Offline mode' : syncing || _isSyncing ? 'Online – syncing...' : 'Online – synced'}  |  $loadedCount / $_totalRecordCount records',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _syncErrorMessage != null ? Colors.red.shade900 : null,
-                            fontSize: 12,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                       // Manual Sync Banner Removed
                       Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.vertical,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              headingRowColor: MaterialStateProperty.all(
-                                  Colors.grey.shade200),
-                              columns: const [
-                                DataColumn(label: Text('Family ID')),
-                                DataColumn(label: Text('Sync')),
-                                DataColumn(label: Text('State')),
-                                DataColumn(label: Text('District')),
-                                DataColumn(label: Text('Mandal')),
-                                DataColumn(label: Text('Village')),
-                                DataColumn(label: Text('House No')),
-                                DataColumn(label: Text('Head')),
-                                DataColumn(label: Text('Fam Type')),
-                                DataColumn(label: Text('Fam Status')),
-                                DataColumn(label: Text('Own House')),
-                                DataColumn(label: Text('Rooms')),
-                                DataColumn(label: Text('House Type')),
-                                DataColumn(label: Text('Wall')),
-                                DataColumn(label: Text('Roof')),
-                                DataColumn(label: Text('Floor')),
-                                DataColumn(label: Text('Sep Kitchen')),
-                                DataColumn(label: Text('Cook Loc')),
-                                DataColumn(label: Text('Cook Loc Other')),
-                                DataColumn(label: Text('Fuel Types')),
-                                DataColumn(label: Text('Fuel Other')),
-                                DataColumn(label: Text('Fuel Main')),
-                                DataColumn(label: Text('Lighting')),
-                                DataColumn(label: Text('Water Sources')),
-                                DataColumn(label: Text('Water Src Other')),
-                                DataColumn(label: Text('Water Main')),
-                                DataColumn(label: Text('Treatment')),
-                                DataColumn(label: Text('Treat Other')),
-                                DataColumn(label: Text('All Purpose Src')),
-                                DataColumn(label: Text('All Purpose Other')),
-                                DataColumn(label: Text('Toilet')),
-                                 DataColumn(label: Text('Toilet Other')),
-                                DataColumn(label: Text('Ration Card')),
-                                DataColumn(label: Text('Religion')),
-                                DataColumn(label: Text('Caste')),
-                                // Assets Start (22 columns)
-                                DataColumn(label: Text('Mattress')),
-                                DataColumn(label: Text('Cot/bed')),
-                                DataColumn(label: Text('Electric Fan')),
-                                DataColumn(label: Text('Pressure cooker')),
-                                DataColumn(label: Text('sewing Machine')),
-                                DataColumn(label: Text('Refrigerator')),
-                                DataColumn(label: Text('Mobile phone')),
-                                DataColumn(label: Text('Any phone')),
-                                DataColumn(label: Text('Bicycle')),
-                                DataColumn(label: Text('Scooter')),
-                                DataColumn(label: Text('Animal cart')),
-                                DataColumn(label: Text('Chair')),
-                                DataColumn(label: Text('Table')),
-                                DataColumn(label: Text('Radio')),
-                                DataColumn(label: Text('Mixer')),
-                                DataColumn(label: Text('Colour TV')),
-                                DataColumn(label: Text('A/C')),
-                                DataColumn(label: Text('Water pump')),
-                                DataColumn(label: Text('Computer')),
-                                DataColumn(label: Text('Tractor')),
-                                DataColumn(label: Text('Car')),
-                                DataColumn(label: Text('Thresher')),
-                                // Assets End
-                                DataColumn(label: Text('Agri Land')),
-                                DataColumn(label: Text('Irrigated')),
-                                DataColumn(label: Text('Cattle')),
-                                DataColumn(label: Text('Cattle Other')),
-                                DataColumn(label: Text('Health Place')),
-                                DataColumn(label: Text('Hosp Avoid Reasons')),
-                                DataColumn(label: Text('Hosp Avoid Other')),
-                                DataColumn(label: Text('Actions')),
-                              ],
-                              rows: docs.map((doc) {
-                                final record = doc.data() as Map<String, dynamic>;
-                                final isTemp = record['is_temporary'] == true;
-
-                                return DataRow(
-                                  color: isTemp
-                                      ? MaterialStateProperty.all(
-                                          Colors.orange.shade50)
-                                      : null,
-                                  cells: [
-                                    DataCell(Text(record['family_id'] ?? '')),
-                                    DataCell(
-                                      isTemp
-                                          ? const Icon(Icons.timer, color: Colors.orange, size: 18)
-                                          : const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                                    ),
-                                    DataCell(Text(record['state'] ?? '')),
-                                    DataCell(Text(record['district'] ?? '')),
-                                    DataCell(Text(record['mandal'] ?? '')),
-                                    DataCell(Text(record['village'] ?? '')),
-                                    DataCell(Text(record['house_no'] ?? '')),
-                                    DataCell(Text(record['head_of_family'] ?? '')),
-                                    DataCell(Text(record['family_type'] ?? '')),
-                                    DataCell(Text(record['family_status'] ?? '')),
-                                    DataCell(Text(record['own_house'] ?? '')),
-                                    DataCell(Text(record['no_of_rooms']?.toString() ?? '')),
-                                    DataCell(Text(record['type_of_house'] ?? '')),
-                                    DataCell(Text(record['wall_type'] ?? '')),
-                                    DataCell(Text(record['roof_type'] ?? '')),
-                                    DataCell(Text(record['floor_type'] ?? '')),
-                                    DataCell(Text(record['separate_kitchen'] ?? '')),
-                                    DataCell(Text(record['cooking_location'] ?? '')),
-                                    DataCell(Text(record['cooking_location_other'] ?? '')),
-                                    DataCell(Text((record['cooking_fuel_types'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['cooking_fuel_other'] ?? '')),
-                                    DataCell(Text(record['cooking_fuel_main'] ?? '')),
-                                    DataCell(Text(record['lighting_source'] ?? '')),
-                                    DataCell(Text((record['water_sources'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['water_source_other'] ?? '')),
-                                    DataCell(Text(record['water_main_source'] ?? '')),
-                                    DataCell(Text((record['water_treatment'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['water_treatment_other'] ?? '')),
-                                    DataCell(Text((record['water_all_sources'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['water_all_other'] ?? '')),
-                                    DataCell(Text(record['toilet_facility'] ?? '')),
-                                     DataCell(Text(record['toilet_facility_other'] ?? '')),
-                                    DataCell(Text(record['ration_card'] ?? '')),
-                                    DataCell(Text(record['religion'] ?? '')),
-                                    DataCell(Text(record['caste'] ?? '')),
-                                    // Asset Cells (22)
-                                    ...[
-                                      'Mattress', 'Cot/bed', 'Electric Fan', 'Pressure cooker',
-                                      'sewing Machine', 'Refrigerator', 'Mobile phone', 'Any phone',
-                                      'Bicycle', 'Scooter', 'Animal cart', 'Chair', 'Table',
-                                      'Radio', 'Mixer', 'Colour TV', 'A/C', 'Water pump',
-                                      'Computer', 'Tractor', 'Car', 'Thresher'
-                                    ].map((a) {
-                                      final assetList = record['household_assets'] as List? ?? [];
-                                      return DataCell(Text(assetList.contains(a) ? '(1) Yes' : '(2) No'));
-                                    }),
-                                    DataCell(Text('${record['agriculture_land'] ?? ''}\n(${record['agriculture_land_area'] ?? ''} ${record['agriculture_land_unit'] ?? ''})')),
-                                    DataCell(Text('${record['irrigated_land_area'] ?? ''} ${record['irrigated_land_unit'] ?? ''}')),
-                                    DataCell(Text((record['cattle_owned'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['cattle_other'] ?? '')),
-                                    DataCell(Text(record['health_care_place'] ?? '')),
-                                    DataCell(Text((record['govt_hospital_reasons'] as List?)?.join(", ") ?? '')),
-                                    DataCell(Text(record['govt_hospital_other'] ?? '')),
-                                    DataCell(Row(
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.edit, color: Colors.blue),
-                                          onPressed: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) => FamilyFormPage(existingData: record),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.delete, color: Colors.red),
-                                          onPressed: () {
-                                            FirebaseFirestore.instance
-                                                .collection('client')
-                                                .doc(doc.id)
-                                                .delete();
-                                          },
-                                        ),
-                                      ],
-                                    )),
+                        child: ListView(
+                          children: [
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: DataTable(
+                                headingRowColor: MaterialStateProperty.all(
+                                    Colors.grey.shade200),
+                                  columns: [
+                                    const DataColumn(label: Text('Actions')),
+                                    _buildSearchColumn('Family ID'),
+                                    const DataColumn(label: Text('Sync')),
+                                    ..._fieldMapping.keys
+                                        .map((label) => _buildSearchColumn(label))
+                                        .toList(),
                                   ],
-                                );
-                              }).toList(),
+                                rows: docs.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final doc = entry.value;
+                                  final record = doc.data() as Map<String, dynamic>;
+                                  final isTemp = record['is_temporary'] == true;
+
+                                  return DataRow(
+                                    color: isTemp
+                                        ? MaterialStateProperty.all(
+                                            Colors.orange.shade50)
+                                        : null,
+                                    cells: [
+                                      _buildDataCell('Actions', record, doc),
+                                      _buildDataCell('Family ID', record, doc),
+                                      _buildDataCell('Sync', record, doc),
+                                      ..._fieldMapping.keys
+                                          .map((label) =>
+                                              _buildDataCell(label, record, doc))
+                                          .toList(),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
                             ),
-                          ),
+                            if (loadedCount < _totalRecordCount)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 20),
+                                child: Center(
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'Showing $loadedCount of $_totalRecordCount records',
+                                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ElevatedButton.icon(
+                                        onPressed: _isLoadingMore ? null : () async {
+                                          setState(() => _isLoadingMore = true);
+                                          // Small delay to show loading state if it's too fast
+                                          await Future.delayed(const Duration(milliseconds: 300));
+                                          if (mounted) {
+                                            setState(() {
+                                              _currentLimit += 500;
+                                              _isLoadingMore = false;
+                                            });
+                                          }
+                                        },
+                                        icon: _isLoadingMore 
+                                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                          : const Icon(Icons.add),
+                                        label: Text(_isLoadingMore ? 'Loading...' : 'Load 500 More'),
+                                        style: ElevatedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else if (_totalRecordCount > 0)
+                              Padding(
+                                padding: const EdgeInsets.all(20),
+                                child: Center(
+                                  child: Text(
+                                    'All $_totalRecordCount records loaded',
+                                    style: TextStyle(color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],

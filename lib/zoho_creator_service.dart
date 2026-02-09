@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -114,133 +115,238 @@ class ZohoCreatorService {
     }
   }
 
-  Future<bool> syncRecord(Map<String, dynamic> firestoreData) async {
+  Future<String?> syncRecord(Map<String, dynamic> firestoreData) async {
     final familyId = firestoreData['family_id'];
-    debugPrint('ZOHO: syncRecord started for $familyId');
+    final zohoId = firestoreData['zoho_id']?.toString();
+    debugPrint('ZOHO: syncRecord started for $familyId (zoho_id: $zohoId)');
     
     final accessToken = await _getAccessToken();
     debugPrint('ZOHO: Token check for $familyId: accessToken is ${accessToken == null ? 'NULL' : 'OK'}');
     
     if (accessToken == null) {
       debugPrint('ZOHO: Sync aborted for $familyId - no access token');
-      return false;
+      return null;
     }
 
     try {
-      debugPrint('ZOHO: Mapping data for $familyId...');
+      debugPrint('ZOHO: Mapping data for $familyId... (zoho_id: $zohoId)');
       // Map Firestore data to Zoho Creator fields
       final zohoData = {
         'data': {
-          'Family_ID': firestoreData['family_id']?.toString() ?? '',
-          'State': _locationMap[firestoreData['state']] ?? firestoreData['state']?.toString() ?? '',
-          'District1': _locationMap[firestoreData['district']] ?? firestoreData['district']?.toString() ?? '',
-          'Mandal1': _locationMap[firestoreData['mandal']] ?? firestoreData['mandal']?.toString() ?? '',
-          'Village1': _locationMap[firestoreData['village']] ?? firestoreData['village']?.toString() ?? '',
-          'House_No': firestoreData['house_no']?.toString() ?? '',
-          'Head_of_the_family': firestoreData['head_of_family']?.toString() ?? '',
-          'Family_Type': firestoreData['family_type']?.toString() ?? '',
-          'Family_Status': firestoreData['family_status']?.toString() ?? '',
-          'Do_you_Own_this_house_house': firestoreData['own_house']?.toString() ?? '',
+          'Family_ID': _toZohoString(firestoreData['family_id']),
+          'State': _toZohoLocation(firestoreData['state']),
+          'District1': _toZohoLocation(firestoreData['district']),
+          'Mandal1': _toZohoLocation(firestoreData['mandal']),
+          'Village1': _toZohoLocation(firestoreData['village']),
+          'House_No': _toZohoString(firestoreData['house_no']),
+          'Head_of_the_family': _toZohoString(firestoreData['head_of_family']),
+          'Family_Type': _toZohoString(firestoreData['family_type']),
+          'Family_Status': _toZohoString(firestoreData['family_status']),
+          'Do_you_Own_this_house_house': _toZohoString(firestoreData['own_house']),
           'No_of_rooms': int.tryParse(firestoreData['no_of_rooms']?.toString() ?? '0') ?? 0,
-          'Type_of_House': firestoreData['type_of_house']?.toString() ?? '',
-          'Wall': firestoreData['wall_type']?.toString() ?? '',
-          'Roof': firestoreData['roof_type']?.toString() ?? '',
-          'Floor': firestoreData['floor_type']?.toString() ?? '',
+          'Type_of_House': _toZohoString(firestoreData['type_of_house']),
+          'Wall': _toZohoString(firestoreData['wall_type']),
+          'Roof': _toZohoString(firestoreData['roof_type']),
+          'Floor': _toZohoString(firestoreData['floor_type']),
           'Where_do_we_cook': _toList(firestoreData['cooking_location']),
-          'If_Others_Please_Mention9': firestoreData['cooking_location_other']?.toString() ?? '',
-          'Separate_Room_for_kitchen1': firestoreData['separate_kitchen']?.toString() ?? '',
+          'If_Others_Please_Mention9': _toZohoString(firestoreData['cooking_location_other']),
+          'Separate_Room_for_kitchen1': _toZohoString(firestoreData['separate_kitchen']),
           'Type_of_fuel_used_for_cooking': _toList(firestoreData['cooking_fuel_types']),
-          'If_Others_Please_Mention2': firestoreData['cooking_fuel_other']?.toString() ?? '',
-          'Mainly_Used': firestoreData['cooking_fuel_main']?.toString() ?? '',
-          'Main_source_of_lighting_in_household': firestoreData['lighting_source']?.toString() ?? '',
+          'If_Others_Please_Mention2': _toZohoString(firestoreData['cooking_fuel_other']),
+          'Mainly_Used': _toZohoString(firestoreData['cooking_fuel_main']),
+          'Main_source_of_lighting_in_household': _toZohoString(firestoreData['lighting_source']),
           'source_of_water': _toList(firestoreData['water_sources']),
-          'If_Others_Please_Mention3': firestoreData['water_source_other']?.toString() ?? '',
-          'Mainly_Used1': firestoreData['water_main_source']?.toString() ?? '',
+          'If_Others_Please_Mention3': _toZohoString(firestoreData['water_source_other']),
+          'Mainly_Used1': _toZohoString(firestoreData['water_main_source']),
           'Do_to_the_water_to_make_it_safer_to_drink': _toList(firestoreData['water_treatment']),
-          'If_Others_Please_Mention5': firestoreData['water_treatment_other']?.toString() ?? '',
+          'If_Others_Please_Mention5': _toZohoString(firestoreData['water_treatment_other']),
           'Source_water_used_for_all_purposes': _toList(firestoreData['water_all_sources']),
-          'If_Others_Please_Mention': firestoreData['water_all_other']?.toString() ?? '',
-          'What_kind_of_toilet_facility_HH1': firestoreData['toilet_facility']?.toString() ?? '',
-          'What_kind_of_toilet_facility_HH1': firestoreData['toilet_facility_other']?.toString() ?? '',
-          'Have_ration_card': firestoreData['ration_card']?.toString() ?? '',
-          'Religion': firestoreData['religion']?.toString() ?? '',
-          'Cast_of_the_head': firestoreData['caste']?.toString() ?? '',
-          'Any_agriculture_land': firestoreData['agriculture_land']?.toString() ?? '',
-          'Number': firestoreData['agriculture_land_area']?.toString() ?? '',
-          'Land_Unit': firestoreData['agriculture_land_unit']?.toString() ?? '',
-          'Land_is_irrigated': firestoreData['irrigated_land_area']?.toString() ?? '',
-          'Land_Unit1': firestoreData['irrigated_land_unit']?.toString() ?? '',
+          'If_Others_Please_Mention': _toZohoString(firestoreData['water_all_other']),
+          'What_kind_of_toilet_facility_HH1': _toZohoString(firestoreData['toilet_facility']),
+          'If_Others_Please_Mention7': _toZohoString(firestoreData['toilet_facility_other']),
+          'Have_ration_card': _toZohoString(firestoreData['ration_card']),
+          'Religion': _toZohoString(firestoreData['religion']),
+          'Cast_of_the_head': _toZohoString(firestoreData['caste']),
+          'Any_agriculture_land': _toZohoString(firestoreData['agriculture_land']),
+          'Number': _toZohoString(firestoreData['agriculture_land_area']),
+          'Land_Unit': _toZohoString(firestoreData['agriculture_land_unit']),
+          'Land_is_irrigated': _toZohoString(firestoreData['irrigated_land_area']),
+          'Land_Unit1': _toZohoString(firestoreData['irrigated_land_unit']),
           'None': firestoreData['irrigated_none'] == true,
           'Own_any_cattle1': _toList(firestoreData['cattle_owned']),
-          'If_Others_Please_Mention4': firestoreData['cattle_other']?.toString() ?? '',
-          'get_sick_where_do_they_go': firestoreData['health_care_place']?.toString() ?? '',
+          'If_Others_Please_Mention4': _toZohoString(firestoreData['cattle_other']),
+          'get_sick_where_do_they_go': _toZohoString(firestoreData['health_care_place']),
           'Why_they_dont_go_to_Govt_Hospital': _toList(firestoreData['govt_hospital_reasons']),
-          'If_Others_Please_Mention6': firestoreData['govt_hospital_other']?.toString() ?? '',
+          'If_Others_Please_Mention6': _toZohoString(firestoreData['govt_hospital_other']),
           ..._mapAssetsToZoho(firestoreData['household_assets'] ?? []),
         }
       };
 
-      debugPrint('ZOHO: Syncing to URL: $submitUrl');
-      final bodyString = jsonEncode(zohoData);
-      debugPrint('ZOHO: Request Body: $bodyString');
+      final bool isUpdate = zohoId != null && zohoId.isNotEmpty;
+      final url = isUpdate 
+          ? 'https://www.zohoapis.in/creator/v2.1/data/$accountOwner/$appLinkName/report/$reportLinkName/$zohoId'
+          : submitUrl;
+      
+      debugPrint('ZOHO: Syncing to URL: $url using ${isUpdate ? 'PATCH' : 'POST'}');
+      debugPrint('ZOHO: Request JSON: ${jsonEncode(zohoData)}');
+      
+      final headers = {
+        'Authorization': 'Zoho-oauthtoken $accessToken',
+        'Content-Type': 'application/json',
+      };
+      if (isUpdate) {
+        headers['X-HTTP-Method-Override'] = 'PATCH';
+      }
 
-      final response = await http.post(
-        Uri.parse(submitUrl),
-        headers: {
-          'Authorization': 'Zoho-oauthtoken $accessToken',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(zohoData),
-      );
+      final response = await (isUpdate 
+          ? http.patch(
+              Uri.parse(url),
+              headers: headers,
+              body: jsonEncode(zohoData),
+            )
+          : http.post(
+              Uri.parse(url),
+              headers: headers,
+              body: jsonEncode(zohoData),
+            ));
 
       debugPrint('ZOHO: Response Status: ${response.statusCode}');
+      debugPrint('ZOHO: Response Headers: ${response.headers}');
       debugPrint('ZOHO: Response Body: ${response.body}');
 
       final responseBody = jsonDecode(response.body);
       
       if ((response.statusCode == 201 || response.statusCode == 200) && 
           responseBody['code'] == 3000) {
+        
+        String? newZohoId = zohoId;
+        if (!isUpdate && responseBody['data'] != null) {
+          newZohoId = responseBody['data']['ID']?.toString();
+        }
+
         debugPrint(
-            'ZOHO: Record synced successfully: ${firestoreData['family_id']}');
-        return true;
+            'ZOHO: Record synced successfully: ${firestoreData['family_id']} (new zoho_id: $newZohoId)');
+        return newZohoId;
       } else {
         final errorMsg = responseBody['message'] ?? 'Unknown error';
         final errorDetails = responseBody['error'] ?? '';
         debugPrint(
             'ZOHO: Failed to sync record $familyId: $errorMsg ($errorDetails)');
-        return false;
+        return null;
       }
     } catch (e) {
       debugPrint('ZOHO: Error syncing record $familyId: $e');
-      return false;
+      return null;
     }
   }
 
-  Future<List<Map<String, dynamic>>> fetchRecords() async {
+  Future<List<Map<String, dynamic>>> fetchRecords({FutureOr<void> Function(List<Map<String, dynamic>>)? onBatch}) async {
     debugPrint('ZOHO: fetchRecords started');
     final accessToken = await _getAccessToken();
     if (accessToken == null) return [];
 
-    try {
-      final response = await http.get(
-        Uri.parse(fetchUrl),
-        headers: {
-          'Authorization': 'Zoho-oauthtoken $accessToken',
-        },
-      ).timeout(const Duration(seconds: 20));
+    List<Map<String, dynamic>> allRecords = [];
+    int totalProcessed = 0;
+    int from = 1;
+    const int limit = 200;
+    bool hasMore = true;
+    String lastFirstId = '';
 
-      debugPrint('ZOHO: Fetch Response Status: ${response.statusCode}');
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body['code'] == 3000 && body['data'] != null) {
-          final List<dynamic> zohoList = body['data'];
-          return zohoList.map((record) => _mapFromZoho(record)).toList();
+    try {
+      while (hasMore) {
+        // If we are using onBatch, we don't need to keep all records in memory
+        // This prevents crashes with 18,000+ records.
+        if (onBatch == null && allRecords.length >= 200000) {
+          debugPrint('ZOHO: Safety limit reached (200,000 records). Stopping fetch.');
+          break;
+        }
+
+        // Added sort_column and sort_order to stabilize pagination
+        final url = '$fetchUrl?from=$from&limit=$limit&sort_column=ID&sort_order=asc';
+        debugPrint('ZOHO: Fetching batch from $from... (URL: $url)');
+        
+        final response = await http.get(
+          Uri.parse(url),
+          headers: {
+            'Authorization': 'Zoho-oauthtoken $accessToken',
+          },
+        ).timeout(const Duration(seconds: 40));
+
+        debugPrint('ZOHO: HTTP Status: ${response.statusCode}');
+
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['code'] == 3000) {
+            final data = body['data'];
+            if (data is List) {
+              if (data.isEmpty) {
+                debugPrint('ZOHO: Received empty list. No more records.');
+                hasMore = false;
+              } else {
+                final currentFirstId = data.first['ID']?.toString() ?? '';
+                if (lastFirstId.isNotEmpty && currentFirstId == lastFirstId) {
+                  debugPrint('ZOHO: Duplicate batch detected (First ID: $currentFirstId). Stopping fetch.');
+                  hasMore = false;
+                  break;
+                }
+                lastFirstId = currentFirstId;
+                
+                debugPrint('ZOHO: Batch starting with ID: $currentFirstId');
+
+                List<Map<String, dynamic>> batch = [];
+                for (var zRecord in data) {
+                  try {
+                    if (zRecord is Map<String, dynamic>) {
+                      batch.add(_mapFromZoho(zRecord));
+                    }
+                  } catch (e) {
+                    debugPrint('ZOHO: Error mapping record: $e');
+                  }
+                }
+                
+                // ONLY add to list if we aren't streaming via onBatch
+                if (onBatch == null) {
+                  allRecords.addAll(batch);
+                }
+                
+                debugPrint('ZOHO: Batch of ${batch.length} records mapped correctly.');
+                if (onBatch != null) {
+                  debugPrint('ZOHO: Starting onBatch processing for ${batch.length} records...');
+                  await onBatch(batch);
+                  totalProcessed += batch.length;
+                  debugPrint('ZOHO: onBatch processing completed. Total so far: $totalProcessed');
+                }
+                
+                debugPrint('ZOHO: Current batch data size: ${data.length}, Requested limit: $limit');
+                if (data.length < limit) {
+                  debugPrint('ZOHO: Termination condition met - data.length (${data.length}) < limit ($limit)');
+                  hasMore = false;
+                } else {
+                  from += limit;
+                  debugPrint('ZOHO: Proceeding to next batch. Next "from" value: $from');
+                }
+              }
+            } else {
+              debugPrint('ZOHO: Data is not a list! ($data)');
+              hasMore = false;
+            }
+          } else if (body['code'] == 3100) {
+            debugPrint('ZOHO: No more records (3100)');
+            hasMore = false;
+          } else {
+            debugPrint('ZOHO: Non-success code ${body['code']}: ${body['message']}');
+            hasMore = false;
+          }
+        } else {
+          throw Exception('ZOHO: Fetch batch failed (${response.statusCode}): ${response.body}');
         }
       }
-      return [];
+      
+      debugPrint('ZOHO: Fetching sequence completed. Processed $totalProcessed records.');
+      return allRecords;
     } catch (e) {
       debugPrint('ZOHO: Error fetching records: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -261,7 +367,7 @@ class ZohoCreatorService {
       'wall_type': _matchOption(_getNonEmptyValue([z['WALL2'], z['Wall']]), ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']),
       'roof_type': _matchOption(_getNonEmptyValue([z['ROOF1'], z['Roof']]), ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']),
       'floor_type': _matchOption(_getNonEmptyValue([z['FLOOR1'], z['Floor']]), ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']),
-      'cooking_location': _matchOption(_getValue(z['Where_do_we_cook']), ['(1) In the House', '(2) In a seperate Building', '(3) Outdoors', '(4) Other']),
+      'cooking_location': _toList(z['Where_do_we_cook']),
       'cooking_location_other': _getValue(z['If_Others_Please_Mention9']),
       'separate_kitchen': _matchOption(_getValue(z['Separate_Room_for_kitchen1']), ['(1) Yes', '(2) No']),
       'cooking_fuel_types': _toList(z['Type_of_fuel_used_for_cooking']),
@@ -300,6 +406,7 @@ class ZohoCreatorService {
       'govt_hospital_reasons': _toList(z['Why_they_dont_go_to_Govt_Hospital']),
       'govt_hospital_other': _getValue(z['If_Others_Please_Mention6']),
       'household_assets': _mapAssetsFromZoho(z),
+      'zoho_id': _getValue(z['ID']),
       'is_temporary': false,
       'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
     };
@@ -427,5 +534,22 @@ class ZohoCreatorService {
       default:
         return '';
     }
+  }
+  String _toSafeString(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value.trim();
+    if (value is Map || value is List) return '';
+    return value.toString().trim();
+  }
+
+  String _toZohoString(dynamic value) {
+    return _toSafeString(value);
+  }
+
+  String _toZohoLocation(dynamic value) {
+    if (value == null) return '';
+    final strVal = value.toString();
+    if (strVal.isEmpty || strVal == '{}' || strVal == '[]') return '';
+    return _locationMap[strVal] ?? strVal;
   }
 }
