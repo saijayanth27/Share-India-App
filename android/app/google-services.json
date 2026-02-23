@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "467754875264",
+    "project_id": "share-india-ee943",
+    "storage_bucket": "share-india-ee943.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467754875264:android:61ee37d4e5ca7ce2342965",
+        "android_client_info": {
+          "package_name": "com.example.family_code_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTAmixe1Jhi8JrJ2htWHquoPy8Kim9cI4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
