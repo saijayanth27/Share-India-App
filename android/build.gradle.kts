@@ -19,6 +19,33 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    plugins.withId("com.android.library") {
+        val android = project.extensions.findByName("android")
+        if (android != null) {
+            try {
+                val getNamespace = android.javaClass.getMethod("getNamespace")
+                if (getNamespace.invoke(android) == null) {
+                    val setNamespace = android.javaClass.getMethod("setNamespace", String::class.java)
+                    setNamespace.invoke(android, "dev.isar.${project.name.replace("-", "_")}")
+                }
+            } catch (e: Exception) {}
+        }
+    }
+    plugins.withId("com.android.application") {
+        val android = project.extensions.findByName("android")
+        if (android != null) {
+            try {
+                val getNamespace = android.javaClass.getMethod("getNamespace")
+                if (getNamespace.invoke(android) == null) {
+                    val setNamespace = android.javaClass.getMethod("setNamespace", String::class.java)
+                    setNamespace.invoke(android, "dev.isar.${project.name.replace("-", "_")}")
+                }
+            } catch (e: Exception) {}
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

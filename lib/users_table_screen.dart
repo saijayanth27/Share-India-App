@@ -10,7 +10,7 @@ class RecordsTablePage extends StatelessWidget {
       appBar: AppBar(title: const Text('Family Records (Table View)')),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('client')
+            .collection('Family Code Creation')
             .snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
           if (snapshot.hasError) {

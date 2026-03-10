@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
+import 'data_cache_service.dart';
 
 class AnteNatalCareCheckupPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -61,15 +61,10 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
   }
 
   Future<void> _fetchFamilyCodes() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('client').get();
-      final codes = snapshot.docs.map((doc) => doc.data()['family_id']?.toString()).whereType<String>().toSet().toList();
-      setState(() {
-        allFamilyCodes = codes..sort();
-      });
-    } catch (e) {
-      debugPrint('Error fetching family codes: $e');
-    }
+    final codes = await DataCacheService().fetchFamilyCodes();
+    setState(() {
+      allFamilyCodes = codes;
+    });
   }
 
   Future<void> _fetchFemalesByFamily(String familyCode) async {

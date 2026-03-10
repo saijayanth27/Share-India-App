@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
+import 'data_cache_service.dart';
 
 class AnthropometryPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -19,7 +19,13 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
+  String? selectedFamilyCode;
+  String? selectedName;
+  String? selectedGender;
   final _age = TextEditingController();
+  DateTime? dateOfInterview = DateTime.now();
+  String? interviewersName;
+
   final _waistMeasurement = TextEditingController();
   final _weight = TextEditingController();
   final _hipMeasurement = TextEditingController();
@@ -27,56 +33,46 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
   final _otherDetails = TextEditingController();
   final _notDoneOther = TextEditingController();
 
-  String? selectedFamilyId;
-  String? selectedName;
-  String? selectedGender;
-  String? interviewersName;
-  DateTime? dateOfInterview = DateTime.now();
   String? notDoneReason;
   String? chvName;
 
-  List<String> allFamilyIds = [];
-  List<String> allNames = [];
-  bool _isLoadingLookups = false;
+  List<String> allFamilyCodes = [];
+  List<String> familyMembers = [];
+  bool _isLoadingMembers = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyIds();
+    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyIds() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('client').get();
-      final ids = snapshot.docs.map((doc) => doc.data()['family_id']?.toString()).whereType<String>().toSet().toList();
-      setState(() {
-        allFamilyIds = ids..sort();
-      });
-    } catch (e) {
-      debugPrint('Error fetching family IDs: $e');
-    }
+  Future<void> _fetchFamilyCodes() async {
+    final codes = await DataCacheService().fetchFamilyCodes();
+    setState(() {
+      allFamilyCodes = codes;
+    });
   }
 
-  Future<void> _fetchNamesByFamily(String familyId) async {
-    setState(() => _isLoadingLookups = true);
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
-          .where('Family_Code', isEqualTo: familyId)
+          .where('Family_Code', isEqualTo: familyCode)
           .get();
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((name) => name.isNotEmpty).toList();
+      final members = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
 
       setState(() {
-        allNames = names..sort();
-        _isLoadingLookups = false;
+        familyMembers = members..sort();
+        _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching names: $e');
-      setState(() => _isLoadingLookups = false);
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -84,7 +80,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     final d = widget.existingData!;
     setState(() {
       _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedFamilyId = d['Family_ID'];
+      selectedFamilyCode = d['Family_ID'] ?? d['Family_code'];
       selectedName = d['Name'];
       selectedGender = d['Gender'];
       _age.text = d['Age']?.toString() ?? '';
@@ -101,7 +97,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
       _height.text = d['Height']?.toString() ?? '';
       _otherDetails.text = d['Other_Details'] ?? '';
 
-      if (selectedFamilyId != null) _fetchNamesByFamily(selectedFamilyId!);
+      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
     });
   }
 
@@ -112,7 +108,8 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     try {
       final data = {
         'Registration_Number': _registrationNumber.text,
-        'Family_ID': selectedFamilyId,
+        'Family_ID': selectedFamilyCode,
+        'Family_code': selectedFamilyCode,
         'Name': selectedName,
         'Gender': selectedGender,
         'Age': int.tryParse(_age.text),
@@ -169,90 +166,20 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _buildSectionCard(
-                    title: 'Basic Information',
-                    children: [
-                      TextFormField(controller: _registrationNumber, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder()), keyboardType: TextInputType.number),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Family ID', border: OutlineInputBorder()),
-                        value: selectedFamilyId,
-                        items: allFamilyIds.map((id) => DropdownMenuItem(value: id, child: Text(id))).toList(),
-                        onChanged: (v) {
-                          setState(() {
-                            selectedFamilyId = v;
-                            selectedName = null;
-                          });
-                          if (v != null) _fetchNamesByFamily(v);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: InputDecoration(labelText: 'Name', border: OutlineInputBorder(), suffixIcon: _isLoadingLookups ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
-                        value: selectedName,
-                        items: allNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                        onChanged: (v) => setState(() => selectedName = v),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
-                              value: selectedGender,
-                              items: ['(1) Male', '(0) Female'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                              onChanged: (v) => setState(() => selectedGender = v),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _age, decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-                        ],
-                      ),
-                    ],
-                  ),
+                _buildIdentitySection(),
                   _buildSectionCard(
                     title: 'Interview Details',
                     children: [
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Interviewer’s Name', border: OutlineInputBorder()),
-                        value: interviewersName,
-                        items: [
-                          'KIRANMAI K', 'LAVANYA KASPOJU', 'RAMADEVI Y', 'REVATHI CH', 'PUSHPA K', 'KUSUMA', 'CHV', 'SHAKUNTHALA(CHV AT)', 'ASHA', 'HEMALATHA(CHV AT)', 'LAXMI', 'BHASKAR', 'KUSUMA G', 'KARUNAKAR', 'KRISHNAVENI', 'B JYOTHI', 'MADHAVI(CHV GR)', 'ANNAPURNA', 'BALAMANI(CHV GR)', 'SALOMI', 'UDYASHREE', 'JOHN', 'BHASKAR K', 'SUNITHA', 'KOMARIAH', 'MADAV', 'G RAMADEVI', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU', 'LAVANYA METU', 'MONAHOR REDDY', 'N POOJA', 'RAJAKUMARI', 'VENKAT'
-                        ].map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                        onChanged: (v) => setState(() => interviewersName = v),
+                      _buildDropdown(
+                        'If not done, reason',
+                        ['(1) Not available', '(2) Refused for current visit', '(3) Door Locked', '(4) Other'],
+                        notDoneReason,
+                        (v) => setState(() => notDoneReason = v),
                       ),
-                      const SizedBox(height: 16),
-                      InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(context: context, initialDate: dateOfInterview ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime.now());
-                          if (picked != null) setState(() => dateOfInterview = picked);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Date of Interview', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                          child: Text(dateOfInterview == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(dateOfInterview!)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('If not done reason', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Column(
-                        children: ['(1) Not available', '(2) Refused for current visit', '(3) Door Locked', '(4) Other'].map((r) => RadioListTile<String>(
-                          title: Text(r),
-                          value: r,
-                          groupValue: notDoneReason,
-                          onChanged: (v) => setState(() => notDoneReason = v),
-                        )).toList(),
-                      ),
-                      if (notDoneReason == '(4) Other') ...[
-                        const SizedBox(height: 8),
-                        TextFormField(controller: _notDoneOther, decoration: const InputDecoration(labelText: 'If Other please mention', border: OutlineInputBorder())),
-                      ],
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'CHV', border: OutlineInputBorder()),
-                        value: chvName,
-                        items: ['Choice 1', 'Choice 2', 'Choice 3'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                        onChanged: (v) => setState(() => chvName = v),
-                      ),
+                      const SizedBox(height: 12),
+                      _buildTextField('If Other please mention', _notDoneOther),
+                      const SizedBox(height: 12),
+                      _buildTextField('CHV', TextEditingController(text: chvName)), // Read-only or editable?
                     ],
                   ),
                   _buildSectionCard(
@@ -260,45 +187,93 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
                     children: [
                       Row(
                         children: [
-                          Expanded(child: TextFormField(controller: _waistMeasurement, decoration: const InputDecoration(labelText: 'Waist Measurement', border: OutlineInputBorder(), suffixText: 'cm'), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _weight, decoration: const InputDecoration(labelText: 'Weight', border: OutlineInputBorder(), suffixText: 'Kg'), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+                          Expanded(child: _buildTextField('Waist Measurement (cm)', _waistMeasurement, keyboardType: TextInputType.number)),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('Weight (kg)', _weight, keyboardType: TextInputType.number)),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: TextFormField(controller: _hipMeasurement, decoration: const InputDecoration(labelText: 'Hip Measurement', border: OutlineInputBorder(), suffixText: 'cm'), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _height, decoration: const InputDecoration(labelText: 'Height', border: OutlineInputBorder(), suffixText: 'cm'), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+                          Expanded(child: _buildTextField('Hip Measurement (cm)', _hipMeasurement, keyboardType: TextInputType.number)),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('Height (cm)', _height, keyboardType: TextInputType.number)),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _otherDetails, decoration: const InputDecoration(labelText: 'Other Details', border: OutlineInputBorder()), maxLines: 3),
+                      const SizedBox(height: 12),
+                      _buildTextField('Other Details', _otherDetails, maxLines: 3),
                     ],
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.blue,
+                      backgroundColor: Colors.blue.shade700,
                       foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Save Measurements', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text(widget.docId == null ? 'Save Assessment' : 'Update Assessment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
     );
   }
 
+  Widget _buildIdentitySection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const Divider(),
+            _buildTextField('Registration Number', _registrationNumber),
+            const SizedBox(height: 12),
+            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
+              setState(() { selectedFamilyCode = v; selectedName = null; });
+              if (v != null) _fetchMembersByFamily(v);
+            }),
+            const SizedBox(height: 12),
+            _buildDropdown('Name', familyMembers, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingMembers),
+            const SizedBox(height: 12),
+            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+            Row(
+              children: [
+                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildTextField('Age', _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+                const SizedBox(width: 12),
+                Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildDropdown(
+              'Interviewer’s Name',
+              ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
+              interviewersName,
+              (v) => setState(() => interviewersName = v),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionCard({required String title, required List<Widget> children}) {
     return Card(
       elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(top: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -311,6 +286,78 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            hintText: hint,
+            helperText: helper,
+          ),
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false, String? hint = '-Select-'}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+          ),
+          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
+          onChanged: onChanged,
+          hint: hint != null ? Text(hint) : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

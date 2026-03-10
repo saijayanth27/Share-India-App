@@ -7,10 +7,22 @@ import 'zoho_creator_service.dart';
 import 'bpgluco.dart';
 import 'app_drawer.dart';
 import 'health_ocr_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'data_cache_service.dart';
+import 'local_database_service.dart';
+import 'location_codes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
+  // Set Firestore settings for unlimited offline cache
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+
+  await dotenv.load(fileName: ".env");
   runApp(const MyApp());
 }
 
@@ -25,8 +37,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Firestore Offline First',
-      theme: ThemeData(useMaterial3: true),
+      title: 'Family Code Creation',
+      theme: ThemeData(useMaterial3: true, primaryColor: Colors.indigo),
       home: const FamilyFormPage(),
     );
   }
@@ -62,6 +74,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   Map<String, dynamic> locationData = {};
   bool isLoadingLocations = true;
   bool _isSaving = false;
+  bool _isEditingFromSearch = false;
+
+  // --- NEW: Sync State for FamilyFormPage ---
+  bool _isSyncing = false;
+  int _importedCountProgress = 0;
+  int _totalRecordCount = 0;
+  int _lastSyncProgress = 0;
+  DocumentSnapshot? _lastSyncDoc;
+  bool _isSyncResumable = false;
+  // ------------------------------------------
   String? zohoId;
 
   String? ownHouse;
@@ -70,7 +92,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   String? selectedMandal;
   String? selectedVillage;
 
-  bool familyIdReadOnly = true;
+  bool familyIdReadOnly = false;
 
   String? familyType;
   String? familyStatus;
@@ -120,25 +142,70 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           .get()
           .timeout(const Duration(seconds: 10));
 
+      Map<String, dynamic> firestoreData = {};
       if (doc.exists) {
-        setState(() {
-          locationData = doc.data()!;
-          isLoadingLocations = false;
-        });
-
-        // Debug prints omitted for brevity or kept if needed
-      } else {
-        setState(() {
-          isLoadingLocations = false;
-        });
+        firestoreData = doc.data()!;
       }
+
+      // Merge local mapping from Excel (Source of truth for codes)
+      setState(() {
+        locationData = _mergeMappings(firestoreData, locationMapping);
+        isLoadingLocations = false;
+      });
     } catch (e) {
       debugPrint('Error fetching locations: $e');
       setState(() {
+        locationData = locationMapping; // Fallback to local only
         isLoadingLocations = false;
-        // Optionally set a fallback or error state if needed
       });
     }
+  }
+
+  Map<String, dynamic> _mergeMappings(Map<String, dynamic> firestore, Map<String, dynamic> local) {
+    final Map<String, dynamic> result = Map<String, dynamic>.from(firestore);
+    
+    // Add state code
+    if (local.containsKey('state_code')) {
+      result['state_code'] = local['state_code'];
+    }
+
+    // Merge districts
+    if (local.containsKey('districts')) {
+      final districts = Map<String, dynamic>.from(result['districts'] ?? {});
+      final localDistricts = local['districts'] as Map<String, dynamic>;
+      
+      localDistricts.forEach((dName, dData) {
+        final dist = Map<String, dynamic>.from(districts[dName] ?? {});
+        dist['code'] = dData['code'];
+        
+        // Merge mandals
+        final mandals = Map<String, dynamic>.from(dist['mandals'] ?? {});
+        final localMandals = dData['mandals'] as Map<String, dynamic>;
+        
+        localMandals.forEach((mName, mData) {
+          final mandal = Map<String, dynamic>.from(mandals[mName] ?? {});
+          mandal['code'] = mData['code'];
+          
+          // Merge villages
+          final villages = Map<String, dynamic>.from(mandal['Villages'] ?? {});
+          final localVillages = mData['Villages'] as Map<String, dynamic>;
+          
+          localVillages.forEach((vName, vData) {
+            villages[vName] = vData;
+          });
+          
+          mandal['Villages'] = villages;
+          mandals[mName] = mandal;
+        });
+        
+        dist['mandals'] = mandals;
+        districts[dName] = dist;
+      });
+      
+      result['districts'] = districts;
+    }
+    
+    return result;
   }
 
   @override
@@ -147,112 +214,166 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     fetchLocations();
 
     if (widget.existingData != null) {
-      final data = widget.existingData!;
+      _populateForm(widget.existingData!, widget.docId ?? widget.existingData!['family_id'] ?? '');
+    }
+  }
 
+  String? _matchOption(dynamic val, List<String> options) {
+    if (val == null) return null;
+    final s = val.toString().trim();
+    if (s.isEmpty) return null;
+    
+    // 1. Exact match
+    for (var opt in options) {
+      if (opt == s) return opt;
+    }
+    
+    // 2. Match pattern "(X) Name" where X is the value
+    for (var opt in options) {
+      if (opt.startsWith('($s)')) return opt;
+    }
+    
+    // 3. Fallback: partially match if the value is contained in parentheses
+    for (var opt in options) {
+      if (opt.contains('($s)')) return opt;
+    }
+    
+    return null;
+  }
+
+  void _populateForm(Map<String, dynamic> rawData, String docId) {
+    debugPrint('POPULATE: Received data for $docId: ${rawData.keys.toList()}');
+    final data = rawData.map((key, value) => MapEntry(key.toLowerCase(), value));
+
+    setState(() {
+      _isEditingFromSearch = true;
+      
       // ===== BASIC DETAILS =====
-      _familyId.text = data['family_id'] ?? widget.docId ?? '';
-      _houseNo.text = data['house_no'] ?? '';
-      _head.text = data['head_of_family'] ?? '';
+      _familyId.text = (data['family_id'] ?? data['fam_id'] ?? data['fam_id_old'] ?? docId).toString();
+      _houseNo.text = (data['house_no'] ?? data['hno'] ?? data['house no'] ?? '').toString();
+      _head.text = (data['head_of_family'] ?? data['name'] ?? data['head'] ?? data['head_name'] ?? '').toString();
       familyIdReadOnly = true;
 
       // ===== LOCATION DETAILS =====
-      selectedState = data['state'];
-      selectedDistrict = data['district'];
-      selectedMandal = data['mandal'];
-      selectedVillage = data['village'];
+      selectedState = data['state']?.toString();
+      selectedDistrict = data['district']?.toString();
+      selectedMandal = data['mandal']?.toString();
+      selectedVillage = data['village']?.toString();
 
       // ===== NEW FIELDS =====
-      familyType = data['family_type'];
-      familyStatus = data['family_status'];
-      cookingLocations = List<String>.from(data['cooking_location'] ?? []);
-      _cookingLocationOther.text = data['cooking_location_other'] ?? '';
+      familyType = _matchOption(data['family_type'] ?? data['fam_type'], ['(1) Nuclear Family', '(0) Joint Family']);
+      familyStatus = _matchOption(data['family_status'] ?? data['active_st'], ['(1) Active', '(0) Vacant']);
+      
+      cookingLocations = [];
+      final cookLocRaw = data['cooking_location'] ?? data['kplace'];
+      if (cookLocRaw is List) {
+        cookingLocations = List<String>.from(cookLocRaw);
+      } else if (cookLocRaw != null) {
+        final matched = _matchOption(cookLocRaw, ['(1) In the House', '(2) In a seperate Building', '(3) Outdoors', '(4) Other']);
+        if (matched != null) cookingLocations.add(matched);
+      }
+      _cookingLocationOther.text = (data['cooking_location_other'] ?? data['kplace_oth'] ?? '').toString();
 
       // ===== HOUSE DETAILS =====
-      ownHouse = data['own_house'];
-      typeofhouse = data['type_of_house'];
-      final roomsRaw = data['no_of_rooms'];
-      if (roomsRaw is int) {
-        noOfRooms = roomsRaw;
-      } else {
-        noOfRooms = int.tryParse(roomsRaw?.toString() ?? '');
-      }
-      roofType = data['roof_type'];
-      wallType = data['wall_type'];
-      floorType = data['floor_type'];
+      ownHouse = _matchOption(data['own_house'] ?? data['ownhouse'], ['(1) Yes', '(2) No']);
+      typeofhouse = _matchOption(data['type_of_house'] ?? data['typhouse'], ['(3) KACHHA', '(2) SEMI PUCCA', '(1) PUCCA']);
+      
+      final roomsRaw = data['no_of_rooms'] ?? data['norooms'] ?? data['rooms'];
+      noOfRooms = int.tryParse(roomsRaw?.toString() ?? '');
+      
+      roofType = _matchOption(data['roof_type'] ?? data['roof'], ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']);
+      wallType = _matchOption(data['wall_type'] ?? data['wall'], ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']);
+      floorType = _matchOption(data['floor_type'] ?? data['floor'], ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA']);
 
       // ===== COOKING =====
-      cookingFuel = data['cooking_fuel'];
-      separateKitchen = data['separate_kitchen'];
+      cookingFuel = data['cooking_fuel']?.toString();
+      separateKitchen = _matchOption(data['separate_kitchen'] ?? data['seproomk'], ['(1) Yes', '(2) No']);
+      
+      cookingFuelTypes = [];
+      final fuelList = ['(1) Electricity', '(2) LPG/N.GAS', '(3) Kerosene', '(4) Wood', '(5) Coal', '(6) Crop Residues', '(7) Dung Cakes', '(77) Other'];
+      if (data['typcookfuel_lpg'] == '1') cookingFuelTypes.add('(2) LPG/N.GAS');
+      // Add more manual mappings for specific fuel flags if present
+      
+      _cookingFuelOther.text = (data['cooking_fuel_other'] ?? data['typcookfuel_spy'] ?? '').toString();
+      cookingFuelMain = _matchOption(data['cooking_fuel_main'] ?? data['typcookfuel_main'], fuelList) ?? (data['cooking_fuel_main'] ?? data['typcookfuel_main'])?.toString();
 
-      // Q6
-      cookingFuelTypes = List<String>.from(data['cooking_fuel_types'] ?? []);
-      _cookingFuelOther.text = data['cooking_fuel_other'] ?? '';
-      cookingFuelMain = data['cooking_fuel_main'];
+      // ===== LIGHTING / WATER =====
+      lightingSource = _matchOption(data['lighting_source'] ?? data['source_lig'], ['(1) Electricity', '(2) Kerosene', '(3) Oil', '(4) Gas']);
+      
+      waterSources = [];
+      final waterOptList = ['(1) Piped water', '(2) Bore Well', '(3) Dug Well', '(4) Surface water', '(5) Tanker/truck', '(6) Bottled water', '(77) Other'];
+      if (data['pipedwater'] == '1' || data['pipedwater31'] == '1') waterSources.add('(1) Piped water');
+      if (data['bottledwater'] == '1') waterSources.add('(6) Bottled water');
+      
+      _waterSourceOther.text = (data['water_source_other'] ?? data['source_water_spy'] ?? '').toString();
+      waterMainSource = _matchOption(data['water_main_source'] ?? data['mainly_use_drink'], waterOptList) ?? (data['water_main_source'] ?? data['mainly_use_drink'])?.toString();
 
-      // ===== LIGHTING =====
-      lightingSource = data['lighting_source'];
+      waterTreatment = [];
+      if (data['safer_water_filter'] == '1') waterTreatment.add('(4) Use water filter');
+      _waterTreatmentOther.text = (data['water_treatment_other'] ?? data['safe_drink_spy'] ?? '').toString();
 
-      // ===== WATER (DRINKING) =====
-      waterSources = List<String>.from(data['water_sources'] ?? []);
-      _waterSourceOther.text = data['water_source_other'] ?? '';
-      waterMainSource = data['water_main_source'];
+      waterAllPurposeSources = [];
+      _waterAllPurposeOther.text = data['water_all_other']?.toString() ?? '';
+      waterAllPurposeMain = _matchOption(data['water_all_main'] ?? data['mainly_use_all'], waterOptList) ?? (data['water_all_main'] ?? data['mainly_use_all'])?.toString();
 
-      // ===== WATER TREATMENT =====
-      waterTreatment = List<String>.from(data['water_treatment'] ?? []);
-      _waterTreatmentOther.text = data['water_treatment_other'] ?? '';
+      // ===== SANITATION / RATION =====
+      toiletFacility = _matchOption(data['toilet_facility'] ?? data['toilet'], ['(1) Flush/pour to Pit', '(2) Pit Latrine', '(3) Shared', '(4) Open field', '(77) Other']);
+      _toiletOther.text = (data['toilet_facility_other'] ?? data['toilet_spy'] ?? '').toString();
+      rationCard = _matchOption(data['ration_card'] ?? data['rcard'], ['(1) Yes', '(2) No']);
+      religion = _matchOption(data['religion'], ['(1) Hindu', '(2) Muslim', '(3) Christian', '(4) Sikh', '(5) Buddhist', '(6) Jain', '(77) Other']);
+      caste = _matchOption(data['caste'], ['(1) General', '(2) OBC', '(3) SC', '(4) ST', '(77) Other']);
 
-      // ===== WATER (ALL PURPOSES) =====
-      waterAllPurposeSources =
-          List<String>.from(data['water_all_sources'] ?? []);
-      _waterAllPurposeOther.text = data['water_all_other'] ?? '';
-      waterAllPurposeMain = data['water_all_main'];
-
-      // ===== SANITATION =====
-      toiletFacility = data['toilet_facility'];
-      _toiletOther.text = data['toilet_facility_other'] ?? '';
-
-      // ===== RATION CARD =====
-      rationCard = data['ration_card'];
-
-      // ===== RELIGION / CASTE =====
-      religion = data['religion'];
-      caste = data['caste'];
-
-      // ===== ASSETS =====
-      householdAssets = List<String>.from(data['household_assets'] ?? []);
-
-      // ===== AGRICULTURE LAND =====
-      final agriRaw = data['agriculture_land'];
-      if (agriRaw == 'yes' || agriRaw == '(1) Yes') {
-        hasAgricultureLand = '(1) Yes';
-      } else if (agriRaw == 'no' || agriRaw == '(2) No') {
-        hasAgricultureLand = '(2) No';
-      } else {
-        hasAgricultureLand = agriRaw;
+      // ===== ASSETS / AGRI =====
+      householdAssets = [];
+      void addAsset(dynamic check, String name) {
+        if (check?.toString() == '1' || check?.toString() == '2') {
+          if (!householdAssets.contains(name)) householdAssets.add(name);
+        }
       }
-      agricultureLandArea = data['agriculture_land_area'];
-      agricultureLandUnit = data['agriculture_land_unit'];
 
-      // ===== IRRIGATED LAND =====
-      irrigatedLandArea = data['irrigated_land_area'];
-      irrigatedLandUnit = data['irrigated_land_unit'];
-      irrigatedNone = data['irrigated_none'] ?? false;
+      addAsset(data['tv'], 'Colour TV');
+      addAsset(data['bw_tv'], 'Colour TV'); // Map both to the same if only one exists
+      addAsset(data['refrigerator'], 'Refrigerator');
+      addAsset(data['mobile'], 'Mobile phone');
+      addAsset(data['any_phone'], 'Any phone');
+      addAsset(data['car'], 'Car');
+      addAsset(data['bicycle'], 'Bicycle');
+      addAsset(data['ele_fan'], 'Electric Fan');
+      addAsset(data['radio'], 'Radio');
+      addAsset(data['mixer'], 'Mixer');
+      addAsset(data['pressure_cooker'] ?? data['pressur_cooker'], 'Pressure cooker');
+      addAsset(data['mattress'], 'Mattress');
+      addAsset(data['cot'], 'Cot/bed');
+      addAsset(data['sewing_mach'], 'sewing Machine');
+      addAsset(data['scooter'], 'Scooter');
+      addAsset(data['cart'], 'Animal cart');
+      addAsset(data['chair'], 'Chair');
+      addAsset(data['table1'], 'Table');
+      addAsset(data['water_pump'], 'Water pump');
+      addAsset(data['computer'], 'Computer');
+      addAsset(data['tractor'], 'Tractor');
+      addAsset(data['thresher'], 'Thresher');
+      
+      final agriRaw = data['agriculture_land'] ?? data['agri_land'];
+      hasAgricultureLand = _matchOption(agriRaw, ['(1) Yes', '(2) No']);
+      
+      agricultureLandArea = (data['agriculture_land_area'] ?? data['agri_land_spy'] ?? '').toString();
+      agricultureLandUnit = _matchOption(data['agriculture_land_unit'] ?? data['agri_land_spy_ag'], ['Acres', 'Guntas']) ?? (data['agriculture_land_unit'] ?? data['agri_land_spy_ag'])?.toString();
+      irrigatedNone = data['irrigated_none'] == true || data['agri_land_none'] == '1';
 
-      // ===== CATTLE =====
-      cattleOwned = List<String>.from(data['cattle_owned'] ?? []);
-      _cattleOther.text = data['cattle_other'] ?? '';
+      cattleOwned = [];
+      if (data['cattle_none'] == '1') cattleOwned.add('(5) None');
+      _cattleOther.text = (data['cattle_other'] ?? data['cattle_oth_spy'] ?? '').toString();
 
-      // ===== HEALTH CARE =====
-      healthCarePlace = data['health_care_place'];
+      healthCarePlace = _matchOption(data['health_care_place'] ?? data['get_sick'] ?? data['kplace'], ['(1) Govt Hospital', '(2) Private Hospital', '(3) Private Clinic', '(4) Medical Store', '(5) Home', '(77) Other']);
+      
+      govtHospitalReasons = [];
+      _govtHospitalOther.text = (data['govt_hospital_other'] ?? data['why_not_govt_spy'] ?? data['why_not_govt_1'] ?? '').toString();
 
-      // ===== GOVT HOSPITAL =====
-      govtHospitalReasons =
-          List<String>.from(data['govt_hospital_reasons'] ?? []);
-      _govtHospitalOther.text = data['govt_hospital_other'] ?? '';
-
-      // ===== ZOHO ID =====
-      zohoId = data['zoho_id'];
-    }
+      zohoId = data['zoho_id']?.toString();
+      
+      debugPrint('POPULATE: ID=${_familyId.text}, Head=${_head.text}, State=$selectedState');
+    });
   }
 
   @override
@@ -273,6 +394,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 
   void _resetForm() {
     setState(() {
+      _isEditingFromSearch = false;
       _familyId.clear();
       _houseNo.clear();
       _head.clear();
@@ -337,12 +459,12 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     try {
       final connectivityResult = await Connectivity().checkConnectivity();
       final isOnline = connectivityResult != ConnectivityResult.none;
-      final isEditing = widget.existingData != null;
+      final isEditing = widget.existingData != null || _isEditingFromSearch;
 
       debugPrint('SAVE: isOnline=$isOnline, isEditing=$isEditing');
 
       String finalId = _familyId.text;
-      bool isTemp = finalId.startsWith('OFF_');
+      bool isTemp = finalId.startsWith('Off-') || finalId.startsWith('Off_');
       debugPrint('SAVE: Original ID: $finalId (isTemp=$isTemp)');
 
       final data = {
@@ -408,12 +530,12 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         if (oldId != null && oldId != finalId) {
           debugPrint('SAVE: Family Id changed. Deleting $oldId');
           // No await here to avoid blocking UI if offline
-          FirebaseFirestore.instance.collection('client').doc(oldId).delete();
+          FirebaseFirestore.instance.collection('Family Code Creation').doc(oldId).delete();
         }
 
         // Fire and forget local write for immediate feedback
         FirebaseFirestore.instance
-            .collection('client')
+            .collection('Family Code Creation')
             .doc(finalId)
             .set(data, SetOptions(merge: true));
         
@@ -424,45 +546,40 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           _triggerZohoSync(finalId, data);
         }
       } else if (isOnline) {
-        debugPrint('SAVE: Online mode, attempting transaction with 5s timeout');
+        debugPrint('SAVE: Online mode, attempting transaction');
         try {
-          // Determine prefix
-          String prefix = '';
-          if (isTemp) {
-            final parts = finalId.split('_');
-            if (parts.length >= 2) prefix = parts[1];
-          } else if (finalId.length >= 3) {
-            prefix = finalId.substring(0, finalId.length - 3);
-          }
+          // Calculate prefix properly from selected location codes
+          final stateCode = locationData['state_code'] ?? 'TS';
+          final districtCode = (locationData['districts'] as Map?)?[selectedDistrict]?['code'] ?? '';
+          final mandalCode = (locationData['districts'] as Map?)?[selectedDistrict]?['mandals']?[selectedMandal]?['code'] ?? '';
+          final villageCode = (locationData['districts'] as Map?)?[selectedDistrict]?['mandals']?[selectedMandal]?['Villages']?[selectedVillage]?['code'] ?? '';
+          
+          final String prefix = '$stateCode$districtCode$mandalCode$villageCode';
 
-          if (prefix.isNotEmpty) {
+          if (prefix.length >= 5) { // Minimum prefix length check
             final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
             
-            // Pre-fetch legacy ID (quick check)
-            int legacySuffix = 0;
+            // 1. Get current count as a safety hint (No index required)
+            int countHint = 0;
             try {
-              final counterSnap = await counterRef.get().timeout(const Duration(seconds: 2));
-              if (!counterSnap.exists) {
-                final query = await FirebaseFirestore.instance
-                    .collection('client')
-                    .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
-                    .where(FieldPath.documentId, isLessThan: prefix + 'z')
-                    .limitToLast(1)
-                    .get().timeout(const Duration(seconds: 2));
-                if (query.docs.isNotEmpty) {
-                  final lastId = query.docs.first.id;
-                  if (!lastId.startsWith('OFF_')) {
-                    legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
-                  }
-                }
-              }
-            } catch (_) {}
+              final agg = await FirebaseFirestore.instance
+                  .collection('Family Code Creation')
+                  .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
+                  .where(FieldPath.documentId, isLessThanOrEqualTo: '$prefix\uf8ff')
+                  .count()
+                  .get().timeout(const Duration(seconds: 4));
+              countHint = agg.count ?? 0;
+            } catch (e) {
+              debugPrint('SAVE: Count hint failed: $e');
+            }
 
             await FirebaseFirestore.instance.runTransaction((transaction) async {
               final counterSnap = await transaction.get(counterRef);
-              int lastSuffix = legacySuffix;
-              if (counterSnap.exists) {
-                lastSuffix = counterSnap.data()?['last_suffix'] ?? 0;
+              int lastSuffix = counterSnap.exists ? (counterSnap.data()?['last_suffix'] ?? 0) : 0;
+              
+              // Use the maximum of (Counter Value, Current DB Count)
+              if (countHint > lastSuffix) {
+                lastSuffix = countHint;
               }
 
               final nextSuffix = lastSuffix + 1;
@@ -473,46 +590,65 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               finalData['is_temporary'] = false;
 
               transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
-              transaction.set(FirebaseFirestore.instance.collection('client').doc(newId), finalData);
+              transaction.set(FirebaseFirestore.instance.collection('Family Code Creation').doc(newId), finalData);
               finalId = newId;
-            }).timeout(const Duration(seconds: 5));
+            }).timeout(const Duration(seconds: 10));
             
             saveHandled = true;
             _triggerZohoSync(finalId, data);
           }
         } catch (e) {
-          debugPrint('SAVE: Online transaction failed/timed out: $e');
+          debugPrint('SAVE: Online transaction failed: $e');
         }
       }
 
       if (!saveHandled) {
         debugPrint('SAVE: Fallback to offline local save');
-        String villagePrefix = '';
-        if (isTemp) {
-          final parts = finalId.split('_');
-          if (parts.length >= 2) villagePrefix = parts[1];
-        } else if (finalId.length >= 3) {
-          villagePrefix = finalId.substring(0, finalId.length - 3);
-        }
+        
+        // Re-calculate prefix for offline consistency
+        final stateCode = locationData['state_code'] ?? 'TS';
+        final districtCode = (locationData['districts'] as Map?)?[selectedDistrict]?['code'] ?? '';
+        final mandalCode = (locationData['districts'] as Map?)?[selectedDistrict]?['mandals']?[selectedMandal]?['code'] ?? '';
+        final villageCode = (locationData['districts'] as Map?)?[selectedDistrict]?['mandals']?[selectedMandal]?['Villages']?[selectedVillage]?['code'] ?? '';
+        final String prefix = '$stateCode$districtCode$mandalCode$villageCode';
 
-        // Generate OFF ID if not already one
-        if (!finalId.startsWith('OFF_')) {
-          finalId = 'OFF_${villagePrefix}_${DateTime.now().millisecondsSinceEpoch}';
+        // Use the ID generated by _generateFamilyId if it matches the current selection and is Off-
+        // otherwise generate a new Off- ID.
+        if (!finalId.startsWith('Off-') || !finalId.contains(prefix)) {
+          int lastLocalSuffix = 0;
+          final localData = await LocalDatabaseService().searchFamilyDetails(prefix, limit: 1);
+          if (localData.isNotEmpty) {
+            final lastId = localData.first['family_id']?.toString() ?? '';
+            // Ignore temporary IDs when calculating the suffix sequence
+            if (lastId.startsWith(prefix) && !lastId.startsWith('Off-') && !lastId.startsWith('OFF-') && !lastId.startsWith('OFF_')) {
+              final suffixStr = lastId.substring(prefix.length);
+              lastLocalSuffix = int.tryParse(suffixStr) ?? 0;
+            }
+          }
+          final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+          final nextSuf = (lastLocalSuffix + 1).toString().padLeft(5, '0');
+          finalId = 'Off-$prefix-$nextSuf-$timestamp';
         }
 
         final finalData = Map<String, dynamic>.from(data);
         finalData['family_id'] = finalId;
         finalData['is_temporary'] = true;
-        finalData['village_prefix'] = villagePrefix;
+        finalData['village_prefix'] = prefix; // Store prefix for background sync
 
         FirebaseFirestore.instance
-            .collection('client')
+            .collection('Family Code Creation')
             .doc(finalId)
             .set(finalData);
         debugPrint('SAVE: Local save queued for ID $finalId');
       }
 
       if (mounted) {
+        // Proactively update local cache so it's immediately available in dropdowns & searches
+        final finalData = Map<String, dynamic>.from(data);
+        finalData['family_id'] = finalId;
+        DataCacheService().addGeneratedCode(finalId);
+        DataCacheService().addGeneratedDetail(finalData);
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: isOnline ? Colors.green : Colors.orange,
@@ -536,10 +672,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 
   // New helper method for background sync
   void _triggerZohoSync(String fId, Map<String, dynamic> fData) {
+    /*
     ZohoCreatorService().syncRecord({'family_id': fId, ...fData}).then((returnedZohoId) {
       if (returnedZohoId != null) {
         FirebaseFirestore.instance
-            .collection('client')
+            .collection('Family Code Creation')
             .doc(fId)
             .update({
               'zoho_id': returnedZohoId.toString(),
@@ -550,6 +687,130 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     }).catchError((e) {
       debugPrint('SAVE: Background Zoho sync failed for $fId: $e');
     });
+    */
+  }
+
+  Future<void> _searchAndLoadRecord([String? customId]) async {
+    String? code = customId;
+    if (code == null || code.isEmpty) {
+      code = await showDialog<String>(
+        context: context,
+        builder: (context) {
+          final controller = TextEditingController();
+          return AlertDialog(
+            title: const Text('Search by Family Code'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Enter Family Code (e.g. VIL12345)',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('Search'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    if (code == null || code.isEmpty) return;
+
+    if (mounted) setState(() => _isSaving = true);
+    debugPrint('SEARCH: Starting search for ID: "$code"');
+    
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      final isOnline = connectivityResult != ConnectivityResult.none;
+
+      DocumentSnapshot<Map<String, dynamic>>? firestoreDoc;
+      Map<String, dynamic>? localData;
+
+      // 1. ALWAYS Try Local SQLite First (Instant)
+      debugPrint('SEARCH: Checking local SQLite for "$code"...');
+      localData = await LocalDatabaseService().getSingleFamilyDetail(code.trim());
+
+      if (localData != null) {
+        debugPrint('SEARCH: Found in SQLite!');
+        _populateForm(localData, code.trim());
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Details for $code loaded INSTANTLY from local memory'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return; // Success, exit
+      }
+
+      // 2. Fallback to Firestore (Server or Cache)
+      if (isOnline) {
+        try {
+          debugPrint('SEARCH: Not in SQLite, trying server for "$code"...');
+          firestoreDoc = await FirebaseFirestore.instance
+              .collection('Family Code Creation')
+              .doc(code.trim())
+              .get()
+              .timeout(const Duration(seconds: 5));
+        } catch (e) {
+          debugPrint('SEARCH: Server failed ($e), checking Firestore cache...');
+          firestoreDoc = await FirebaseFirestore.instance
+              .collection('Family Code Creation')
+              .doc(code.trim())
+              .get(const GetOptions(source: Source.cache));
+        }
+      } else {
+        debugPrint('SEARCH: Offline and not in SQLite, checking Firestore cache...');
+        firestoreDoc = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .doc(code.trim())
+            .get(const GetOptions(source: Source.cache));
+      }
+
+      debugPrint('SEARCH: Firestore result received. Exists: ${firestoreDoc.exists}');
+      if (firestoreDoc.exists && firestoreDoc.data() != null) {
+        _populateForm(firestoreDoc.data()!, firestoreDoc.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Details for $code loaded from ${isOnline ? "Server" : "Firestore Cache"}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Record $code not found on this phone. Please sync when online.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        debugPrint('SEARCH ERROR: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Search Error: Not found in memory. Please use the Green Download button while online.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   void _openList() async {
@@ -574,58 +835,116 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     }
 
     try {
-      final stateCode = locationData['state_code'] ?? '';
+      final stateCode = locationData['state_code'] ?? 'TS';
       final districts = locationData['districts'] as Map<String, dynamic>?;
       final districtData = districts?[selectedDistrict];
       final districtCode = districtData?['code'] ?? '';
+      
       final mandals = districtData?['mandals'] as Map<String, dynamic>?;
       final mandalData = mandals?[selectedMandal];
       final mandalCode = mandalData?['code'] ?? '';
+      
       final villages = mandalData?['Villages'] as Map<String, dynamic>?;
       final villageData = villages?[selectedVillage];
       final villageCode = villageData?['code'] ?? '';
 
       final prefix = '$stateCode$districtCode$mandalCode$villageCode';
-      if (prefix.isEmpty) return;
-
-      final connectivityResult = await Connectivity().checkConnectivity();
-      if (connectivityResult == ConnectivityResult.none) {
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-        if (mounted) setState(() => _familyId.text = 'OFF_${prefix}_$timestamp');
+      if (prefix.length < 5) {
+        debugPrint('Prefix too short: $prefix');
         return;
       }
 
-      // Online: Get next sequential ID (using Counter Document pattern)
-      int nextSuffix = 1;
-      final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
+      final connectivityResult = await Connectivity().checkConnectivity();
       
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final counterSnap = await transaction.get(counterRef);
-        if (counterSnap.exists) {
-          nextSuffix = (counterSnap.data()?['last_suffix'] ?? 0) + 1;
-        } else {
-          // If counter doesn't exist, we must find the last ID legacy way ONCE
-          final query = await FirebaseFirestore.instance
-              .collection('client')
-              .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
-              .where(FieldPath.documentId, isLessThan: prefix + 'z')
-              .get();
-          final realDocs = query.docs.where((d) => !d.id.startsWith('OFF_')).toList();
-          if (realDocs.isNotEmpty) {
-            final lastId = realDocs.last.id;
+      // Try to find last ID in SQLite first as a quick hint (even if online)
+      int lastLocalSuffix = 0;
+      try {
+        final localData = await LocalDatabaseService().searchFamilyDetails(prefix, limit: 1);
+        if (localData.isNotEmpty) {
+          final lastId = localData.first['family_id']?.toString() ?? '';
+          if (lastId.startsWith(prefix) && !lastId.startsWith('Off-') && !lastId.startsWith('OFF-') && !lastId.startsWith('OFF_')) {
             final suffixStr = lastId.substring(prefix.length);
-            nextSuffix = (int.tryParse(suffixStr) ?? 0) + 1;
+            lastLocalSuffix = int.tryParse(suffixStr) ?? 0;
           }
         }
-        // Note: We don't increment here, because if the user doesn't SAVE, we've burned an ID.
-        // Actually, for sequential IDs, it's better to increment ON SAVE.
-        // But for UI preview, we just show the "expected" next ID.
-      });
+      } catch (e) {
+        debugPrint('Local suffix check failed: $e');
+      }
+
+      if (connectivityResult == ConnectivityResult.none) {
+        // Offline: Format as Off-PREFIX-00001-TIMESTAMP for a cleaner look
+        final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+        final nextSuf = (lastLocalSuffix + 1).toString().padLeft(5, '0');
+        if (mounted) setState(() => _familyId.text = 'Off-$prefix-$nextSuf-$timestamp');
+        return;
+      }
+
+      // Online: Get exact next sequential ID from Firestore counter
+      int nextSuffix = lastLocalSuffix + 1;
+      final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
+      
+      // Online: Use COUNT aggregation + Counter Doc + Local Cache for triple-checking
+      try {
+        debugPrint('ID_GEN: Aggregating count for prefix $prefix...');
+        
+        // 1. Firestore Count (Actual records)
+        int firestoreCount = 0;
+        try {
+          final aggregateQuery = await FirebaseFirestore.instance
+              .collection('Family Code Creation')
+              .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
+              .where(FieldPath.documentId, isLessThanOrEqualTo: '$prefix\uf8ff')
+              .count()
+              .get().timeout(const Duration(seconds: 4));
+          firestoreCount = aggregateQuery.count ?? 0;
+          debugPrint('ID_GEN: Firestore Count found: $firestoreCount');
+        } catch (e) {
+          debugPrint('ID_GEN: Firestore count failed (missing index?): $e');
+        }
+
+        // 2. Counter Doc (Concurrency source)
+        int counterVal = 0;
+        try {
+          final counterSnap = await counterRef.get().timeout(const Duration(seconds: 3));
+          if (counterSnap.exists) {
+            counterVal = counterSnap.data()?['last_suffix'] ?? 0;
+            debugPrint('ID_GEN: Counter last_suffix: $counterVal');
+          }
+        } catch (e) {
+          debugPrint('ID_GEN: Counter fetch failed: $e');
+        }
+
+        // 3. Local Database Count (Offline data)
+        int localCount = 0;
+        try {
+          // Add a new method to localDb to get count by prefix
+          localCount = await LocalDatabaseService().getFamilyCountByPrefix(prefix);
+          debugPrint('ID_GEN: Local DB Count: $localCount');
+        } catch (e) {
+          debugPrint('ID_GEN: Local count failed: $e');
+        }
+
+        // Final Logic: Take the MAXIMUM of everything we found
+        // This ensures if you have 780 records, we see "780" and suggest "781"
+        int absoluteMax = firestoreCount;
+        if (counterVal > absoluteMax) absoluteMax = counterVal;
+        if (localCount > absoluteMax) absoluteMax = localCount;
+        if (lastLocalSuffix > absoluteMax) absoluteMax = lastLocalSuffix;
+
+        nextSuffix = absoluteMax + 1;
+        debugPrint('ID_GEN: Final sequence start point: $absoluteMax -> Suggesting: $nextSuffix');
+        
+      } catch (e) {
+        debugPrint('ID_GEN: Overall generation failed: $e. Using local hint: $lastLocalSuffix');
+        nextSuffix = lastLocalSuffix + 1;
+      }
 
       final newId = '$prefix${nextSuffix.toString().padLeft(5, '0')}';
+      debugPrint('DEBUG: Final Generated Sequential ID: $newId');
+      
       if (mounted) setState(() => _familyId.text = newId);
     } catch (e) {
-      debugPrint('Error generating ID: $e');
+      debugPrint('CRITICAL: Error in _generateFamilyId: $e');
     }
   }
 
@@ -709,8 +1028,125 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     );
   }
 
+  // --- NEW: Sync Methods for FamilyFormPage ---
+  Future<void> _downloadAllForOffline() async {
+    if (_isSyncing) return;
+
+    final dbService = LocalDatabaseService();
+    final localDetailsCount = await dbService.getRecordCount('family_details');
+
+    final confirm = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: _isSyncResumable ? const Text('Resume Sync?') : const Text('Sync All Records'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Current Local Records: $localDetailsCount / 17,000+'),
+            const SizedBox(height: 12),
+            Text(_isSyncResumable 
+              ? 'Resume downloading from record $_lastSyncProgress. This is faster and safer for weak signals.'
+              : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.'),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          if (_isSyncResumable)
+            TextButton(onPressed: () => Navigator.pop(context, 'new'), child: const Text('Start New', style: TextStyle(color: Colors.red))),
+          ElevatedButton(onPressed: () => Navigator.pop(context, 'start'), child: Text(_isSyncResumable ? 'Resume' : 'Start')),
+        ],
+      ),
+    );
+
+    if (confirm == 'start') {
+      _startFirestoreSync(resume: _isSyncResumable);
+    } else if (confirm == 'new') {
+      _lastSyncDoc = null;
+      _lastSyncProgress = 0;
+      _startFirestoreSync(resume: false);
+    }
+  }
+
+  Future<void> _startFirestoreSync({String? mandal, bool resume = false}) async {
+    setState(() {
+      _isSyncing = true;
+      if (!resume) _importedCountProgress = 0;
+      else _importedCountProgress = _lastSyncProgress;
+    });
+
+    final dbService = LocalDatabaseService();
+
+    try {
+      int count = _importedCountProgress;
+      DocumentSnapshot? lastDoc = resume ? _lastSyncDoc : null;
+      bool hasMore = true;
+
+      final baseQuery = mandal != null 
+          ? FirebaseFirestore.instance.collection('Family Code Creation').where('mandal', isEqualTo: mandal)
+          : FirebaseFirestore.instance.collection('Family Code Creation');
+
+      // Update total count visibility
+      final agg = await baseQuery.count().get().timeout(const Duration(seconds: 30));
+      setState(() => _totalRecordCount = agg.count ?? 0);
+
+      while (hasMore) {
+        Query query = baseQuery.limit(500); // 17,000 records optimization
+        if (lastDoc != null) query = query.startAfterDocument(lastDoc);
+
+        final snapshot = await query.get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 60));
+
+        if (snapshot.docs.isEmpty) {
+          hasMore = false;
+          _isSyncResumable = false;
+          break;
+        }
+
+        lastDoc = snapshot.docs.last;
+        count += snapshot.docs.length;
+
+        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+        await dbService.saveFamilyDetails(records, clearFirst: (resume == false && count == snapshot.docs.length));
+
+        if (mounted) {
+          setState(() {
+            _importedCountProgress = count;
+            _lastSyncDoc = lastDoc;
+            _lastSyncProgress = count;
+            _isSyncResumable = true;
+          });
+        }
+
+        if (snapshot.docs.length < 500) {
+          hasMore = false;
+          _isSyncResumable = false;
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('SUCCESS: $count records ready for offline use!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      debugPrint('Firestore Sync Error: $e');
+      if (mounted) {
+        String msg = e.toString();
+        if (msg.contains('TimeoutException')) msg = "Signal lost. Paused at $_importedCountProgress. Tap again to RESUME.";
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $msg'), backgroundColor: Colors.red, duration: const Duration(seconds: 8)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+  // ------------------------------------------
+
   @override
   Widget build(BuildContext context) {
+    debugPrint('BUILD: FamilyFormPage rebuild. ID=${_familyId.text}, Head=${_head.text}, EditingFromSearch=$_isEditingFromSearch');
     if (isLoadingLocations) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -719,9 +1155,28 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Family Form'),
+        title: const Text('Family Code Creation'),
         actions: [
-          IconButton(icon: const Icon(Icons.list), onPressed: _openList),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Search & Edit by Family Code',
+            onPressed: _searchAndLoadRecord,
+          ),
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: 'Save Current Form',
+            onPressed: _isSaving ? null : _save,
+          ),
+          IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: 'View Records List',
+            onPressed: _openList,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download_for_offline, color: Colors.green),
+            tooltip: 'Download All Records',
+            onPressed: _downloadAllForOffline,
+          ),
         ],
       ),
       drawer: const AppDrawer(),
@@ -730,17 +1185,50 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_isSyncing)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Syncing Data for Offline Use...', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('$_importedCountProgress / $_totalRecordCount'),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _totalRecordCount > 0 ? _importedCountProgress / _totalRecordCount : null,
+                      backgroundColor: Colors.blue[100],
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[700]!),
+                    ),
+                  ],
+                ),
+              ),
             _buildSectionCard(
               title: 'Family & Location Details',
               children: [
                 TextFormField(
                   controller: _familyId,
                   readOnly: familyIdReadOnly,
-                  decoration: const InputDecoration(
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
                     labelText: 'Family ID',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                     helperText: 'Auto-generated based on location',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.search, color: Colors.blue),
+                      onPressed: () => _searchAndLoadRecord(_familyId.text.trim()),
+                    ),
                   ),
+                  onFieldSubmitted: (val) => _searchAndLoadRecord(val.trim()),
                   validator: (v) => v == null || v.isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
@@ -1885,6 +2373,11 @@ class _RecordsPageState extends State<RecordsPage> {
   int _currentLimit = 300;
   bool _isLoadingMore = false;
 
+  // Final Pure Firestore Sync State
+  DocumentSnapshot? _lastSyncDoc;
+  int _lastSyncProgress = 0;
+  bool _isSyncResumable = false;
+
   // Mapping of UI Label to Firestore/Zoho Data Key
   final Map<String, String> _fieldMapping = {
     'State': 'state',
@@ -1961,6 +2454,17 @@ class _RecordsPageState extends State<RecordsPage> {
     'Hosp Avoid Other': 'govt_hospital_other',
   };
 
+  Future<void> _refreshTotalCount() async {
+    try {
+      final agg = await FirebaseFirestore.instance.collection('Family Code Creation').count().get();
+      if (mounted) {
+        setState(() => _totalRecordCount = agg.count ?? 0);
+      }
+    } catch (e) {
+      debugPrint('Error refreshing count: $e');
+    }
+  }
+
   void _deleteRecord(String docId) {
     showDialog(
       context: context,
@@ -1975,7 +2479,7 @@ class _RecordsPageState extends State<RecordsPage> {
           TextButton(
             onPressed: () {
               FirebaseFirestore.instance
-                  .collection('client')
+                  .collection('Family Code Creation')
                   .doc(docId)
                   .delete();
               Navigator.pop(context);
@@ -2000,39 +2504,26 @@ class _RecordsPageState extends State<RecordsPage> {
     }
     if (label == 'Actions') {
       return DataCell(
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert, color: Colors.grey),
-          onSelected: (value) {
-            if (value == 'edit') {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => FamilyFormPage(
-                    existingData: record,
-                    docId: doc.id,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => FamilyFormPage(
+                      existingData: record,
+                      docId: doc.id,
+                    ),
                   ),
-                ),
-              );
-            } else if (value == 'delete') {
-              _deleteRecord(doc.id);
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'edit',
-              child: ListTile(
-                leading: Icon(Icons.edit, color: Colors.blue),
-                title: Text('Edit'),
-                contentPadding: EdgeInsets.zero,
-              ),
+                );
+              },
             ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: ListTile(
-                leading: Icon(Icons.delete, color: Colors.red),
-                title: Text('Delete'),
-                contentPadding: EdgeInsets.zero,
-              ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+              onPressed: () => _deleteRecord(doc.id),
             ),
           ],
         ),
@@ -2083,146 +2574,187 @@ class _RecordsPageState extends State<RecordsPage> {
     );
   }
 
-  Future<void> _performFullZohoSync({bool silent = false}) async {
-    if (_isSyncing) {
-      debugPrint('IMPORT: Already syncing, ignoring request.');
-      return;
-    }
-    
+  Future<void> _downloadByLocation() async {
     final connectivityResult = await Connectivity().checkConnectivity();
     if (connectivityResult == ConnectivityResult.none) {
-      if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No internet connection. Cannot sync with Zoho.')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No internet connection.')));
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _isSyncing = true;
-        _importedCountProgress = 0;
+    try {
+      final locDoc = await FirebaseFirestore.instance.collection('locations').doc('telangana').get();
+      if (!locDoc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location data not found.')));
+        return;
+      }
+      final locData = locDoc.data()!;
+      final districts = locData.keys.toList();
+
+      String? selectedDist;
+      String? selectedMand;
+
+      await showDialog(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Sync by Area'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Select a District and Mandal to sync for offline work.'),
+                const SizedBox(height: 16),
+                DropdownButton<String>(
+                  hint: const Text('Select District'),
+                  value: selectedDist,
+                  isExpanded: true,
+                  items: districts.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                  onChanged: (v) => setDialogState(() { selectedDist = v; selectedMand = null; }),
+                ),
+                if (selectedDist != null)
+                  DropdownButton<String>(
+                    hint: const Text('Select Mandal'),
+                    value: selectedMand,
+                    isExpanded: true,
+                    items: (locData[selectedDist] as List).map((v) => DropdownMenuItem(value: v.toString(), child: Text(v.toString()))).toList(),
+                    onChanged: (v) => setDialogState(() => selectedMand = v),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: selectedMand == null ? null : () => Navigator.pop(context, 'start'),
+                child: const Text('Sync Area'),
+              ),
+            ],
+          ),
+        ),
+      ).then((val) {
+        if (val == 'start') _startFirestoreSync(mandal: selectedMand);
       });
+    } catch (e) {
+      debugPrint('Sync Error: $e');
     }
-    
-    int imported = 0;
-    int errors = 0;
-    final Set<String> fetchedZohoIds = {};
+  }
+
+  Future<void> _downloadAllForOffline() async {
+    if (_isSyncing) return;
+
+    final dbService = LocalDatabaseService();
+    final localDetailsCount = await dbService.getRecordCount('family_details');
+
+    final confirm = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: _isSyncResumable ? const Text('Resume Sync?') : const Text('Sync All Records'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Current Local Records: $localDetailsCount / 17,000+'),
+            const SizedBox(height: 12),
+            Text(_isSyncResumable 
+              ? 'Resume downloading from record $_lastSyncProgress. This is faster and safer for weak signals.'
+              : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.'),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          if (_isSyncResumable)
+            TextButton(onPressed: () => Navigator.pop(context, 'new'), child: const Text('Start New', style: TextStyle(color: Colors.red))),
+          ElevatedButton(onPressed: () => Navigator.pop(context, 'start'), child: Text(_isSyncResumable ? 'Resume' : 'Start')),
+        ],
+      ),
+    );
+
+    if (confirm == 'start') {
+      _startFirestoreSync(resume: _isSyncResumable);
+    } else if (confirm == 'new') {
+      _lastSyncDoc = null;
+      _lastSyncProgress = 0;
+      _startFirestoreSync(resume: false);
+    }
+  }
+
+  Future<void> _startFirestoreSync({String? mandal, bool resume = false}) async {
+    setState(() {
+      _isSyncing = true;
+      if (!resume) _importedCountProgress = 0;
+      else _importedCountProgress = _lastSyncProgress;
+    });
+
+    final dbService = LocalDatabaseService();
 
     try {
-      debugPrint('IMPORT: Starting full Zoho fetch...');
-      await ZohoCreatorService().fetchRecords(
-        onBatch: (batch) async {
-          final writeBatch = FirebaseFirestore.instance.batch();
-          int batchSaved = 0;
+      int count = _importedCountProgress;
+      DocumentSnapshot? lastDoc = resume ? _lastSyncDoc : null;
+      bool hasMore = true;
 
-          for (final data in batch) {
-            final zidRaw = data['zoho_id']?.toString();
-            if (zidRaw == null || zidRaw.isEmpty) continue;
+      final baseQuery = mandal != null 
+          ? FirebaseFirestore.instance.collection('Family Code Creation').where('mandal', isEqualTo: mandal)
+          : FirebaseFirestore.instance.collection('Family Code Creation');
 
-            final zohoId = zidRaw.trim();
-            fetchedZohoIds.add(zohoId);
+      // Update total count visibility
+      final agg = await baseQuery.count().get().timeout(const Duration(seconds: 30));
+      setState(() => _totalRecordCount = agg.count ?? 0);
 
-            try {
-              final docRef = FirebaseFirestore.instance.collection('client').doc(zohoId);
-              writeBatch.set(docRef, data, SetOptions(merge: true));
-              batchSaved++;
-              imported++;
-            } catch (e) {
-              debugPrint('IMPORT ERROR for Zoho ID $zohoId: $e');
-              errors++;
-            }
-          }
+      while (hasMore) {
+        Query query = baseQuery.limit(500); // Larger batches for 17,000 records
+        if (lastDoc != null) query = query.startAfterDocument(lastDoc);
 
-          if (batchSaved > 0) {
-            await writeBatch.commit();
-          }
-          
-          if (mounted) {
-            setState(() {
-              _importedCountProgress = imported;
-              if (imported % 1000 == 0) _totalRecordCount = imported;
-            });
-          }
-        },
-      );
+        final snapshot = await query.get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 60));
 
-      debugPrint('IMPORT: Zoho fetch complete. Found ${fetchedZohoIds.length} records. Starting cleanup...');
-
-      // --- DELETE STALE RECORDS ---
-      if (fetchedZohoIds.isNotEmpty) {
-        if (!silent && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Verification: Deleting stale records...'), duration: Duration(seconds: 3)),
-          );
+        if (snapshot.docs.isEmpty) {
+          hasMore = false;
+          _isSyncResumable = false;
+          break;
         }
 
-        // Force server fetch to ensure we see the latest state and don't rely on cache
-        final snapshot = await FirebaseFirestore.instance
-            .collection('client')
-            .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(minutes: 5));
-        
-        debugPrint('IMPORT: Firebase snapshot fetched (${snapshot.docs.length} docs).');
-        
-        int deletedCount = 0;
-        final deleteBatch = FirebaseFirestore.instance.batch();
-        int batchSize = 0;
+        lastDoc = snapshot.docs.last;
+        count += snapshot.docs.length;
 
-        for (var doc in snapshot.docs) {
-          final docId = doc.id.trim();
-          final data = doc.data() as Map<String, dynamic>;
-          final zid = data['zoho_id']?.toString().trim();
-          
-          bool isLocalTemp = docId.startsWith('OFF_');
-          // If it's not a temp record, and it's NOT in our list from Zoho, it should be deleted
-          // We check if the docId is a Zoho ID OR if there's a zoho_id field
-          bool isZohoRecord = RegExp(r'^\d{15,}$').hasMatch(docId) || (zid != null && zid.isNotEmpty);
+        // --- NEW: Save to Local SQLite ---
+        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+        await dbService.saveFamilyDetails(records, clearFirst: (resume == false && count == snapshot.docs.length));
+        // ---------------------------------
 
-          if (!isLocalTemp && isZohoRecord) {
-            final idToCheck = (zid != null && zid.isNotEmpty) ? zid : docId;
-            if (!fetchedZohoIds.contains(idToCheck)) {
-              debugPrint('IMPORT: Deleting record missing from Zoho: $idToCheck');
-              deleteBatch.delete(doc.reference);
-              deletedCount++;
-              batchSize++;
-              
-              if (batchSize >= 400) {
-                await deleteBatch.commit();
-                batchSize = 0;
-              }
-            }
-          }
+        if (mounted) {
+          setState(() {
+            _importedCountProgress = count;
+            _lastSyncDoc = lastDoc;
+            _lastSyncProgress = count;
+            _isSyncResumable = true;
+          });
         }
-        
-        if (batchSize > 0) {
-          await deleteBatch.commit();
+
+        if (snapshot.docs.length < 500) {
+          hasMore = false;
+          _isSyncResumable = false;
         }
-        debugPrint('IMPORT: Cleanup complete. Deleted $deletedCount records.');
       }
-      
+
       if (mounted) {
-        setState(() => _totalRecordCount = imported);
-        if (!silent) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Sync successful! Updated $imported records.'),
-              backgroundColor: errors == 0 ? Colors.green : Colors.orange,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('SUCCESS: $count records ready for offline use!'), backgroundColor: Colors.green),
+        );
       }
     } catch (e) {
-      debugPrint('GLOBAL SYNC ERROR: $e');
-      if (!silent && mounted) {
+      debugPrint('Firestore Sync Error: $e');
+      if (mounted) {
+        String msg = e.toString();
+        if (msg.contains('TimeoutException')) msg = "Signal lost. Paused at $_importedCountProgress. Tap again to RESUME.";
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed: $msg'), backgroundColor: Colors.red, duration: const Duration(seconds: 8)),
         );
       }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
+  }
+
+  Future<void> _performFullZohoSync({bool silent = false}) async {
+    return;
   }
 
   @override
@@ -2242,13 +2774,16 @@ class _RecordsPageState extends State<RecordsPage> {
       }
       if (finalResult != ConnectivityResult.none) {
         _syncPendingRecords(isAuto: true);
+        _refreshTotalCount(); // Refresh count when back online
       }
     });
 
-    _autoSyncTimer = Timer.periodic(const Duration(minutes: 1), (_) => _syncPendingRecords(isAuto: true));
+    // Disabled auto-sync timer as per Zoho code removal
+    // _autoSyncTimer = Timer.periodic(const Duration(minutes: 1), (_) => _syncPendingRecords(isAuto: true));
   }
 
   Future<void> _runStartupTasks() async {
+    _refreshTotalCount(); // Get initial count once
     // 1. First sync any data created while offline TO Zoho
     try {
       await _syncPendingRecords(isAuto: true);
@@ -2292,7 +2827,7 @@ class _RecordsPageState extends State<RecordsPage> {
 
     setState(() => _isSyncing = true);
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('client').get();
+      final snapshot = await FirebaseFirestore.instance.collection('Family Code Creation').get();
       final batch = FirebaseFirestore.instance.batch();
       for (var doc in snapshot.docs) {
         batch.delete(doc.reference);
@@ -2343,7 +2878,7 @@ class _RecordsPageState extends State<RecordsPage> {
 
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('client')
+          .collection('Family Code Creation')
           .where('needs_zoho_sync', isEqualTo: true)
           .get()
           .timeout(const Duration(seconds: 15));
@@ -2366,7 +2901,7 @@ class _RecordsPageState extends State<RecordsPage> {
         if (isTemp) {
           // --- Case 1: Temporary Record (Needs Permanent ID + Sync) ---
           String? prefix = data['village_prefix'] as String?;
-          if ((prefix == null || prefix.isEmpty) && oldId.startsWith('OFF_')) {
+          if ((prefix == null || prefix.isEmpty) && (oldId.startsWith('Off-') || oldId.startsWith('OFF-') || oldId.startsWith('OFF_'))) {
             final parts = oldId.split('_');
             if (parts.length >= 2) prefix = parts[1];
           }
@@ -2376,61 +2911,56 @@ class _RecordsPageState extends State<RecordsPage> {
             continue;
           }
 
-          try {
-            final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
-            int legacySuffix = 0;
             try {
-              final counterSnap = await counterRef.get();
-              if (!counterSnap.exists) {
-                final query = await FirebaseFirestore.instance
-                    .collection('client')
-                    .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
-                    .where(FieldPath.documentId, isLessThan: prefix + 'z')
-                    .limitToLast(1)
-                    .get();
-                if (query.docs.isNotEmpty) {
-                  final lastId = query.docs.first.id;
-                  if (!lastId.startsWith('OFF_')) {
-                    legacySuffix = int.tryParse(lastId.substring(prefix.length)) ?? 0;
-                  }
+              final String effectivePrefix = prefix; // Capture non-nullable string
+              final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(effectivePrefix);
+
+              // 1. Get current count as a safety hint (No index required)
+              int countHint = 0;
+              try {
+                final agg = await FirebaseFirestore.instance
+                    .collection('Family Code Creation')
+                    .where(FieldPath.documentId, isGreaterThanOrEqualTo: effectivePrefix)
+                    .where(FieldPath.documentId, isLessThanOrEqualTo: '$effectivePrefix\uf8ff')
+                    .count()
+                    .get().timeout(const Duration(seconds: 4));
+                countHint = agg.count ?? 0;
+              } catch (e) {
+                debugPrint('SYNC: Count hint failed: $e');
+              }
+
+              await FirebaseFirestore.instance.runTransaction((transaction) async {
+                final counterSnap = await transaction.get(counterRef);
+                int lastSuffix = counterSnap.exists ? (counterSnap.data()?['last_suffix'] ?? 0) : 0;
+                
+                // Use the maximum of (Counter Value, Current DB Count)
+                if (countHint > lastSuffix) {
+                  lastSuffix = countHint;
                 }
-              }
-            } catch (_) {}
 
-            await FirebaseFirestore.instance.runTransaction((transaction) async {
-              final counterSnap = await transaction.get(counterRef);
-              int lastSuffix = counterSnap.exists ? (counterSnap.data()?['last_suffix'] ?? 0) : legacySuffix;
-              final nextSuffix = lastSuffix + 1;
-              final finalizedId = '$prefix${nextSuffix.toString().padLeft(5, '0')}';
+                final nextSuffix = lastSuffix + 1;
+                final finalizedId = '$effectivePrefix${nextSuffix.toString().padLeft(5, '0')}';
 
-              transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
+                transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
 
-              final newData = Map<String, dynamic>.from(data);
-              newData['family_id'] = finalizedId;
-              newData['is_temporary'] = false;
-              newData.remove('village_prefix');
-              newData['serverUpdatedAt'] = FieldValue.serverTimestamp();
+                final newData = Map<String, dynamic>.from(data);
+                newData['family_id'] = finalizedId;
+                newData['is_temporary'] = false;
+                newData.remove('village_prefix');
+                newData['serverUpdatedAt'] = FieldValue.serverTimestamp();
 
-              transaction.set(FirebaseFirestore.instance.collection('client').doc(finalizedId), newData);
-              transaction.delete(doc.reference);
-
-              final zohoId = await ZohoCreatorService().syncRecord(newData);
-              if (zohoId != null) {
-                final finalZohoId = zohoId.toString();
-                newData['zoho_id'] = finalZohoId;
-                newData['needs_zoho_sync'] = false;
-                transaction.set(FirebaseFirestore.instance.collection('client').doc(finalZohoId), newData);
-                transaction.delete(FirebaseFirestore.instance.collection('client').doc(finalizedId));
-              }
-            }).timeout(const Duration(seconds: 15));
-            syncCount++;
-          } catch (e) {
-            debugPrint('SYNC TEMP ERROR for $oldId: $e');
-            errorCount++;
-          }
+                transaction.set(FirebaseFirestore.instance.collection('Family Code Creation').doc(finalizedId), newData);
+                transaction.delete(doc.reference);
+              }).timeout(const Duration(seconds: 15));
+              syncCount++;
+            } catch (e) {
+              debugPrint('SYNC TEMP ERROR for $oldId: $e');
+              errorCount++;
+            }
         } else {
           // --- Case 2: Permanent Record Update (Already has permanent ID/Zoho ID) ---
           try {
+            /*
             final zohoId = await ZohoCreatorService().syncRecord(data);
             if (zohoId != null) {
               await doc.reference.update({
@@ -2440,6 +2970,8 @@ class _RecordsPageState extends State<RecordsPage> {
               syncCount++;
               debugPrint('SYNC UPDATE: Successfully updated Zoho for ${doc.id}');
             }
+            */
+            syncCount++; // Mark as processed even if Zoho is skipped
           } catch (e) {
             debugPrint('SYNC UPDATE ERROR for ${doc.id}: $e');
             errorCount++;
@@ -2474,6 +3006,7 @@ class _RecordsPageState extends State<RecordsPage> {
         });
       }
     } finally {
+      _refreshTotalCount(); // Refresh count after a sync attempt
       if (mounted) {
         setState(() => _isSyncing = false);
       }
@@ -2481,11 +3014,10 @@ class _RecordsPageState extends State<RecordsPage> {
   }
 
   Stream<QuerySnapshot> _buildStream() {
-    Query query = FirebaseFirestore.instance.collection('client');
+    Query query = FirebaseFirestore.instance.collection('Family Code Creation');
 
     if (_activeSearchQuery.isEmpty) {
       return query
-          .orderBy('clientUpdatedAt', descending: true)
           .limit(_currentLimit)
           .snapshots(includeMetadataChanges: true);
     }
@@ -2592,15 +3124,8 @@ class _RecordsPageState extends State<RecordsPage> {
           return bVal.compareTo(aVal);
         });
 
-        // Update Total Count via Aggregate Query (Fast)
-        if (snapshot.hasData) {
-          // Update total count live from the database
-          FirebaseFirestore.instance.collection('client').count().get().then((agg) {
-            if (mounted && _totalRecordCount != agg.count) {
-              setState(() => _totalRecordCount = agg.count ?? 0);
-            }
-          });
-        }
+        // --- OPTIMIZATION: Removed live count query from build() to save Firebase costs ---
+        // Total count is now refreshed once on load and after each sync batch.
 
         final loadedCount = docs.length;
         final titleText = _isSyncing
@@ -2612,52 +3137,63 @@ class _RecordsPageState extends State<RecordsPage> {
         return Scaffold(
           appBar: AppBar(
             title: _isSearchingActive
-                ? Row(
-                    children: [
-                      PopupMenuButton<String>(
-                        icon: const Icon(Icons.filter_list),
-                        initialValue: _searchField,
-                        onSelected: (val) => setState(() => _searchField = val),
-                        itemBuilder: (context) {
-                          final items = <String>['All', 'Family ID'];
-                          items.addAll(_fieldMapping.keys);
-                          return items
-                              .map((f) =>
-                                  PopupMenuItem(value: f, child: Text(f)))
-                              .toList();
-                        },
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: _searchController,
-                          autofocus: true,
-                          decoration: InputDecoration(
-                            hintText: 'Search $_searchField...',
-                            border: InputBorder.none,
-                            hintStyle: const TextStyle(color: Colors.black54),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.search, color: Colors.blue),
-                              onPressed: () {
-                                setState(() {
-                                  _activeSearchQuery = _searchController.text;
-                                  _hasSearched = true;
-                                });
-                              },
-                            ),
-                          ),
-                          style: const TextStyle(
-                              color: Colors.black87, fontSize: 18),
-                          onSubmitted: (value) {
-                            setState(() {
-                              _activeSearchQuery = value;
-                              _hasSearched = true;
-                            });
+                ? ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.5),
+                    child: Row(
+                      children: [
+                        PopupMenuButton<String>(
+                          icon: const Icon(Icons.filter_list),
+                          initialValue: _searchField,
+                          onSelected: (val) => setState(() => _searchField = val),
+                          itemBuilder: (context) {
+                            final items = <String>['All', 'Family ID'];
+                            items.addAll(_fieldMapping.keys);
+                            return items
+                                .map((f) =>
+                                    PopupMenuItem(value: f, child: Text(f)))
+                                .toList();
                           },
                         ),
-                      ),
-                    ],
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            autofocus: true,
+                            decoration: InputDecoration(
+                              hintText: 'Search $_searchField...',
+                              border: InputBorder.none,
+                              hintStyle: const TextStyle(color: Colors.black54),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.search, color: Colors.blue),
+                                onPressed: () {
+                                  setState(() {
+                                    _activeSearchQuery = _searchController.text;
+                                    _hasSearched = true;
+                                  });
+                                },
+                              ),
+                            ),
+                            style: const TextStyle(
+                                color: Colors.black87, fontSize: 16),
+                            onSubmitted: (value) {
+                              setState(() {
+                                _activeSearchQuery = value;
+                                _hasSearched = true;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   )
-                : const Text('Records', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                : Text(
+                    _isSyncing 
+                        ? 'DL: $_importedCountProgress / $_totalRecordCount' 
+                        : 'Records ($_totalRecordCount)', 
+                    style: TextStyle(
+                      fontSize: _isSyncing ? 14 : 17, 
+                      fontWeight: FontWeight.bold
+                    ),
+                  ),
             actions: [
               if (_isSearchingActive)
                 IconButton(
@@ -2682,15 +3218,39 @@ class _RecordsPageState extends State<RecordsPage> {
                     });
                   },
                 ),
-              IconButton(
-                icon: const Icon(Icons.delete_forever, color: Colors.red),
-                tooltip: 'Delete All Local Records',
-                onPressed: _deleteAllRecords,
-              ),
-              IconButton(
-                icon: const Icon(Icons.cloud_download),
-                tooltip: 'Import from Zoho',
-                onPressed: () => _performFullZohoSync(silent: false),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (val) async {
+                  if (val == 'refresh') {
+                    setState(() {}); // Simple rebuild to trigger stream rebuild
+                  } else if (val == 'delete') {
+                    _deleteAllRecords();
+                  } else if (val == 'sync_lookups') {
+                    setState(() => _isSyncing = true);
+                    try {
+                      await DataCacheService().fetchFamilyCodes(forceRefresh: true);
+                      await DataCacheService().fetchFamilyDetails(forceRefresh: true);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Lookups refreshed successfully!'), backgroundColor: Colors.green),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    } finally {
+                      if (mounted) setState(() => _isSyncing = false);
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'refresh', child: Text('Refresh List')),
+                  const PopupMenuItem(value: 'sync_lookups', child: Text('Refresh Codes & Names')),
+                  const PopupMenuItem(value: 'delete', child: Text('Clear All Local Data', style: TextStyle(color: Colors.red))),
+                ],
               ),
             ],
           ),
@@ -2700,6 +3260,34 @@ class _RecordsPageState extends State<RecordsPage> {
               : Builder(builder: (context) {
                   return Column(
                     children: [
+                      if (_syncErrorMessage != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          color: Colors.red.shade100,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Error: $_syncErrorMessage',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.red.shade900,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: () => setState(() => _syncErrorMessage = null),
+                              ),
+                            ],
+                          ),
+                        ),
+                      // Mode banner
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(8),
@@ -2707,13 +3295,10 @@ class _RecordsPageState extends State<RecordsPage> {
                             ? Colors.orange.shade100
                             : Colors.green.shade100,
                         child: Text(
-                          _syncErrorMessage != null
-                              ? 'Sync error: $_syncErrorMessage'
-                              : '${fromCache ? 'Offline mode' : syncing || _isSyncing ? 'Online – syncing...' : 'Online – synced'}  |  $loadedCount / $_totalRecordCount records',
+                          '${fromCache ? 'Offline mode' : syncing || _isSyncing ? 'Online – syncing...' : 'Online – synced'}  |  $loadedCount / $_totalRecordCount records',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _syncErrorMessage != null ? Colors.red.shade900 : null,
-                            fontSize: 13,
+                          style: const TextStyle(
+                            fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -2730,7 +3315,6 @@ class _RecordsPageState extends State<RecordsPage> {
                                   columns: [
                                     const DataColumn(label: Text('Actions')),
                                     _buildSearchColumn('Family ID'),
-                                    const DataColumn(label: Text('Sync')),
                                     ..._fieldMapping.keys
                                         .map((label) => _buildSearchColumn(label))
                                         .toList(),
@@ -2749,7 +3333,6 @@ class _RecordsPageState extends State<RecordsPage> {
                                     cells: [
                                       _buildDataCell('Actions', record, doc),
                                       _buildDataCell('Family ID', record, doc),
-                                      _buildDataCell('Sync', record, doc),
                                       ..._fieldMapping.keys
                                           .map((label) =>
                                               _buildDataCell(label, record, doc))

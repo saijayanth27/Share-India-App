@@ -67,8 +67,10 @@ class HealthOCRService {
     
     final bool bpPending = data['bp_needs_extraction'] == true;
     final bool sugarPending = data['sugar_needs_extraction'] == true;
+    final bool uploadPending = data['needs_storage_upload'] == true;
     
-    if (!bpPending && !sugarPending) return;
+    // We process if extraction is needed OR if upload is needed
+    if (!bpPending && !sugarPending && !uploadPending) return;
 
     final model = GenerativeModel(
       model: 'gemini-2.0-flash',
@@ -81,9 +83,18 @@ class HealthOCRService {
 
     final String recordId = doc.id;
     bool anyUploads = false;
+    
+    // Check if there are any specific local images without storage paths
+    final bool hasBpLocalImages = data['bp_image_path'] != null || data['bp_image_path2'] != null || data['bp_image_path3'] != null;
+    final bool missingBpStoragePaths = data['bp_storage_path'] == null || (data['bp_image_path2'] != null && data['bp_storage_path2'] == null) || (data['bp_image_path3'] != null && data['bp_storage_path3'] == null);
+    final bool bpUploadPending = uploadPending && hasBpLocalImages && missingBpStoragePaths;
+    
+    final bool hasSugarLocalImage = data['sugar_image_path'] != null;
+    final bool missingSugarStoragePath = data['sugar_storage_path'] == null;
+    final bool sugarUploadPending = uploadPending && hasSugarLocalImage && missingSugarStoragePath;
 
     // Process BP if needed (BATCHED for speed)
-    if (bpPending) {
+    if (bpPending || bpUploadPending) {
       final List<String?> imagePaths = [
         data['bp_image_path'],
         data['bp_image_path2'],
@@ -113,7 +124,8 @@ class HealthOCRService {
           }
         }
 
-        Uint8List? bytes;
+        if (bpPending) {
+          Uint8List? bytes;
         try {
           if (localPath != null && File(localPath).existsSync()) {
             bytes = await File(localPath).readAsBytes();
@@ -136,9 +148,10 @@ class HealthOCRService {
         } catch (e) {
           debugPrint('❌ BP Load/Process Error (Image $i): $e');
         }
+        } // end if (bpPending)
       }
 
-      if (imageParts.isNotEmpty) {
+      if (bpPending && imageParts.isNotEmpty) {
         try {
           debugPrint('🚀 Sending ${imageParts.length} BP images to Gemini in a SINGLE BATCH...');
           
@@ -173,11 +186,11 @@ class HealthOCRService {
           debugPrint('❌ BP Batch Gemini Error: $e');
         }
       }
-      updates['bp_needs_extraction'] = false;
+      if (bpPending) updates['bp_needs_extraction'] = false;
     }
 
     // Process Sugar if needed
-    if (sugarPending) {
+    if (sugarPending || sugarUploadPending) {
       final String? localPath = data['sugar_image_path'];
       String? storagePath = data['sugar_storage_path'];
       
@@ -199,7 +212,8 @@ class HealthOCRService {
         }
       }
 
-      try {
+      if (sugarPending) {
+        try {
         // 1. Try local file first
         if (localPath != null && File(localPath).existsSync()) {
           bytes = await File(localPath).readAsBytes();
@@ -233,6 +247,7 @@ class HealthOCRService {
         debugPrint('❌ Sugar Gemini Error: $e');
       }
       updates['sugar_needs_extraction'] = false;
+      } // end if (sugarPending)
     }
 
     // Final global status - only mark as fully done if nothing is pending anymore

@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
+import 'data_cache_service.dart';
 
 class RefusedFormPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -17,6 +17,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
 
+  // Controllers
   // Controllers
   final _registrationNumberController = TextEditingController();
   final _ageController = TextEditingController();
@@ -65,22 +66,10 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
   }
 
   Future<void> _fetchFamilyCodes() async {
-    setState(() => _isLoadingFamily = true);
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('client').get();
-      final codes = snapshot.docs
-          .map((doc) => doc.data()['family_id']?.toString())
-          .whereType<String>()
-          .toSet()
-          .toList();
-      setState(() {
-        allFamilyCodes = codes..sort();
-        _isLoadingFamily = false;
-      });
-    } catch (e) {
-      debugPrint('Error fetching family codes: $e');
-      setState(() => _isLoadingFamily = false);
-    }
+    final codes = await DataCacheService().fetchFamilyCodes();
+    setState(() {
+      allFamilyCodes = codes;
+    });
   }
 
   Future<void> _fetchNamesByFamily(String familyCode) async {
@@ -255,179 +244,191 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildSectionCard(
-                    title: 'Participant Details',
-                    children: [
-                      TextFormField(
-                        controller: _registrationNumberController,
-                        decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder()),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          labelText: 'Family Code',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingFamily ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: selectedFamilyCode,
-                        items: allFamilyCodes.map((code) => DropdownMenuItem(value: code, child: Text(code))).toList(),
-                        onChanged: (v) {
-                          setState(() {
-                            selectedFamilyCode = v;
-                            selectedName = null;
-                            namesByFamily = [];
-                          });
-                          if (v != null) _fetchNamesByFamily(v);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          labelText: 'Name',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingNames ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: selectedName,
-                        items: namesByFamily.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                        onChanged: (v) => setState(() => selectedName = v),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
-                        value: selectedGender,
-                        items: const [
-                          DropdownMenuItem(value: '(1) Male', child: Text('(1) Male')),
-                          DropdownMenuItem(value: '(0) Female', child: Text('(0) Female')),
-                        ],
-                        onChanged: (v) => setState(() => selectedGender = v),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _ageController,
-                        decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder()),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Interview Details',
-                    children: [
-                      InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: dateOfInterview ?? DateTime.now(),
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime.now(),
-                          );
-                          if (picked != null) setState(() => dateOfInterview = picked);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Date of Interview', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                          child: Text(dateOfInterview == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(dateOfInterview!)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Interviewer’s Name', border: OutlineInputBorder()),
-                        value: selectedInterviewer,
-                        items: interviewers.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                        onChanged: (v) => setState(() => selectedInterviewer = v),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Respondent', border: OutlineInputBorder()),
-                        value: selectedRespondent,
-                        items: respondents.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-                        onChanged: (v) => setState(() => selectedRespondent = v),
-                      ),
-                      const SizedBox(height: 16),
-                      InkWell(
-                        onTap: () async {
-                          final picked = await showTimePicker(
-                            context: context,
-                            initialTime: createdTime ?? TimeOfDay.now(),
-                          );
-                          if (picked != null) setState(() => createdTime = picked);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Created Time', border: OutlineInputBorder(), suffixIcon: Icon(Icons.access_time)),
-                          child: Text(createdTime == null ? 'hh:mm' : createdTime!.format(context)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Withdrawal Information',
-                    children: [
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Reason for withdrawing from study?', border: OutlineInputBorder()),
-                        value: selectedReason,
-                        items: withdrawalReasons.map((reason) => DropdownMenuItem(value: reason, child: Text(reason))).toList(),
-                        onChanged: (v) => setState(() => selectedReason = v),
-                      ),
-                      if (selectedReason?.contains('(2) Died') ?? false) ...[
-                        const SizedBox(height: 16),
-                        InkWell(
-                          onTap: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: deathDate ?? DateTime.now(),
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime.now(),
-                            );
-                            if (picked != null) setState(() => deathDate = picked);
-                          },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(labelText: 'Death Date', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                            child: Text(deathDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(deathDate!)),
-                          ),
-                        ),
+                key: _formKey,
+                child: Column(
+                  children: [
+                    _buildIdentitySection(),
+                    _buildSectionCard(
+                      title: 'Interview Details',
+                      children: [
+                        _buildDropdown('Respondent', respondents, selectedRespondent, (v) => setState(() => selectedRespondent = v)),
+                        const SizedBox(height: 12),
+                        _buildTimePicker('Created Time', createdTime, (v) => setState(() => createdTime = v)),
                       ],
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _otherReasonsController,
-                        decoration: const InputDecoration(labelText: 'Other reasons specified', border: OutlineInputBorder()),
-                        maxLines: 3,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _save,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          child: Text(widget.docId == null ? 'Save Form' : 'Update Form', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: _resetForm,
+                    ),
+                    _buildSectionCard(
+                      title: 'Withdrawal Information',
+                      children: [
+                        _buildDropdown('Reason for withdrawing from study?', withdrawalReasons, selectedReason, (v) => setState(() => selectedReason = v)),
+                        if (selectedReason?.contains('(2) Died') ?? false) ...[
+                          const SizedBox(height: 12),
+                          _buildDatePicker('Death Date', deathDate, (v) => setState(() => deathDate = v)),
+                        ],
+                        const SizedBox(height: 12),
+                        _buildTextField('Other reasons specified', _otherReasonsController, maxLines: 3),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _save,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[300],
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          backgroundColor: Colors.blue.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: const Text('Reset'),
+                        child: Text(widget.docId == null ? 'Save Form' : 'Update Form', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
               ),
+    );
+  }
+
+  Widget _buildIdentitySection() {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const Divider(),
+            _buildTextField('Registration Number', _registrationNumberController),
+            const SizedBox(height: 12),
+            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
+              setState(() { selectedFamilyCode = v; selectedName = null; namesByFamily = []; });
+              if (v != null) _fetchNamesByFamily(v);
+            }),
+            const SizedBox(height: 12),
+            _buildDropdown('Name', namesByFamily, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingNames),
+            const SizedBox(height: 12),
+            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+            Row(
+              children: [
+                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+              ],
             ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildTextField('Age', _ageController, keyboardType: TextInputType.number)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildDropdown('Interviewer’s Name', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            hintText: hint,
+            helperText: helper,
+          ),
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+          ),
+          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
+          onChanged: onChanged,
+          hint: const Text('-Select-'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimePicker(String label, TimeOfDay? selectedTime, Function(TimeOfDay) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        InkWell(
+          onTap: () async {
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: selectedTime ?? TimeOfDay.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              suffixIcon: Icon(Icons.access_time, size: 18),
+            ),
+            child: Text(selectedTime == null ? 'hh:mm' : selectedTime.format(context)),
+          ),
+        ),
+      ],
     );
   }
 }

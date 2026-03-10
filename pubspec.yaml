@@ -97,23 +97,14 @@ version: 1.0.0+1
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
+  
 dependencies:
   flutter:
     sdk: flutter
-  
-  # For offline database storage
   sqflite: ^2.3.0
-  
-  # For getting app directory path
-  path_provider: ^2.1.1
-  
-  # For path operations
   path: ^1.8.3
-  
-  # For checking internet connectivity
   connectivity_plus: ^5.0.2
-  
-  # UI components
+  flutter_dotenv: ^5.1.0
   cupertino_icons: ^1.0.2
   firebase_core: ^2.4.1
   cloud_firestore: ^4.3.2
@@ -125,10 +116,12 @@ dependencies:
   image: ^4.7.2
   intl: ^0.20.2
   google_generative_ai: ^0.4.7
+  path_provider: ^2.0.15
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^2.0.0
-
 flutter:
   uses-material-design: true
+  assets:            
+    - .env

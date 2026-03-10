@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
+import 'data_cache_service.dart';
 
 class PersonalDetailsPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -82,15 +82,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   }
 
   Future<void> _fetchFamilyCodes() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('client').get();
-      final codes = snapshot.docs.map((doc) => doc.data()['family_id']?.toString()).whereType<String>().toSet().toList();
-      setState(() {
-        allFamilyCodes = codes..sort();
-      });
-    } catch (e) {
-      debugPrint('Error fetching family codes: $e');
-    }
+    final codes = await DataCacheService().fetchFamilyCodes();
+    setState(() {
+      allFamilyCodes = codes;
+    });
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
@@ -269,6 +264,9 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       }
 
       if (mounted) {
+        // Update local cache so this person appears in dropdowns immediately
+        DataCacheService().addGeneratedDetail(data);
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Personal details saved successfully!'), backgroundColor: Colors.green),
         );
@@ -358,47 +356,43 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                   _buildSectionCard(
                     title: 'Identity & Registration',
                     children: [
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
-                        value: selectedFamilyCode,
-                        items: allFamilyCodes.map((code) => DropdownMenuItem(value: code, child: Text(code))).toList(),
-                        onChanged: (v) {
-                          setState(() {
-                            selectedFamilyCode = v;
-                            motherName = null;
-                            fatherName = null;
-                          });
-                          if (v != null) _fetchMembersByFamily(v);
-                        },
-                      ),
-                      const SizedBox(height: 16),
+                      _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
+                        setState(() {
+                          selectedFamilyCode = v;
+                          motherName = null;
+                          fatherName = null;
+                        });
+                        if (v != null) _fetchMembersByFamily(v);
+                      }),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: TextFormField(controller: _spouseNo, decoration: const InputDecoration(labelText: 'Spouse', border: OutlineInputBorder(), hintText: '#######'), keyboardType: TextInputType.number)),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _mapNo, decoration: const InputDecoration(labelText: 'Map No.', border: OutlineInputBorder(), hintText: '#######'), keyboardType: TextInputType.number)),
+                          Expanded(child: _buildTextField('Spouse', _spouseNo, keyboardType: TextInputType.number, hint: '#######')),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('Map No.', _mapNo, keyboardType: TextInputType.number, hint: '#######')),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _firstName, decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), helperText: 'First Name')),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
+                      _buildTextField('Name', _firstName, helper: 'First Name'),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: TextFormField(controller: _gen, decoration: const InputDecoration(labelText: 'Gen', border: OutlineInputBorder(), hintText: '#######'), keyboardType: TextInputType.number)),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _siNo, decoration: const InputDecoration(labelText: 'SI No', border: OutlineInputBorder(), hintText: '#######'), keyboardType: TextInputType.number)),
+                          Expanded(child: _buildTextField('Gen', _gen, keyboardType: TextInputType.number, hint: '#######')),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('SI No', _siNo, keyboardType: TextInputType.number, hint: '#######')),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      const Text('Gender', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
+                      const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
                           Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _regNo, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder(), hintText: '#######', helperText: 'System will auto-generate or user input')),
+                      const SizedBox(height: 12),
+                      _buildTextField('Registration Number', _regNo, hint: '#######', helper: 'System will auto-generate or user input'),
                     ],
                   ),
                   _buildSectionCard(
@@ -406,98 +400,60 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     children: [
                       Row(
                         children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () async {
-                                final picked = await showDatePicker(context: context, initialDate: dateOfBirth ?? DateTime.now(), firstDate: DateTime(1900), lastDate: DateTime.now());
-                                if (picked != null) setState(() => dateOfBirth = picked);
-                              },
-                              child: InputDecorator(
-                                decoration: const InputDecoration(labelText: 'Date of Birth', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                                child: Text(dateOfBirth == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(dateOfBirth!)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _age, decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder(), hintText: '#######'), keyboardType: TextInputType.number)),
+                          Expanded(child: _buildDatePicker('Date of Birth', dateOfBirth, (v) => setState(() => dateOfBirth = v))),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTextField('Age', _age, keyboardType: TextInputType.number, hint: '#######')),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Column(
                               children: [
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(labelText: 'Live Status', border: OutlineInputBorder()),
-                                  value: liveStatus,
-                                  items: const [
-                                    DropdownMenuItem(value: '(1) Alive', child: Text('(1) Alive')),
-                                    DropdownMenuItem(value: '(0) Dead', child: Text('(0) Dead')),
-                                  ],
-                                  onChanged: (v) => setState(() => liveStatus = v),
-                                ),
-                                const SizedBox(height: 16),
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(labelText: 'A/v Status', border: OutlineInputBorder()),
-                                  value: avStatus,
-                                  items: const [
-                                    DropdownMenuItem(value: '(1) Active', child: Text('(1) Active')),
-                                    DropdownMenuItem(value: '(0) Vacant', child: Text('(0) Vacant')),
-                                  ],
-                                  onChanged: (v) => setState(() => avStatus = v),
-                                ),
-                                const SizedBox(height: 16),
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(labelText: 'Marital Status', border: OutlineInputBorder()),
-                                  value: maritalStatus,
-                                  items: const [
-                                    DropdownMenuItem(value: '(0) Unmarried', child: Text('(0) Unmarried', overflow: TextOverflow.ellipsis)),
-                                    DropdownMenuItem(value: '(1) Married', child: Text('(1) Married', overflow: TextOverflow.ellipsis)),
-                                    DropdownMenuItem(value: '(2) Divorce', child: Text('(2) Divorce', overflow: TextOverflow.ellipsis)),
-                                    DropdownMenuItem(value: '(3) Widow', child: Text('(3) Widow', overflow: TextOverflow.ellipsis)),
-                                    DropdownMenuItem(value: '(4) Not Eligible', child: Text('(4) Not Eligible', overflow: TextOverflow.ellipsis)),
-                                  ],
-                                  onChanged: (v) => setState(() => maritalStatus = v),
+                                _buildDropdown('Live Status', ['(1) Alive', '(0) Dead'], liveStatus, (v) => setState(() => liveStatus = v)),
+                                const SizedBox(height: 12),
+                                _buildDropdown('A/v Status', ['(1) Active', '(0) Vacant'], avStatus, (v) => setState(() => avStatus = v)),
+                                const SizedBox(height: 12),
+                                _buildDropdown(
+                                  'Marital Status',
+                                  ['(0) Unmarried', '(1) Married', '(2) Divorce', '(3) Widow', '(4) Not Eligible'],
+                                  maritalStatus,
+                                  (v) => setState(() => maritalStatus = v),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               children: [
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(labelText: 'Education', border: OutlineInputBorder()),
-                                  value: selectedEducation,
-                                  items: [
+                                _buildDropdown(
+                                  'Education',
+                                  [
                                     '(0) ILLITIRATE', '(1) CAN READ ONLY', '(2) CAN READ AND WRITE',
                                     '(3) PRIMARY SCHOOL', '(4) MIDDLE SCHOOL', '(5) HIGH SCHOOL',
                                     '(6) GRADUATE', '(7) POST GRADUATE'
-                                  ].map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(),
-                                  onChanged: (v) => setState(() => selectedEducation = v),
+                                  ],
+                                  selectedEducation,
+                                  (v) => setState(() => selectedEducation = v),
                                 ),
-                                const SizedBox(height: 16),
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(labelText: 'Occupation', border: OutlineInputBorder()),
-                                  value: selectedOccupation,
-                                  items: [
+                                const SizedBox(height: 12),
+                                _buildDropdown(
+                                  'Occupation',
+                                  [
                                     '(1) HOUSE WIFE', '(2) AGRICULTURE', '(3) UNEMPLOYED', '(4)LABOUR',
                                     '(5) SELF-EMPLOYED', '(6) PRIVATE EMPLOYEE', '(7) ANGANWADI TEACHER',
                                     '(8) C.H.V', '(9) PENSION', '(10) GOVT EMPLOYEE', '(99) DONT KNOW'
-                                  ].map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(),
-                                  onChanged: (v) => setState(() => selectedOccupation = v),
+                                  ],
+                                  selectedOccupation,
+                                  (v) => setState(() => selectedOccupation = v),
                                 ),
-                                const SizedBox(height: 16),
-                                TextFormField(controller: _income, decoration: const InputDecoration(labelText: 'Income', border: OutlineInputBorder())),
-                                const SizedBox(height: 16),
-                                TextFormField(controller: _aadharNo, decoration: const InputDecoration(labelText: 'Aadhar No.', border: OutlineInputBorder())),
+                                const SizedBox(height: 12),
+                                _buildTextField('Income', _income),
+                                const SizedBox(height: 12),
+                                _buildTextField('Aadhar No.', _aadharNo),
                               ],
                             ),
                           ),
@@ -508,41 +464,15 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                   _buildSectionCard(
                     title: 'Relations',
                     children: [
-                      DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          labelText: 'Mother Name',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingFamily ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: motherName,
-                        items: femaleMembers.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                        onChanged: (v) => setState(() => motherName = v),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          labelText: 'Father Name',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingFamily ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: fatherName,
-                        items: maleMembers.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                        onChanged: (v) => setState(() => fatherName = v),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Relation with Head', border: OutlineInputBorder()),
-                        value: relationWithHead,
-                        items: const [
-                          DropdownMenuItem(value: 'Self', child: Text('Self')),
-                          DropdownMenuItem(value: 'Spouse', child: Text('Spouse')),
-                          DropdownMenuItem(value: 'Son', child: Text('Son')),
-                          DropdownMenuItem(value: 'Daughter', child: Text('Daughter')),
-                          DropdownMenuItem(value: 'Father', child: Text('Father')),
-                          DropdownMenuItem(value: 'Mother', child: Text('Mother')),
-                          DropdownMenuItem(value: 'Other', child: Text('Other')),
-                        ],
-                        onChanged: (v) => setState(() => relationWithHead = v),
+                      _buildDropdown('Mother Name', femaleMembers, motherName, (v) => setState(() => motherName = v), isLoading: _isLoadingFamily),
+                      const SizedBox(height: 12),
+                      _buildDropdown('Father Name', maleMembers, fatherName, (v) => setState(() => fatherName = v), isLoading: _isLoadingFamily),
+                      const SizedBox(height: 12),
+                      _buildDropdown(
+                        'Relation with Head',
+                        ['Self', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Other'],
+                        relationWithHead,
+                        (v) => setState(() => relationWithHead = v),
                       ),
                       const SizedBox(height: 8),
                       CheckboxListTile(
@@ -553,22 +483,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                         contentPadding: EdgeInsets.zero,
                       ),
                       if (showSpouseDetails) ...[
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _spouseNameText,
-                          decoration: const InputDecoration(labelText: 'Spouse Name', border: OutlineInputBorder()),
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          decoration: const InputDecoration(labelText: 'Marriage Type', border: OutlineInputBorder()),
-                          value: marriageType,
-                          items: const [
-                            DropdownMenuItem(value: 'Arrange Marriage', child: Text('Arrange Marriage')),
-                            DropdownMenuItem(value: 'Love Marriage', child: Text('Love Marriage')),
-                            DropdownMenuItem(value: 'Other', child: Text('Other')),
-                          ],
-                          onChanged: (v) => setState(() => marriageType = v),
-                          validator: (v) => showSpouseDetails && (v == null || v.isEmpty) ? 'Please select marriage type' : null,
+                        const SizedBox(height: 12),
+                        _buildTextField('Spouse Name', _spouseNameText),
+                        const SizedBox(height: 12),
+                        _buildDropdown(
+                          'Marriage Type',
+                          ['Arrange Marriage', 'Love Marriage', 'Other'],
+                          marriageType,
+                          (v) => setState(() => marriageType = v),
                         ),
                       ],
                     ],
@@ -585,7 +507,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(d, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                Text(d, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                                 RadioListTile<String>(
                                   title: const Text('(1) Yes', style: TextStyle(fontSize: 12)),
                                   value: '(1) Yes',
@@ -616,10 +538,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                         child: ElevatedButton(
                           onPressed: _save,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: Colors.blue.shade700,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                           child: const Text('Add Family Member', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
@@ -631,7 +553,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                           backgroundColor: Colors.grey[300],
                           foregroundColor: Colors.black,
                           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         child: const Text('Reset'),
                       ),
@@ -641,6 +563,78 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            hintText: hint,
+            helperText: helper,
+          ),
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+          ),
+          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
+          onChanged: onChanged,
+          hint: const Text('-Select-'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

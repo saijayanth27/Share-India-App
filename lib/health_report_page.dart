@@ -331,9 +331,10 @@ class _HealthReportPageState extends State<HealthReportPage> {
             );
           }
           if (snapshot.hasError) {
-            return const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text('Error loading image from cloud', style: TextStyle(color: Colors.red)),
+            final errStr = snapshot.error.toString();
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: SelectableText('Error loading image from cloud: $errStr', style: const TextStyle(color: Colors.red)),
             );
           }
           if (!snapshot.hasData) return const Text('No cloud image found');
@@ -352,6 +353,8 @@ class _HealthReportPageState extends State<HealthReportPage> {
         },
       );
     }
+    
+    debugPrint('DEBUG IMAGE RENDER: localPath=$localPath, storagePath=$storagePath');
     
     return const Padding(
       padding: EdgeInsets.all(16.0),
