@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class FamilyPlanningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -214,25 +215,6 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
     return InkWell(
       onTap: () async {
@@ -249,18 +231,39 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Family Planning'), backgroundColor: Theme.of(context).colorScheme.primaryContainer),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Family Planning', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.blue.shade600],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+      ),
       drawer: const AppDrawer(),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                  _buildSectionCard(
+                  buildHeader(
+                    context: context,
+                    title: 'Family Planning',
+                    subtitle: 'Manage contraceptive and family records',
+                  ),
+                  buildSectionCard(
+                    context: context,
                     title: 'Basic Information',
+                    icon: Icons.info_outline,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
@@ -304,12 +307,14 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                   ),
 
                   if (selectEntryScreen == '(0) Temporary')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Temporary Section',
+                    icon: Icons.timer_outlined,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Used oral contraceptives?', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Used oral contraceptives?'),
                         value: usedOral,
                         items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => usedOral = v),
@@ -368,12 +373,14 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                   ),
 
                   if (selectEntryScreen == '(1) Permanent')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Permanent Section',
+                    icon: Icons.check_circle_outline,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Used?', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Used?'),
                         value: usedPermanent,
                         items: ['(0) Tubectomy', '(1) Vasectomy' , '(2) Hysectomy'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => usedPermanent = v),

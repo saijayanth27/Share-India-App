@@ -18,6 +18,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'app_drawer.dart';
 import 'health_ocr_service.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 /// Enum to distinguish between BP and Sugar reading types
 enum ReadingType { bp, sugar }
@@ -70,9 +71,6 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   String _statusMessage = '';
   String _ocrRawText = ''; // For debugging
   StreamSubscription? _connectivitySubscription;
-  
-  // Storage location info
-  String? _storageDirectory;
 
   // Image picker and text recognizer instances
   final ImagePicker _imagePicker = ImagePicker();
@@ -84,7 +82,6 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   @override
   void initState() {
     super.initState();
-    _initStorageDirectory();
     _setupConnectivityListener();
     _fetchFamilyCodes();
     
@@ -246,10 +243,18 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     }
   }
 
-  Future<void> _initStorageDirectory() async {
-    setState(() {
-      _storageDirectory = '/storage/emulated/0/Download';
-    });
+  Widget _buildSectionCard({
+    required BuildContext context,
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
+    );
   }
 
   @override
@@ -1071,47 +1076,58 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('BP Form'),
+        title: const Text('BP & Glucose Monitoring', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.red.shade700, Colors.pink.shade500],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _showSettingsDialog,
-          ),
-          IconButton(
-            icon: const Icon(Icons.clear_all),
-            onPressed: _clearForm,
-          ),
+          IconButton(icon: const Icon(Icons.settings), onPressed: _showSettingsDialog),
+          IconButton(icon: const Icon(Icons.clear_all), onPressed: _clearForm),
         ],
       ),
       drawer: const AppDrawer(),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildIdentitySection(),
-                const SizedBox(height: 16),
-                _buildReasonSection(),
-                const SizedBox(height: 24),
-                _buildBPSection(),
-                const SizedBox(height: 24),
-                _buildSaveButton(),
-                const SizedBox(height: 100),
-              ],
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  buildHeader(
+                    context: context,
+                    title: 'Health Readings',
+                    subtitle: 'Monitor and track vital signs',
+                  ),
+                  if (_statusMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(_statusMessage, style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                    ),
+                  _buildIdentitySection(),
+                  _buildReasonSection(),
+                  _buildBPSection(),
+                  const SizedBox(height: 24),
+                  _buildSaveButton(),
+                  const SizedBox(height: 32),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  _buildRecentReadingsHeader(),
+                  const SizedBox(height: 16),
+                  _buildRecentReadingsList(),
+                  const SizedBox(height: 48),
+                ],
+              ),
             ),
-          ),
-          if (_isLoading)
-            Container(
-              color: Colors.black54,
-              child: const Center(child: CircularProgressIndicator(color: Colors.white)),
-            ),
-        ],
-      ),
     );
   }
 

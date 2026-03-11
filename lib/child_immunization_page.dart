@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class ChildImmunizationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -339,25 +340,6 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
     return InkWell(
       onTap: () async {
@@ -418,18 +400,39 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Child Immunization'), backgroundColor: Theme.of(context).colorScheme.primaryContainer),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Child Immunization', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade800, Colors.orange.shade500],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+      ),
       drawer: const AppDrawer(),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                  _buildSectionCard(
+                  buildHeader(
+                    context: context,
+                    title: 'Child Immunization',
+                    subtitle: 'Manage childhood vaccines and health records',
+                  ),
+                  buildSectionCard(
+                    context: context,
                     title: 'Basic Information',
+                    icon: Icons.baby_changing_station_outlined,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
@@ -471,16 +474,20 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ),
 
                   if (selectEntryScreen == 'BCG')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'BCG',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'BCG', given: bcgGiven, date: bcgDate, by: bcgGivenBy, onGiven: (v) => setState(() => bcgGiven = v), onDate: (v) => setState(() => bcgDate = v), onBy: (v) => setState(() => bcgGivenBy = v)),
                     ],
                   ),
 
                   if (selectEntryScreen == 'DPT')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'DPT',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'DPT 1', given: dpt1Given, date: dpt1Date, by: dpt1By, onGiven: (v) => setState(() => dpt1Given = v), onDate: (v) => setState(() => dpt1Date = v), onBy: (v) => setState(() => dpt1By = v)),
                       _buildGivenRow(label: 'DPT 2', given: dpt2Given, date: dpt2Date, by: dpt2By, onGiven: (v) => setState(() => dpt2Given = v), onDate: (v) => setState(() => dpt2Date = v), onBy: (v) => setState(() => dpt2By = v)),
@@ -490,8 +497,10 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ),
 
                   if (selectEntryScreen == 'OPV')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'OPV',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'OPV 0', given: opv0Given, date: opv0Date, by: opv0By, onGiven: (v) => setState(() => opv0Given = v), onDate: (v) => setState(() => opv0Date = v), onBy: (v) => setState(() => opv0By = v)),
                       _buildGivenRow(label: 'OPV 1', given: opv1Given, date: opv1Date, by: opv1By, onGiven: (v) => setState(() => opv1Given = v), onDate: (v) => setState(() => opv1Date = v), onBy: (v) => setState(() => opv1By = v)),
@@ -502,16 +511,20 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ),
 
                   if (selectEntryScreen == 'Measles')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Measles',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'Measles', given: measlesGiven, date: measlesDate, by: measlesBy, onGiven: (v) => setState(() => measlesGiven = v), onDate: (v) => setState(() => measlesDate = v), onBy: (v) => setState(() => measlesBy = v)),
                     ],
                   ),
 
                   if (selectEntryScreen == 'HepB')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'HepB',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'HepB 1', given: hepB1Given, date: hepB1Date, by: hepB1By, onGiven: (v) => setState(() => hepB1Given = v), onDate: (v) => setState(() => hepB1Date = v), onBy: (v) => setState(() => hepB1By = v)),
                       _buildGivenRow(label: 'HepB 2', given: hepB2Given, date: hepB2Date, by: hepB2By, onGiven: (v) => setState(() => hepB2Given = v), onDate: (v) => setState(() => hepB2Date = v), onBy: (v) => setState(() => hepB2By = v)),
@@ -520,8 +533,10 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ),
 
                   if (selectEntryScreen == 'Vitamin A')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Vitamin A',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'VitA 1', given: vitA1Given, date: vitA1Date, by: vitA1By, onGiven: (v) => setState(() => vitA1Given = v), onDate: (v) => setState(() => vitA1Date = v), onBy: (v) => setState(() => vitA1By = v)),
                       _buildGivenRow(label: 'VitA 2', given: vitA2Given, date: vitA2Date, by: vitA2By, onGiven: (v) => setState(() => vitA2Given = v), onDate: (v) => setState(() => vitA2Date = v), onBy: (v) => setState(() => vitA2By = v)),
@@ -532,24 +547,28 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ),
 
                   if (selectEntryScreen == 'DT')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'DT',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       _buildGivenRow(label: 'DT', given: dtGiven, date: dtDate, by: dtBy, onGiven: (v) => setState(() => dtGiven = v), onDate: (v) => setState(() => dtDate = v), onBy: (v) => setState(() => dtBy = v)),
                     ],
                   ),
 
                   if (selectEntryScreen == 'Remarks')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Other Information',
+                    icon: Icons.notes_outlined,
                     children: [
-                      TextFormField(controller: _birthWeight, decoration: const InputDecoration(labelText: 'Birth Weight (kg)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+                      TextFormField(controller: _birthWeight, decoration: const InputDecoration(labelText: 'Birth Weight (kg)'), keyboardType: TextInputType.number),
                       const SizedBox(height: 16),
-                      TextFormField(controller: _birthHeight, decoration: const InputDecoration(labelText: 'Birth Height', border: OutlineInputBorder())),
+                      TextFormField(controller: _birthHeight, decoration: const InputDecoration(labelText: 'Birth Height')),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Diarrhea', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Diarrhea'),
                         value: diarrhea,
                         items: ['Yes', 'No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => diarrhea = v),
@@ -557,13 +576,13 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Breastfeeding', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Breastfeeding'),
                         value: breastfeeding,
                         items: ['Yes', 'No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => breastfeeding = v),
                       ),
                       const SizedBox(height: 16),
-                      TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 3),
+                      TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks'), maxLines: 3),
                     ],
                   ),
  

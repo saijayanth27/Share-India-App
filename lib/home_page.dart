@@ -1,0 +1,204 @@
+import 'package:flutter/material.dart';
+import 'app_drawer.dart';
+import 'family_planning_page.dart';
+import 'ante_natal_care_page.dart';
+import 'child_immunization_page.dart';
+import 'personal_details_page.dart';
+import 'aarogya_page.dart';
+import 'questionnaire_page.dart';
+import 'bpgluco.dart';
+import 'main.dart'; // For FamilyFormPage
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.blue.shade600],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+      ),
+      drawer: const AppDrawer(),
+      body: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Welcome Back',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Select a form to start recording data',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+              const SizedBox(height: 32),
+              _buildModuleSection(
+                context,
+                title: 'REACH MODULE',
+                icon: Icons.corporate_fare,
+                color: Colors.blue.shade700,
+                items: [
+                  _DashboardItem(
+                    title: 'Family Code',
+                    icon: Icons.description,
+                    color: Colors.blue,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyFormPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Personal Details',
+                    icon: Icons.person_add,
+                    color: Colors.indigo,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalDetailsPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'ANC',
+                    icon: Icons.pregnant_woman,
+                    color: Colors.pink,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnteNatalCarePage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Family Planning',
+                    icon: Icons.family_restroom,
+                    color: Colors.blueAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyPlanningPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Child Imm.',
+                    icon: Icons.child_care,
+                    color: Colors.orange,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChildImmunizationPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Aarogya',
+                    icon: Icons.health_and_safety,
+                    color: Colors.deepPurple,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AarogyaPage())),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              _buildModuleSection(
+                context,
+                title: 'TETRA MODULE',
+                icon: Icons.biotech,
+                color: Colors.purple.shade700,
+                items: [
+                  _DashboardItem(
+                    title: 'Questionnaire',
+                    icon: Icons.assignment_outlined,
+                    color: Colors.green,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuestionnairePage())),
+                  ),
+                  _DashboardItem(
+                    title: 'BP / Gluco',
+                    icon: Icons.monitor_heart,
+                    color: Colors.red,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HealthReadingsPage())),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModuleSection(BuildContext context, {required String title, required IconData icon, required Color color, required List<_DashboardItem> items}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              title,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 1.2,
+          ),
+          itemCount: items.length,
+          itemBuilder: (context, index) => _buildGridItem(items[index]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGridItem(_DashboardItem item) {
+    return InkWell(
+      onTap: item.onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: item.color.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: item.color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(item.icon, color: item.color, size: 32),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              item.title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardItem {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  _DashboardItem({required this.title, required this.icon, required this.color, required this.onTap});
+}

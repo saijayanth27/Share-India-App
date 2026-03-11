@@ -124,16 +124,19 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: _isSearchingActive
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
+                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   hintText: 'Search $_searchField...',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                   border: InputBorder.none,
                   suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
+                    icon: const Icon(Icons.clear, color: Colors.white),
                     onPressed: () => setState(() {
                       _isSearchingActive = false;
                       _activeSearchQuery = '';
@@ -143,7 +146,19 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
                 ),
                 onChanged: (val) => setState(() => _activeSearchQuery = val),
               )
-            : const Text('Family Planning Report'),
+            : const Text('Family Planning Report', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.teal.shade700, Colors.teal.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
           if (!_isSearchingActive)
             IconButton(
@@ -206,6 +221,8 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: DataTable(
+                      headingRowColor: WidgetStateProperty.all(Colors.teal.shade50),
+                      headingTextStyle: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal.shade900),
                       columns: [
                         ..._fieldMapping.keys.map((label) => _buildSearchColumn(label)),
                         const DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),

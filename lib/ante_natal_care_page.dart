@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class AnteNatalCarePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -245,25 +246,6 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
     return InkWell(
       onTap: () async {
@@ -314,18 +296,39 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Ante Natal Care'), backgroundColor: Theme.of(context).colorScheme.primaryContainer),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Ante Natal Care', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.pink.shade700, Colors.pink.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+      ),
       drawer: const AppDrawer(),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                  _buildSectionCard(
+                  buildHeader(
+                    context: context,
+                    title: 'Ante Natal Care',
+                    subtitle: 'Track maternity and prenatal health records',
+                  ),
+                  buildSectionCard(
+                    context: context,
                     title: 'Basic Information',
+                    icon: Icons.person_outline,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
@@ -372,11 +375,15 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                     ],
                   ),
                   if (selectEntryScreen == 'TT Dose')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'TT Dose',
+                    icon: Icons.vaccines_outlined,
                     children: [
                       Row(
                         children: [
+                          Expanded(child: _buildDatePicker(label: 'TT1 Date', value: tt1Date, onPicked: (v) => setState(() => tt1Date = v))),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: DropdownButtonFormField<String>(
                               isExpanded: true,
@@ -386,8 +393,6 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                               onChanged: (v) => setState(() => tt1Given = v),
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildDatePicker(label: '1st TT Dt.', value: tt1Date, onPicked: (v) => setState(() => tt1Date = v))),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -401,6 +406,8 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                       const SizedBox(height: 16),
                       Row(
                         children: [
+                          Expanded(child: _buildDatePicker(label: 'TT2 Date', value: tt2Date, onPicked: (v) => setState(() => tt2Date = v))),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: DropdownButtonFormField<String>(
                               isExpanded: true,
@@ -410,8 +417,6 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                               onChanged: (v) => setState(() => tt2Given = v),
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildDatePicker(label: '2nd TT Dt.', value: tt2Date, onPicked: (v) => setState(() => tt2Date = v))),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -425,10 +430,34 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                     ],
                   ),
                   if (selectEntryScreen == 'IFA')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'IFA (Iron Folic Acid)',
+                    icon: Icons.medication_outlined,
                     children: [
-                      _buildIFARow('1st', ifa1Given, ifa1Date, ifa1GivenBy, (g) => tt1Given = g, (d) => ifa1Date = d, (b) => ifa1GivenBy = b),
+                      Row(
+                        children: [
+                          Expanded(child: _buildDatePicker(label: 'IFA1 Date', value: ifa1Date, onPicked: (v) => setState(() => ifa1Date = v))),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              decoration: const InputDecoration(labelText: '1st Given Y/N', border: OutlineInputBorder()),
+                              value: ifa1Given,
+                              items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                              onChanged: (v) => setState(() => ifa1Given = v),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: '1st Given By', border: OutlineInputBorder()),
+                        value: ifa1GivenBy,
+                        items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                        onChanged: (v) => setState(() => ifa1GivenBy = v),
+                      ),
                       const SizedBox(height: 16),
                       _buildIFARow('2nd', ifa2Given, ifa2Date, ifa2GivenBy, (g) => ifa2Given = g, (d) => ifa2Date = d, (b) => ifa2GivenBy = b),
                       const SizedBox(height: 16),
@@ -438,12 +467,14 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                     ],
                   ),
                   if (selectEntryScreen == 'Delivery')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Delivery Details',
+                    icon: Icons.child_friendly_outlined,
                     children: [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Delivery Type', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Delivery Type'),
                         value: deliveryType,
                         items: ['(0) Normal', '(1) Caesarian', '(2) Abortion'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (v) => setState(() => deliveryType = v),
@@ -482,8 +513,10 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                     ],
                   ),
                   if (selectEntryScreen == 'Remarks')
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Extra Info & Remarks',
+                    icon: Icons.notes_outlined,
                     children: [
                       _buildMultiSelectCheckboxes(
                         label: 'Gender',

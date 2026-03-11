@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class AarogyaPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -211,22 +212,17 @@ class _AarogyaPageState extends State<AarogyaPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required BuildContext context,
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
@@ -261,19 +257,40 @@ class _AarogyaPageState extends State<AarogyaPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Aarogya Assessment'), backgroundColor: Theme.of(context).colorScheme.primaryContainer),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Aarogya Assessment', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.deepPurple.shade700, Colors.deepPurple.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+      ),
       drawer: const AppDrawer(),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                _buildIdentitySection(),
+                  buildHeader(
+                    context: context,
+                    title: 'Aarogya Assessment',
+                    subtitle: 'Evaluate family health needs and insurance eligibility',
+                  ),
+                  _buildIdentitySection(),
                   _buildSectionCard(
+                    context: context,
                     title: 'Aarogya Identity (Legacy)',
+                    icon: Icons.badge_outlined,
                     children: [
                       _buildTextField('Final Family Code', _finalFamilyCode),
                       const SizedBox(height: 12),
@@ -287,7 +304,9 @@ class _AarogyaPageState extends State<AarogyaPage> {
                     ],
                   ),
                   _buildSectionCard(
+                    context: context,
                     title: 'Income Information',
+                    icon: Icons.attach_money_outlined,
                     children: [
                       _buildTextField('1. How many members in your family earn an income?', _earnersCount),
                       const SizedBox(height: 12),
@@ -295,7 +314,9 @@ class _AarogyaPageState extends State<AarogyaPage> {
                     ],
                   ),
                   _buildSectionCard(
+                    context: context,
                     title: 'Health Insurance',
+                    icon: Icons.health_and_safety_outlined,
                     children: [
                       _buildRadioGroup(
                         '3. Do you have an Aarogyasri Card?',
@@ -346,7 +367,9 @@ class _AarogyaPageState extends State<AarogyaPage> {
                     ],
                   ),
                   _buildSectionCard(
+                    context: context,
                     title: 'Inpatient & Outpatient Needs',
+                    icon: Icons.local_hospital_outlined,
                     children: [
                       _buildMultiSelect(
                         title: '7. Outpatient conditions usually not requiring admission:',

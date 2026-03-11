@@ -43,6 +43,8 @@ import 'blood_sugar_fasting_report_page.dart';
 import 'local_database_service.dart';
 import 'family_planning_page.dart';
 import 'family_planning_report_page.dart';
+import 'home_page.dart';
+import 'main.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -55,19 +57,42 @@ class AppDrawer extends StatelessWidget {
         children: [
           DrawerHeader(
             decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor,
-            ),
-            child: const Center(
-              child: Text(
-                'Share India App',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+              gradient: LinearGradient(
+                colors: [Colors.indigo.shade700, Colors.blue.shade600],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.health_and_safety, color: Colors.white, size: 48),
+                SizedBox(height: 12),
+                Text(
+                  'Share India',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
           ),
+          ListTile(
+            leading: const Icon(Icons.dashboard, color: Colors.indigo),
+            title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const HomePage()),
+                (route) => false,
+              );
+            },
+          ),
+          const Divider(),
           
           // --- REACH MODULE ---
           ExpansionTile(

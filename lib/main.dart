@@ -11,6 +11,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'data_cache_service.dart';
 import 'local_database_service.dart';
 import 'location_codes.dart';
+import 'home_page.dart';
+import 'widget.dart';
+import 'app_drawer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,9 +40,33 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Family Code Creation',
-      theme: ThemeData(useMaterial3: true, primaryColor: Colors.indigo),
-      home: const FamilyFormPage(),
+      title: 'Share India',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          primary: Colors.indigo.shade700,
+          secondary: Colors.blue.shade600,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          margin: const EdgeInsets.only(bottom: 16),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: true,
+          fillColor: Colors.white,
+          isDense: true,
+        ),
+        appBarTheme: AppBarTheme(
+          centerTitle: true,
+          backgroundColor: Colors.indigo.shade700,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+      ),
+      home: const HomePage(),
     );
   }
 }
@@ -1001,30 +1028,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     );
   }
 
-  Widget _buildSectionCard(
-      {required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).primaryColor,
-              ),
-            ),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
@@ -1153,9 +1166,21 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       );
     }
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Family Code Creation'),
+        title: const Text('Family Registration', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.blue.shade600],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit),
@@ -1183,8 +1208,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           children: [
+            buildHeader(
+              context: context,
+              title: 'Family Registration',
+              subtitle: 'Register and manage family unit records',
+            ),
             if (_isSyncing)
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -1214,6 +1244,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ),
             _buildSectionCard(
               title: 'Family & Location Details',
+              icon: Icons.location_on_outlined,
               children: [
                 TextFormField(
                   controller: _familyId,
@@ -1667,7 +1698,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ],
             ),
             _buildSectionCard(
-              title: 'Water & Sanitation',
+              title: 'Food & Nutrition',
+              icon: Icons.restaurant_outlined,
               children: [
                 Text(
                   '8. Source of water (Select all that apply)',
@@ -1891,7 +1923,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ],
             ),
             _buildSectionCard(
-              title: 'Socio-Economic Details',
+              title: 'Socio - Economic Indicators',
+              icon: Icons.monetization_on_outlined,
               children: [
                 Text(
                   '12. Have ration card?',
@@ -2236,6 +2269,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
             ),
             _buildSectionCard(
               title: 'Health',
+              icon: Icons.health_and_safety_outlined,
               children: [
                 Text(
                   '19. get sick, where do they go?',

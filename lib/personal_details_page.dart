@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class PersonalDetailsPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -287,32 +288,6 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).primaryColor,
-              ),
-            ),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildRadioGroup(String title, String key, List<String> options) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,10 +315,21 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Personal Details'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Personal Details', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.blue.shade600],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -351,10 +337,17 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                  _buildSectionCard(
+                  buildHeader(
+                    context: context,
+                    title: 'Personal Details',
+                    subtitle: 'Register and manage individual member health profiles',
+                  ),
+                  buildSectionCard(
+                    context: context,
                     title: 'Identity & Registration',
+                    icon: Icons.fingerprint_outlined,
                     children: [
                       _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
                         setState(() {
@@ -395,8 +388,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       _buildTextField('Registration Number', _regNo, hint: '#######', helper: 'System will auto-generate or user input'),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Personal Info',
+                    icon: Icons.person_outline,
                     children: [
                       Row(
                         children: [
@@ -461,8 +456,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       ),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Relations',
+                    icon: Icons.family_restroom_outlined,
                     children: [
                       _buildDropdown('Mother Name', femaleMembers, motherName, (v) => setState(() => motherName = v), isLoading: _isLoadingFamily),
                       const SizedBox(height: 12),
@@ -495,8 +492,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       ],
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Diseases',
+                    icon: Icons.health_and_safety_outlined,
                     children: [
                       Wrap(
                         spacing: 20,

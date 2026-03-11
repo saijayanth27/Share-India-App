@@ -7,6 +7,7 @@ import 'app_drawer.dart';
 import 'questionnaire_report_page.dart';
 import 'maria_db_service.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class QuestionnairePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -281,10 +282,21 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Health Questionnaire'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Health Questionnaire', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green.shade700, Colors.green.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -292,8 +304,13 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
+                  buildHeader(
+                    context: context,
+                    title: 'Health Questionnaire',
+                    subtitle: 'Comprehensive health assessment and history',
+                  ),
                   _buildIdentitySection(),
                   _buildMeasurementSection(),
                   _buildHypertensionSection(),
@@ -305,18 +322,17 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.blue,
+                      backgroundColor: Colors.green.shade600,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text('Save Questionnaire', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
-                                    const SizedBox(height: 16),
-                                    ElevatedButton(
+                  const SizedBox(height: 16),
+                  ElevatedButton(
                     onPressed: () async {
                       setState(() => _isSaving = true);
                       try {
-                        // This pulls all raw data from MariaDB
                         final data = await MariaDBService.getQuestionnaires();
                         setState(() {
                           _allQuestionnaires = data;
@@ -324,52 +340,48 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
                           _isSaving = false;
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Edit Mode Active. Enter Family Code to see names.')),
+                          const SnackBar(content: Text('Edit Mode Active')),
                         );
                       } catch (e) {
                         setState(() => _isSaving = false);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error fetching from MariaDB: $e')),
+                          SnackBar(content: Text('Error: $e')),
                         );
                       }
                     },
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.orange,
+                      backgroundColor: Colors.orange.shade600,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text('Edit Questionnaire Records', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
-
                   const SizedBox(height: 48),
                 ],
               ),
             ),
     );
   }
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required BuildContext context,
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
   Widget _buildIdentitySection() {
     return _buildSectionCard(
+      context: context,
       title: 'Identity & Registration',
+      icon: Icons.person_outline,
       children: [
         _buildTextField('Registration Number', _registrationNumber),
         const SizedBox(height: 12),
@@ -458,7 +470,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
   Widget _buildMeasurementSection() {
     return _buildSectionCard(
+      context: context,
       title: 'Measurements',
+      icon: Icons.straighten_outlined,
       children: [
         Row(
           children: [
@@ -480,7 +494,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
   Widget _buildHypertensionSection() {
     return _buildSectionCard(
+      context: context,
       title: '2. Hypertension',
+      icon: Icons.monitor_heart_outlined,
       children: [
         const Text('Have you ever been diagnosed/screened with hypertension?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
@@ -520,7 +536,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
   Widget _buildDiabetesSection() {
     return _buildSectionCard(
+      context: context,
       title: '3. Diabetes',
+      icon: Icons.bloodtype_outlined,
       children: [
         const Text('Have you ever been diagnosed/screened with Diabetes?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
@@ -562,7 +580,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     return Column(
       children: [
         _buildSectionCard(
+          context: context,
           title: '4. Tobacco (Present)',
+          icon: Icons.smoking_rooms_outlined,
           children: [
             const Text('Do you smoke/chew tobacco related products now?'),
             Row(
@@ -580,7 +600,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           ],
         ),
         _buildSectionCard(
+          context: context,
           title: '5. Tobacco (Past)',
+          icon: Icons.history_outlined,
           children: [
             const Text('Have you ever smoke/chew in the past?'),
             Row(
@@ -598,7 +620,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           ],
         ),
         _buildSectionCard(
+          context: context,
           title: '6. Alcohol',
+          icon: Icons.liquor_outlined,
           children: [
             const Text('Do you drink/consume Alcohol?'),
             Row(
@@ -773,7 +797,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
   Widget _buildReviewItem(String title, String? groupVal, Function(String?) onGroupChanged, String? detailVal, Function(String?) onDetailChanged, TextEditingController otherCtrl, List<String> detailOptions) {
     return _buildSectionCard(
+      context: context,
       title: title,
+      icon: Icons.medical_services_outlined,
       children: [
         Row(
           children: [
