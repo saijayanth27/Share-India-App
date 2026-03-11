@@ -41,6 +41,8 @@ import 'quarterly_survey_report_page.dart';
 import 'blood_sugar_fasting_page.dart';
 import 'blood_sugar_fasting_report_page.dart';
 import 'local_database_service.dart';
+import 'family_planning_page.dart';
+import 'family_planning_report_page.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -211,6 +213,29 @@ class AppDrawer extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const AarogyaReportPage()),
+                  );
+                },
+              ),
+              const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.family_restroom, color: Colors.blueAccent),
+                title: const Text('Family Planning'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FamilyPlanningPage()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.analytics_outlined, color: Colors.teal),
+                title: const Text('Family Planning Report'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FamilyPlanningReportPage()),
                   );
                 },
               ),

@@ -58,9 +58,8 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
 
   // --- Remarks & Extra ---
   final _remarks = TextEditingController();
-  String? gender;
-  final _noOfBirths = TextEditingController();
-  final _noOfBirthsFemale = TextEditingController();
+  List<String> selectedGenders = [];
+  List<String> deliveryGenders = [];
 
   // Lookups
   List<String> allFamilyCodes = [];
@@ -143,9 +142,8 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
       _totalLiveBirths.text = d['Total_Live_Births'] ?? '';
 
       _remarks.text = d['Remarks2'] ?? '';
-      gender = d['Gender'];
-      _noOfBirths.text = d['No_of_Births']?.toString() ?? '';
-      _noOfBirthsFemale.text = d['No_of_Birth_of_Female1']?.toString() ?? '';
+      selectedGenders = (d['Gender'] as String?)?.split(', ').where((s) => s.isNotEmpty).toList() ?? [];
+      deliveryGenders = (d['Delivery_Gender'] as String?)?.split(', ').where((s) => s.isNotEmpty).toList() ?? [];
     });
   }
 
@@ -170,9 +168,8 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
       deliveryOutcome = null;
       _totalLiveBirths.clear();
       _remarks.clear();
-      gender = null;
-      _noOfBirths.clear();
-      _noOfBirthsFemale.clear();
+      selectedGenders = [];
+      deliveryGenders = [];
       femaleMembers = [];
     });
   }
@@ -215,9 +212,8 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         'Delivery': deliveryOutcome,
         'Total_Live_Births': _totalLiveBirths.text,
         'Remarks2': _remarks.text,
-        'Gender': gender,
-        'No_of_Births': int.tryParse(_noOfBirths.text),
-        'No_of_Birth_of_Female1': int.tryParse(_noOfBirthsFemale.text),
+        'Gender': selectedGenders.join(', '),
+        'Delivery_Gender': deliveryGenders.join(', '),
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
@@ -278,6 +274,40 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.calendar_today)),
         child: Text(value == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(value)),
       ),
+    );
+  }
+  
+  Widget _buildMultiSelectCheckboxes({required String label, required List<String> options, required List<String> selectedItems, required Function(List<String>) onSelectionChanged}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 16,
+          children: options.map((option) {
+            final isSelected = selectedItems.contains(option);
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Checkbox(
+                  value: isSelected,
+                  onChanged: (checked) {
+                    final newSelection = List<String>.from(selectedItems);
+                    if (checked == true) {
+                      newSelection.add(option);
+                    } else {
+                      newSelection.remove(option);
+                    }
+                    onSelectionChanged(newSelection);
+                  },
+                ),
+                Text(option),
+              ],
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -341,6 +371,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                       ),
                     ],
                   ),
+                  if (selectEntryScreen == 'TT Dose')
                   _buildSectionCard(
                     title: 'TT Dose',
                     children: [
@@ -393,6 +424,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                       ),
                     ],
                   ),
+                  if (selectEntryScreen == 'IFA')
                   _buildSectionCard(
                     title: 'IFA (Iron Folic Acid)',
                     children: [
@@ -405,6 +437,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                       _buildIFARow('4th', ifa4Given, ifa4Date, ifa4GivenBy, (g) => ifa4Given = g, (d) => ifa4Date = d, (b) => ifa4GivenBy = b),
                     ],
                   ),
+                  if (selectEntryScreen == 'Delivery')
                   _buildSectionCard(
                     title: 'Delivery Details',
                     children: [
@@ -437,33 +470,33 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                       ),
                       const SizedBox(height: 16),
                       TextFormField(controller: _totalLiveBirths, decoration: const InputDecoration(labelText: 'Total Live Births', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+                      if (deliveryOutcome == '(0) Live Birth') ...[
+                        const SizedBox(height: 16),
+                        _buildMultiSelectCheckboxes(
+                          label: 'Gender',
+                          options: ['Male', 'Female'],
+                          selectedItems: deliveryGenders,
+                          onSelectionChanged: (v) => setState(() => deliveryGenders = v),
+                        ),
+                      ],
                     ],
                   ),
+                  if (selectEntryScreen == 'Remarks')
                   _buildSectionCard(
                     title: 'Extra Info & Remarks',
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
-                              value: gender,
-                              items: ['Male', 'Female'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => gender = v),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _noOfBirths, decoration: const InputDecoration(labelText: 'No. of Births', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-                        ],
+                      _buildMultiSelectCheckboxes(
+                        label: 'Gender',
+                        options: ['Male', 'Female'],
+                        selectedItems: selectedGenders,
+                        onSelectionChanged: (v) => setState(() => selectedGenders = v),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _noOfBirthsFemale, decoration: const InputDecoration(labelText: 'No. of Female Births', border: OutlineInputBorder()), keyboardType: TextInputType.number),
                       const SizedBox(height: 16),
                       TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 3),
                     ],
                   ),
                   const SizedBox(height: 16),
+                  if (selectEntryScreen != null)
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),

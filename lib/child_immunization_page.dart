@@ -470,7 +470,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'BCG' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'BCG')
                   _buildSectionCard(
                     title: 'BCG',
                     children: [
@@ -478,7 +478,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'DPT' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'DPT')
                   _buildSectionCard(
                     title: 'DPT',
                     children: [
@@ -489,7 +489,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'OPV' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'OPV')
                   _buildSectionCard(
                     title: 'OPV',
                     children: [
@@ -501,7 +501,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'Measles' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'Measles')
                   _buildSectionCard(
                     title: 'Measles',
                     children: [
@@ -509,7 +509,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'HepB' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'HepB')
                   _buildSectionCard(
                     title: 'HepB',
                     children: [
@@ -519,7 +519,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'Vitamin A' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'Vitamin A')
                   _buildSectionCard(
                     title: 'Vitamin A',
                     children: [
@@ -531,7 +531,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
-                  if (selectEntryScreen == 'DT' || selectEntryScreen == null)
+                  if (selectEntryScreen == 'DT')
                   _buildSectionCard(
                     title: 'DT',
                     children: [
@@ -539,6 +539,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     ],
                   ),
 
+                  if (selectEntryScreen == 'Remarks')
                   _buildSectionCard(
                     title: 'Other Information',
                     children: [
@@ -565,8 +566,9 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                       TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 3),
                     ],
                   ),
-
+ 
                   const SizedBox(height: 16),
+                  if (selectEntryScreen != null)
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
