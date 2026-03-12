@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class AnthropometryPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -268,7 +269,19 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Anthropometry Form'),
+        title: const Text('Anthropometry Form', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.brown.shade700, Colors.brown.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -278,10 +291,16 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-
-                _buildIdentitySection(),
-                  _buildSectionCard(
+                  buildHeader(
+                    context: context,
+                    title: 'Anthropometry Measurement',
+                    subtitle: 'Track physical measurements and body metrics',
+                  ),
+                  _buildIdentitySection(),
+                  buildSectionCard(
+                    context: context,
                     title: 'Interview Details',
+                    icon: Icons.assignment_outlined,
                     children: [
                       _buildDropdown(
                         'If not done, reason',
@@ -295,8 +314,10 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
                       _buildTextField('CHV', TextEditingController(text: chvName)), // Read-only or editable?
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Measurements',
+                    icon: Icons.straighten_outlined,
                     children: [
                       Row(
                         children: [
@@ -344,8 +365,14 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
+            Row(
+              children: [
+                Icon(Icons.person_outline, color: Theme.of(context).primaryColor, size: 20),
+                const SizedBox(width: 8),
+                Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
+              ],
+            ),
+            const Divider(height: 24),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
             _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
@@ -397,25 +424,6 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
               interviewersName,
               (v) => setState(() => interviewersName = v),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(top: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
           ],
         ),
       ),

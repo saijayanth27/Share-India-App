@@ -274,20 +274,6 @@ class _AarogyaPageState extends State<AarogyaPage> {
     }
   }
 
-  Widget _buildSectionCard({
-    required BuildContext context,
-    required String title,
-    required List<Widget> children,
-    IconData? icon,
-  }) {
-    return buildSectionCard(
-      context: context,
-      title: title,
-      children: children,
-      icon: icon,
-    );
-  }
-
   Widget _buildMultiSelect({
     required String title,
     required List<String> options,
@@ -350,7 +336,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                   ),
 
                   _buildIdentitySection(),
-                  _buildSectionCard(
+                  buildSectionCard(
                     context: context,
                     title: 'Aarogya Identity (Legacy)',
                     icon: Icons.badge_outlined,
@@ -366,7 +352,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                       ),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
                     context: context,
                     title: 'Income Information',
                     icon: Icons.attach_money_outlined,
@@ -376,7 +362,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                       _buildTextField('2. What is the total monthly income earning members?', _monthlyIncome),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
                     context: context,
                     title: 'Health Insurance',
                     icon: Icons.health_and_safety_outlined,
@@ -429,7 +415,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                       _buildTextField('PAY_2L', _pay2L),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
                     context: context,
                     title: 'Inpatient & Outpatient Needs',
                     icon: Icons.local_hospital_outlined,

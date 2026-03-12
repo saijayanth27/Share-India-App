@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class RefusedFormPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -292,50 +293,43 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).primaryColor,
-              ),
-            ),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Withdrawal Consent Form'), // Changed title
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Withdrawal Consent Form', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.red.shade700, Colors.red.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : Form(
                 key: _formKey,
-                child: Column(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
                   children: [
+                    buildHeader(
+                      context: context,
+                      title: 'Withdrawal Consent',
+                      subtitle: 'Process participant withdrawal from the study',
+                    ),
                     _buildIdentitySection(),
                     _buildSectionCard(
                       title: 'Interview Details',
+                      icon: Icons.assignment_outlined,
                       children: [
                         _buildDropdown('Respondent', respondents, selectedRespondent, (v) => setState(() => selectedRespondent = v)),
                         const SizedBox(height: 12),
@@ -344,6 +338,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
                     ),
                     _buildSectionCard(
                       title: 'Withdrawal Information',
+                      icon: Icons.cancel_outlined,
                       children: [
                         _buildDropdown('Reason for withdrawing from study?', withdrawalReasons, selectedReason, (v) => setState(() => selectedReason = v)),
                         if (selectedReason?.contains('(2) Died') ?? false) ...[
@@ -360,7 +355,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
                       child: ElevatedButton(
                         onPressed: _save,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
+                          backgroundColor: Colors.red.shade700,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -375,61 +370,65 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     );
   }
 
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
+    );
+  }
+
 
 
   Widget _buildIdentitySection() {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return _buildSectionCard(
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        _buildTextField('Registration Number', _registrationNumberController),
+        const SizedBox(height: 12),
+        _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+          setState(() {
+            selectedFamilyCode = v;
+            selectedName = null;
+            familyMembers = [];
+          });
+          if (v != null && v.isNotEmpty) {
+            if (_isEditMode) {
+              _fetchExistingRecords(v);
+            } else {
+              _fetchMembersByFamily(v);
+            }
+          }
+        }),
+        const SizedBox(height: 12),
+        _isEditMode
+            ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+            : _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
           children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
-            _buildTextField('Registration Number', _registrationNumberController),
-            const SizedBox(height: 12),
-            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
-              setState(() {
-                selectedFamilyCode = v;
-                selectedName = null;
-                familyMembers = [];
-              });
-              if (v != null && v.isNotEmpty) {
-                if (_isEditMode) {
-                  _fetchExistingRecords(v);
-                } else {
-                  _fetchMembersByFamily(v);
-                }
-              }
-            }),
-            const SizedBox(height: 12),
-            _isEditMode
-                ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
-                : _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
-            const SizedBox(height: 12),
-            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
-            Row(
-              children: [
-                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildTextField('Age', _ageController, keyboardType: TextInputType.number)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildDropdown('Interviewer’s Name', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildTextField('Age', _ageController, keyboardType: TextInputType.number)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDropdown('Interviewer’s Name', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+      ],
     );
   }
 

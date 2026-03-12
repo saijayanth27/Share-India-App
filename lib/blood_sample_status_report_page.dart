@@ -14,34 +14,72 @@ class BloodSampleStatusReportPage extends StatefulWidget {
 class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isSearchingActive = false;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Blood Sample Report'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: _isSearchingActive
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search by Reg No or Name...',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear, color: Colors.white),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() {
+                        _searchQuery = '';
+                        _isSearchingActive = false;
+                      });
+                    },
+                  ),
+                ),
+                onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+              )
+            : const Text('Sample Status Reports', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade700, Colors.blue.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        actions: [
+          if (!_isSearchingActive)
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () => setState(() => _isSearchingActive = true),
+            ),
+        ],
       ),
       drawer: const AppDrawer(),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search by Reg No or Name...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _searchQuery = '');
-                  },
-                ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: Colors.blue.shade50,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('blood_sample_status').snapshots(),
+              builder: (context, snapshot) {
+                final count = snapshot.data?.docs.length ?? 0;
+                return Text(
+                  'Total Records: $count',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold),
+                );
+              },
             ),
           ),
           Expanded(

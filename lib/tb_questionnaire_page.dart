@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class TBQuestionnairePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -315,22 +316,16 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
@@ -375,8 +370,19 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('TB Questionnaire'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('TB Questionnaire', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.deepOrange.shade700, Colors.orange.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -386,7 +392,12 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                _buildIdentitySection(),
+                  buildHeader(
+                    context: context,
+                    title: 'Respiratory Screening',
+                    subtitle: 'TB Risk Assessment and History',
+                  ),
+                  _buildIdentitySection(),
                   _buildSectionCard(
                     title: 'Status Info',
                     children: [
@@ -457,12 +468,13 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: _save,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.shade700,
+                        backgroundColor: Colors.deepOrange.shade700,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -470,6 +482,18 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
                       child: Text(_isEditMode ? 'Update Questionnaire' : 'Save Questionnaire', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _resetForm,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   const SizedBox(height: 32),
                 ],
               ),
@@ -480,16 +504,10 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
 
 
   Widget _buildIdentitySection() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
+    return _buildSectionCard(
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
             _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
@@ -542,9 +560,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
               selectedInterviewer,
               (v) => setState(() => selectedInterviewer = v),
             ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 

@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class ColposcopyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -297,22 +298,16 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
@@ -360,8 +355,19 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Colposcopy Form'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Colposcopy', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.purple.shade700, Colors.deepPurple.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -371,8 +377,14 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  buildHeader(
+                    context: context,
+                    title: 'Colposcopy Examination',
+                    subtitle: 'Cervical visualization and assessment',
+                  ),
                   _buildSectionCard(
                     title: 'Identification',
+                    icon: Icons.person_outline,
                     children: [
                       TextFormField(controller: _regNoController, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
                       const SizedBox(height: 16),
@@ -455,6 +467,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Assessment',
+                    icon: Icons.assignment_outlined,
                     children: [
                       _buildRadioGroup('5 Colposcopy adequacy?', ['Satisfactory', 'Unsatisfactory'], selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
                       _buildVerticalRadioGroup('6 Level of new squamo-columnar junction (SCJ)', scjChoices, selectedSCJ, (v) => setState(() => selectedSCJ = v)),
@@ -463,6 +476,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Procedure Recommended',
+                    icon: Icons.recommend_outlined,
                     children: [
                       const Text('8. Procedure recommended', style: TextStyle(fontWeight: FontWeight.w600)),
                       ...procedureChoices.map((c) => CheckboxListTile(
@@ -479,6 +493,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Procedure Performed',
+                    icon: Icons.medical_services_outlined,
                     children: [
                       const Text('9. Procedure performed', style: TextStyle(fontWeight: FontWeight.w600)),
                       ...procedureChoices.map((c) => CheckboxListTile(
@@ -500,28 +515,38 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Findings',
+                    icon: Icons.description_outlined,
                     children: [
                       TextFormField(controller: _detailsController, maxLines: 5, decoration: const InputDecoration(labelText: '13. Procedure details, findings and comments:', border: OutlineInputBorder())),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _save,
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                          child: Text(_isEditMode ? 'Update Colposcopy' : 'Save Colposcopy', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: _resetForm,
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[300], foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                        child: const Text('Reset'),
-                      ),
-                    ],
+                      child: Text(_isEditMode ? 'Update Colposcopy' : 'Save Colposcopy', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _resetForm,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   const SizedBox(height: 32),
                 ],
               ),

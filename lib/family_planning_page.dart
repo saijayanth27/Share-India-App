@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class FamilyPlanningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -355,24 +356,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     });
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
     return InkWell(
@@ -401,7 +385,8 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
 
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Basic Details',
                     children: [
                       DropdownButtonFormField<String>(
@@ -492,7 +477,8 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                       TextFormField(controller: _familyNoController, decoration: const InputDecoration(labelText: 'Family No', border: OutlineInputBorder())),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Marriage & Status',
                     children: [
                       DropdownButtonFormField<String>(
@@ -522,7 +508,8 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                       TextFormField(controller: _remarksController, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 2),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Contraceptive Methods',
                     children: [
                       CheckboxListTile(

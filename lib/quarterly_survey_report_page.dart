@@ -118,38 +118,54 @@ class _QuarterlySurveyReportPageState extends State<QuarterlySurveyReportPage> {
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
+                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Search $_searchField...',
+                  hintText: 'Search by Name or Reg No...',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                   border: InputBorder.none,
                   suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () => setState(() {
-                      _isSearchingActive = false;
-                      _activeSearchQuery = '';
+                    icon: const Icon(Icons.clear, color: Colors.white),
+                    onPressed: () {
                       _searchController.clear();
-                    }),
+                      setState(() {
+                        _activeSearchQuery = '';
+                        _isSearchingActive = false;
+                      });
+                    },
                   ),
                 ),
-                onChanged: (val) => setState(() => _activeSearchQuery = val),
+                onChanged: (value) => setState(() => _activeSearchQuery = value.toLowerCase()),
               )
-            : const Text('Quarterly Survey Reports'),
+            : const Text('Quarterly Survey Reports', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.purple.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
           if (!_isSearchingActive)
             IconButton(
               icon: const Icon(Icons.search),
-              onPressed: () => setState(() {
-                _isSearchingActive = true;
-                _searchField = 'All';
-              }),
+              onPressed: () => setState(() => _isSearchingActive = true),
             ),
         ],
       ),
       drawer: const AppDrawer(),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('quarterly_survey').orderBy('clientUpdatedAt', descending: true).snapshots(),
+        stream: FirebaseFirestore.instance.collection('quarterly_survey').orderBy('clientUpdatedAt', descending: true).snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+
+          final fromCache = snapshot.data?.metadata.isFromCache ?? false;
+          final syncing = snapshot.data?.metadata.hasPendingWrites ?? false;
 
           var docs = snapshot.data?.docs ?? [];
 
@@ -168,38 +184,78 @@ class _QuarterlySurveyReportPageState extends State<QuarterlySurveyReportPage> {
 
           return Column(
             children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                color: Colors.blue.shade50,
-                child: Text('Found ${docs.length} records', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w500)),
-              ),
+              _buildSyncBanner(fromCache, syncing, docs.length),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: [
-                        ..._fieldMapping.keys.map((label) => _buildSearchColumn(label)),
-                        const DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
-                      ],
-                      rows: docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        return DataRow(
-                          cells: [
-                            ..._fieldMapping.keys.map((label) => _buildDataCell(label, data, doc)),
-                            _buildDataCell('Actions', data, doc),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final docId = doc.id;
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.indigo.shade700,
+                          child: Text((index + 1).toString(), style: const TextStyle(color: Colors.white)),
+                        ),
+                        title: Text(data['Name'] ?? 'No Name', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Reg No: ${data['Registration_Number'] ?? 'N/A'}'),
+                            Text('Family Code: ${data['Family_Code'] ?? 'N/A'}'),
+                            Text('Date: ${data['Date_of_Interview'] ?? 'N/A'}'),
                           ],
-                        );
-                      }).toList(),
-                    ),
-                  ),
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          onSelected: (value) {
+                            if (value == 'edit') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => QuarterlySurveyPage(
+                                    existingData: data,
+                                    docId: docId,
+                                  ),
+                                ),
+                              );
+                            } else if (value == 'delete') {
+                              _deleteRecord(docId);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: Colors.blue), title: Text('Edit'), contentPadding: EdgeInsets.zero)),
+                            const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('Delete'), contentPadding: EdgeInsets.zero)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+  Widget _buildSyncBanner(bool fromCache, bool syncing, int count) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      color: fromCache ? Colors.orange.shade100 : Colors.green.shade100,
+      child: Text(
+        '${fromCache ? 'Offline mode' : syncing ? 'Online – syncing...' : 'Online – synced'}  |  $count records',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class QuarterlySurveyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -325,7 +326,19 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quarterly Survey'),
+        title: const Text('Quarterly Survey', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.purple.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
@@ -335,88 +348,130 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              buildHeader(
+                context: context,
+                title: 'Community Health Survey',
+                subtitle: 'Quarterly health assessment and follow-up',
+              ),
 
-              _buildSectionTitle('Identification'),
-              _buildTextField('Registration Number', _regNoController),
-              _buildTextField('Family Code', _familyIdController, onChanged: (val) {
-                setState(() {
-                  _selectedFamilyId = val;
-                  _selectedName = null;
-                  familyMembers = [];
-                });
-                if (val.isNotEmpty) {
-                  if (_isEditMode) {
-                    _fetchExistingRecords(val);
-                  } else {
-                    _fetchMembersByFamily(val);
-                  }
-                }
-              }),
-              _isEditMode
-                  ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), _selectedName, _onNameSelected, isLoading: _isLoadingMembers)
-                  : _buildDropdown('Name', familyMembers, _selectedName, _onNameSelected, isLoading: _isLoadingMembers),
-              _buildRadioGroup('Gender', ['Male', 'Female'], _selectedGender, (val) => setState(() => _selectedGender = val)),
-              _buildTextField('Age', _ageController, keyboardType: TextInputType.number),
-              _buildDatePicker('Date of Interview', _interviewDateController),
-              _buildDropdown('Interviewer\'s Name', _interviewerList, _selectedInterviewer, (val) => setState(() => _selectedInterviewer = val)),
+              _buildSectionCard(
+                title: 'Identification',
+                icon: Icons.person_outline,
+                children: [
+                  _buildTextField('Registration Number', _regNoController),
+                  _buildTextField('Family Code', _familyIdController, onChanged: (val) {
+                    setState(() {
+                      _selectedFamilyId = val;
+                      _selectedName = null;
+                      familyMembers = [];
+                    });
+                    if (val.isNotEmpty) {
+                      if (_isEditMode) {
+                        _fetchExistingRecords(val);
+                      } else {
+                        _fetchMembersByFamily(val);
+                      }
+                    }
+                  }),
+                  _isEditMode
+                      ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), _selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+                      : _buildDropdown('Name', familyMembers, _selectedName, _onNameSelected, isLoading: _isLoadingMembers),
+                  _buildRadioGroup('Gender', ['Male', 'Female'], _selectedGender, (val) => setState(() => _selectedGender = val)),
+                  _buildTextField('Age', _ageController, keyboardType: TextInputType.number),
+                  _buildDatePicker('Date of Interview', _interviewDateController),
+                  _buildDropdown('Interviewer\'s Name', _interviewerList, _selectedInterviewer, (val) => setState(() => _selectedInterviewer = val)),
+                ],
+              ),
               
               const SizedBox(height: 24),
-              _buildSectionTitle('Section 1: Health Facility Visits'),
-              _buildRadioGroup('1. Past 3 months are you visited health care facility', ['Yes', 'No'], _visitedFacility, (val) => setState(() => _visitedFacility = val)),
-              if (_visitedFacility == 'Yes') ...[
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text('If yes, specify reason:', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                ..._visitReasons.keys.map((reason) => CheckboxListTile(
-                  title: Text(reason),
-                  value: _visitReasons[reason],
-                  onChanged: (val) => setState(() => _visitReasons[reason] = val!),
-                  dense: true,
-                  controlAffinity: ListTileControlAffinity.leading,
-                )),
-                if (_visitReasons['others'] == true) _buildTextField('specify others', _visitOthersController),
-              ],
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                title: 'Section 1: Health Facility Visits',
+                icon: Icons.local_hospital_outlined,
+                children: [
+                  _buildRadioGroup('1. Past 3 months are you visited health care facility', ['Yes', 'No'], _visitedFacility, (val) => setState(() => _visitedFacility = val)),
+                  if (_visitedFacility == 'Yes') ...[
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text('If yes, specify reason:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    ..._visitReasons.keys.map((reason) => CheckboxListTile(
+                      title: Text(reason),
+                      value: _visitReasons[reason],
+                      onChanged: (val) => setState(() => _visitReasons[reason] = val!),
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                    )),
+                    if (_visitReasons['others'] == true) _buildTextField('specify others', _visitOthersController),
+                  ],
+                ],
+              ),
 
               const SizedBox(height: 24),
-              _buildSectionTitle('Section 2: Diabetes Medicines'),
-              _buildRadioGroup('Are you currently taking medicines for Diabetes?', ['Yes', 'No'], _takingDmMed, (val) => setState(() => _takingDmMed = val)),
-              if (_takingDmMed == 'Yes') ...[
-                _buildDropdown('Where did you received medicines?', _medSourceList, _dmMedSource, (val) => setState(() => _dmMedSource = val)),
-                if (_dmMedSource == 'Others') _buildTextField('specify others', _dmMedSourceOthersController),
-                _buildTextField('Medicines Names (Diabetes)', _dmMedNamesController, maxLines: 3),
-                _buildRadioGroup('1. Did you ever forget to take medicines?', ['Yes', 'No'], _dmForget, (val) => setState(() => _dmForget = val)),
-                _buildRadioGroup('2. Do You ever neglected taking medicines', ['Yes', 'No'], _dmNeglected, (val) => setState(() => _dmNeglected = val)),
-                _buildRadioGroup('3. Have you ever stopped taking medicines on feeling better?', ['Yes', 'No', 'Other'], _dmStoppedBetter, (val) => setState(() => _dmStoppedBetter = val)),
-                _buildRadioGroup('4. Have you ever stopped taking medicines on feeling more worsening of your health', ['Yes', 'No'], _dmStoppedWorse, (val) => setState(() => _dmStoppedWorse = val)),
-              ],
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                title: 'Section 2: Diabetes Medicines',
+                icon: Icons.medical_services_outlined,
+                children: [
+                  _buildRadioGroup('Are you currently taking medicines for Diabetes?', ['Yes', 'No'], _takingDmMed, (val) => setState(() => _takingDmMed = val)),
+                  if (_takingDmMed == 'Yes') ...[
+                    _buildDropdown('Where did you received medicines?', _medSourceList, _dmMedSource, (val) => setState(() => _dmMedSource = val)),
+                    if (_dmMedSource == 'Others') _buildTextField('specify others', _dmMedSourceOthersController),
+                    _buildTextField('Medicines Names (Diabetes)', _dmMedNamesController, maxLines: 3),
+                    _buildRadioGroup('1. Did you ever forget to take medicines?', ['Yes', 'No'], _dmForget, (val) => setState(() => _dmForget = val)),
+                    _buildRadioGroup('2. Do You ever neglected taking medicines', ['Yes', 'No'], _dmNeglected, (val) => setState(() => _dmNeglected = val)),
+                    _buildRadioGroup('3. Have you ever stopped taking medicines on feeling better?', ['Yes', 'No', 'Other'], _dmStoppedBetter, (val) => setState(() => _dmStoppedBetter = val)),
+                    _buildRadioGroup('4. Have you ever stopped taking medicines on feeling more worsening of your health', ['Yes', 'No'], _dmStoppedWorse, (val) => setState(() => _dmStoppedWorse = val)),
+                  ],
+                ],
+              ),
 
               const SizedBox(height: 24),
-              _buildSectionTitle('Section 3: Hypertension Medicines'),
-              _buildRadioGroup('Are you currently taking medicines for Blood Pressure?', ['Yes', 'No'], _takingHtnMed, (val) => setState(() => _takingHtnMed = val)),
-              if (_takingHtnMed == 'Yes') ...[
-                _buildDropdown('Where did you received medicines?', _medSourceList, _htnMedSource, (val) => setState(() => _htnMedSource = val)),
-                if (_htnMedSource == 'Others') _buildTextField('specify others', _htnMedSourceOthersController),
-                _buildTextField('Medicines Names (Hypertension)', _htnMedNamesController, maxLines: 3),
-                _buildRadioGroup('1. Did you ever forget to take medicines?', ['Yes', 'No'], _htnForget, (val) => setState(() => _htnForget = val)),
-                _buildRadioGroup('2. Do You ever neglected taking medicines', ['Yes', 'No'], _htnNeglected, (val) => setState(() => _htnNeglected = val)),
-                _buildRadioGroup('3. Have you ever stopped taking medicines on feeling better?', ['Yes', 'No', 'Other'], _htnStoppedBetter, (val) => setState(() => _htnStoppedBetter = val)),
-                _buildRadioGroup('4. Have you ever stopped taking medicines on feeling more worsening of your health', ['Yes', 'No'], _htnStoppedWorse, (val) => setState(() => _htnStoppedWorse = val)),
-              ],
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                title: 'Section 3: Hypertension Medicines',
+                icon: Icons.bloodtype_outlined,
+                children: [
+                  _buildRadioGroup('Are you currently taking medicines for Blood Pressure?', ['Yes', 'No'], _takingHtnMed, (val) => setState(() => _takingHtnMed = val)),
+                  if (_takingHtnMed == 'Yes') ...[
+                    _buildDropdown('Where did you received medicines?', _medSourceList, _htnMedSource, (val) => setState(() => _htnMedSource = val)),
+                    if (_htnMedSource == 'Others') _buildTextField('specify others', _htnMedSourceOthersController),
+                    _buildTextField('Medicines Names (Hypertension)', _htnMedNamesController, maxLines: 3),
+                    _buildRadioGroup('1. Did you ever forget to take medicines?', ['Yes', 'No'], _htnForget, (val) => setState(() => _htnForget = val)),
+                    _buildRadioGroup('2. Do You ever neglected taking medicines', ['Yes', 'No'], _htnNeglected, (val) => setState(() => _htnNeglected = val)),
+                    _buildRadioGroup('3. Have you ever stopped taking medicines on feeling better?', ['Yes', 'No', 'Other'], _htnStoppedBetter, (val) => setState(() => _htnStoppedBetter = val)),
+                    _buildRadioGroup('4. Have you ever stopped taking medicines on feeling more worsening of your health', ['Yes', 'No'], _htnStoppedWorse, (val) => setState(() => _htnStoppedWorse = val)),
+                  ],
+                ],
+              ),
 
               const SizedBox(height: 40),
+              const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saveForm,
                   style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade700,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blue.shade700,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text(_isEditMode ? 'Update' : 'Submit', style: const TextStyle(fontSize: 18, color: Colors.white)),
+                  child: Text(_isEditMode ? 'Update Survey' : 'Submit Survey', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: _resetForm,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                ),
+              ),
+              const SizedBox(height: 32),
             ],
           ),
         ),
@@ -424,16 +479,16 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
-          const Divider(thickness: 2),
-        ],
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 

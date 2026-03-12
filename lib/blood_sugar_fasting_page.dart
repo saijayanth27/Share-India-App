@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class BloodSugarFastingPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -250,7 +251,19 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Blood Sugar Form(After Eating)'),
+        title: const Text('Blood Sugar Form', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.red.shade700, Colors.red.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
@@ -260,9 +273,16 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              buildHeader(
+                context: context,
+                title: 'Blood Sugar Monitoring',
+                subtitle: 'Track blood glucose levels after meals',
+              ),
               _buildIdentitySection(),
-              _buildSectionCard(
+              buildSectionCard(
+                context: context,
                 title: 'Screening Status',
+                icon: Icons.assignment_turned_in_outlined,
                 children: [
                    _buildRadioGroup('If not done, reason', ['(1) Not available', '(2) Refused for current visit', '(3) Door Locked', '(4) Other'], _notDoneReason, (val) => setState(() => _notDoneReason = val)),
                    if (_notDoneReason == '(4) Other') ...[
@@ -271,8 +291,10 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
                    ],
                 ],
               ),
-              _buildSectionCard(
+              buildSectionCard(
+                context: context,
                 title: 'Test Results',
+                icon: Icons.biotech_outlined,
                 children: [
                   Row(
                     children: [
@@ -318,8 +340,14 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
+            Row(
+              children: [
+                Icon(Icons.person_outline, color: Theme.of(context).primaryColor, size: 20),
+                const SizedBox(width: 8),
+                Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
+              ],
+            ),
+            const Divider(height: 24),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
             _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
@@ -371,25 +399,6 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
               interviewersName,
               (v) => setState(() => interviewersName = v),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(top: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
           ],
         ),
       ),

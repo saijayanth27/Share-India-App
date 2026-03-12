@@ -138,29 +138,42 @@ class _MedicinesEntryReportPageState extends State<MedicinesEntryReportPage> {
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
+                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Search $_searchField...',
+                  hintText: 'Search by Reg No or Name...',
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                   border: InputBorder.none,
                   suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () => setState(() {
-                      _isSearchingActive = false;
-                      _activeSearchQuery = '';
+                    icon: const Icon(Icons.clear, color: Colors.white),
+                    onPressed: () {
                       _searchController.clear();
-                    }),
+                      setState(() {
+                        _activeSearchQuery = '';
+                        _isSearchingActive = false;
+                      });
+                    },
                   ),
                 ),
-                onChanged: (val) => setState(() => _activeSearchQuery = val),
+                onChanged: (value) => setState(() => _activeSearchQuery = value.toLowerCase()),
               )
-            : const Text('Medicines Entry Reports'),
+            : const Text('Medicines Reports', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.teal.shade700, Colors.teal.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         actions: [
           if (!_isSearchingActive)
             IconButton(
               icon: const Icon(Icons.search),
-              onPressed: () => setState(() {
-                _isSearchingActive = true;
-                _searchField = 'All';
-              }),
+              onPressed: () => setState(() => _isSearchingActive = true),
             ),
         ],
       ),
@@ -205,26 +218,57 @@ class _MedicinesEntryReportPageState extends State<MedicinesEntryReportPage> {
             children: [
               _buildSyncBanner(fromCache, syncing, docs.length),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: [
-                        ..._fieldMapping.keys.map((label) => _buildSearchColumn(label)),
-                        const DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
-                      ],
-                      rows: docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        return DataRow(
-                          cells: [
-                            ..._fieldMapping.keys.map((label) => _buildDataCell(label, data, doc)),
-                            _buildDataCell('Actions', data, doc),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final docId = doc.id;
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.teal.shade700,
+                          child: Text((index + 1).toString(), style: const TextStyle(color: Colors.white)),
+                        ),
+                        title: Text(data['Name'] ?? 'No Name', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Reg No: ${data['Registration_Number'] ?? 'N/A'}'),
+                            Text('Source: ${data['Source_of_Medicine'] ?? 'N/A'}'),
+                            if (data['Date_field'] != null)
+                              Text('Date: ${data['Date_field'] is Timestamp ? DateFormat('dd-MMM-yyyy').format((data['Date_field'] as Timestamp).toDate()) : data['Date_field'].toString()}'),
                           ],
-                        );
-                      }).toList(),
-                    ),
-                  ),
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          onSelected: (value) {
+                            if (value == 'edit') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => MedicinesEntryPage(
+                                    existingData: data,
+                                    docId: docId,
+                                  ),
+                                ),
+                              );
+                            } else if (value == 'delete') {
+                              _deleteRecord(docId);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: Colors.blue), title: Text('Edit'), contentPadding: EdgeInsets.zero)),
+                            const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('Delete'), contentPadding: EdgeInsets.zero)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

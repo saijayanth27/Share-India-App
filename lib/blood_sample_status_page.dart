@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class BloodSampleStatusPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -298,7 +299,19 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Sample Status Form'),
+        title: const Text('Sample Status Form', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade700, Colors.blue.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -308,7 +321,11 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-
+                  buildHeader(
+                    context: context,
+                    title: 'Blood Sample Tracking',
+                    subtitle: 'Monitor collection and status of various health samples',
+                  ),
                   _buildIdentitySection(),
                   _buildSampleStatusSection(),
                   _buildCollectionDatesSection(),
@@ -330,34 +347,28 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     );
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildIdentitySection() {
-    return _buildSectionCard(
+    return buildSectionCard(
+      context: context,
       title: 'Identity & Interview',
+      icon: Icons.person_pin_outlined,
       children: [
-        TextFormField(controller: _registrationNumber, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
+        TextFormField(
+          controller: _registrationNumber,
+          decoration: InputDecoration(
+            labelText: 'Registration Number',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.badge_outlined, color: Theme.of(context).primaryColor),
+          ),
+        ),
         const SizedBox(height: 16),
         TextFormField(
           controller: _familyCodeController,
-          decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
+          decoration: InputDecoration(
+            labelText: 'Family code',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.family_restroom, color: Theme.of(context).primaryColor),
+          ),
           onChanged: (v) {
             setState(() {
               selectedFamilyCode = v;
@@ -376,7 +387,12 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         const SizedBox(height: 16),
         if (_isEditMode)
           DropdownButtonFormField<String>(
-            decoration: InputDecoration(labelText: 'Select Name to Edit', border: const OutlineInputBorder(), suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
+            decoration: InputDecoration(
+              labelText: 'Select Name to Edit',
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(Icons.edit_note, color: Theme.of(context).primaryColor),
+              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null,
+            ),
             value: selectedName,
             items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
             onChanged: (v) {
@@ -390,7 +406,12 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
           )
         else
           DropdownButtonFormField<String>(
-            decoration: InputDecoration(labelText: 'Name', border: const OutlineInputBorder(), suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
+            decoration: InputDecoration(
+              labelText: 'Name',
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person, color: Theme.of(context).primaryColor),
+              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null,
+            ),
             value: selectedName,
             items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
             onChanged: _onNameSelected,
@@ -436,6 +457,8 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
             value: r,
             groupValue: notDoneReason,
             onChanged: (v) => setState(() => notDoneReason = v),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
           )).toList(),
         ),
       ],
@@ -443,8 +466,10 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   }
 
   Widget _buildSampleStatusSection() {
-    return _buildSectionCard(
+    return buildSectionCard(
+      context: context,
       title: 'Sample Collection Status',
+      icon: Icons.biotech_outlined,
       children: [
         _buildRadioRow('Did you collect Blood Sample?', collectBloodSample, (v) => setState(() => collectBloodSample = v), ['Yes']),
         _buildDropdownRow('HBA1C', collectHBA1C, (v) => setState(() => collectHBA1C = v)),
@@ -490,8 +515,10 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   }
 
   Widget _buildCollectionDatesSection() {
-    return _buildSectionCard(
+    return buildSectionCard(
+      context: context,
       title: 'Collection Dates',
+      icon: Icons.calendar_month_outlined,
       children: [
         _buildDatePicker('Date of Blood sample collection for CBP', dateCBP, (v) => setState(() => dateCBP = v)),
         _buildDatePicker('Date of Blood sample collection for HBA1C', dateHBA1C, (v) => setState(() => dateHBA1C = v)),

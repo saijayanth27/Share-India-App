@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class CervicalCancerScreeningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -309,7 +310,19 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Cervical Cancer Screening'),
+        title: const Text('Cervical Screening', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green.shade700, Colors.teal.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
@@ -372,12 +385,23 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
                       child: ElevatedButton(
                         onPressed: _save,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
+                          backgroundColor: Colors.green.shade700,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         child: Text(_isEditMode ? 'Update Screening' : 'Submit Screening', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: _resetForm,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
                       ),
                     ),
                     const SizedBox(height: 40),
@@ -389,17 +413,10 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
   }
 
   Widget _buildIdentitySection() {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
+    return _buildSectionCard(
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
             _buildTextField('Family Code', _familyIdController, onChanged: (v) {
@@ -463,28 +480,20 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
                 Expanded(child: _buildTextField('Last Name', _lastNameController)),
               ],
             ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 

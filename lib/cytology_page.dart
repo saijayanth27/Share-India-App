@@ -2,6 +2,7 @@ import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_fir
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class CytologyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -325,22 +326,16 @@ class _CytologyPageState extends State<CytologyPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+    IconData? icon,
+  }) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      children: children,
+      icon: icon,
     );
   }
 
@@ -385,8 +380,19 @@ class _CytologyPageState extends State<CytologyPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Cytology Form'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Cytology', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.pink.shade700, Colors.pinkAccent.shade200],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -396,9 +402,15 @@ class _CytologyPageState extends State<CytologyPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  buildHeader(
+                    context: context,
+                    title: 'Cytology Examination',
+                    subtitle: 'Cellular analysis and reporting',
+                  ),
 
                   _buildSectionCard(
                     title: 'Identification',
+                    icon: Icons.person_outline,
                     children: [
                       TextFormField(
                         controller: _regNoController,
@@ -514,6 +526,7 @@ class _CytologyPageState extends State<CytologyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Specimen Assessment',
+                    icon: Icons.assignment_outlined,
                     children: [
                       _buildRadioGroup('8. Specimen adequacy', adequacyChoices, selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
                       _buildCheckboxGroup('8a. Specify reason', adequacyReasonChoices, selectedAdequacyReasons, (opt, val) {
@@ -527,6 +540,7 @@ class _CytologyPageState extends State<CytologyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Diagnosis & Findings',
+                    icon: Icons.medical_services_outlined,
                     children: [
                       _buildCheckboxGroup('9. Infection', infectionChoices, selectedInfections, (opt, val) {
                         setState(() => val ? selectedInfections.add(opt) : selectedInfections.remove(opt));
@@ -542,6 +556,7 @@ class _CytologyPageState extends State<CytologyPage> {
                   ),
                   _buildSectionCard(
                     title: 'Other Results',
+                    icon: Icons.description_outlined,
                     children: [
                       TextFormField(
                         controller: _otherNeoplasticController,
@@ -560,23 +575,32 @@ class _CytologyPageState extends State<CytologyPage> {
                       ),
                     ],
                   ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _save,
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                          child: Text(_isEditMode ? 'Update Cytology' : 'Save Cytology', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.pink.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: _resetForm,
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[300], foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                        child: const Text('Reset'),
-                      ),
-                    ],
+                      child: Text(_isEditMode ? 'Update Cytology' : 'Save Cytology', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _resetForm,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   const SizedBox(height: 32),
                 ],
               ),

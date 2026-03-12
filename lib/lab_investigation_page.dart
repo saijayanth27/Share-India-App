@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'widget.dart';
 
 class LabInvestigationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -259,25 +260,6 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-            const Divider(height: 24),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildNumericField(String label, TextEditingController controller) {
     return TextFormField(
       controller: controller,
@@ -296,8 +278,19 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Lab Investigation Form'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Lab Investigation', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade800, Colors.indigo.shade400],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -307,9 +300,16 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  buildHeader(
+                    context: context,
+                    title: 'Lab Diagnostics',
+                    subtitle: 'Record and track patient laboratory results',
+                  ),
 
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Identification',
+                    icon: Icons.badge_outlined,
                     children: [
                       TextFormField(
                         controller: _regNoController,
@@ -403,8 +403,10 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
                       ),
                     ],
                   ),
-                  _buildSectionCard(
+                  buildSectionCard(
+                    context: context,
                     title: 'Investigations',
+                    icon: Icons.science_outlined,
                     children: [
                       Row(
                         children: [
@@ -448,33 +450,32 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _save,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          child: Text(_isEditMode ? 'Update Lab Results' : 'Save Lab Results', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade800,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: _resetForm,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[300],
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: const Text('Reset'),
-                      ),
-                    ],
+                      child: Text(_isEditMode ? 'Update Lab Results' : 'Save Lab Results', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _resetForm,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   const SizedBox(height: 32),
                 ],
               ),
