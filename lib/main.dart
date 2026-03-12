@@ -14,6 +14,7 @@ import 'location_codes.dart';
 import 'home_page.dart';
 import 'widget.dart';
 import 'app_drawer.dart';
+import 'personal_details_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -682,8 +683,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
             content: Text(isOnline ? 'Record saved (ID: $finalId)' : 'Saved offline (ID: $finalId) - will sync automatically'),
           ),
         );
-        if (widget.existingData == null) _resetForm();
-        if (Navigator.canPop(context)) Navigator.pop(context);
+
+        // Show confirmation dialog to proceed to Personal Details
+        _showProceedToPersonalDetailsDialog(finalId);
       }
     } catch (e) {
       debugPrint('SAVE CRITICAL ERROR: $e');
@@ -695,6 +697,40 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  void _showProceedToPersonalDetailsDialog(String familyId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Proceed to Personal Details?'),
+        content: Text('Family Code $familyId generated successfully. Do you want to proceed to the Personal Details form?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              if (widget.existingData == null) _resetForm();
+              if (Navigator.canPop(context)) Navigator.pop(context);
+            },
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              if (widget.existingData == null) _resetForm();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PersonalDetailsPage(initialFamilyCode: familyId),
+                ),
+              );
+            },
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
   }
 
   // New helper method for background sync

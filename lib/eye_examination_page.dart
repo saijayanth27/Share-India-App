@@ -16,9 +16,15 @@ class EyeExaminationPage extends StatefulWidget {
 class _EyeExaminationPageState extends State<EyeExaminationPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Identification State ---
+  final _nameController = TextEditingController();
   final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   String? selectedFamilyCode;
   String? selectedMemberName;
   String? selectedGender;
@@ -45,6 +51,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   // Dropdowns
   List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   final List<String> interviewers = ["KIRANMAI K", "LAVANYA KASPOJU", "RAMADEVI Y", "REVATHI CH"];
@@ -74,15 +81,36 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMemberNames = names..sort();
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -91,36 +119,88 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('eye_examination')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
     setState(() {
-      _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedFamilyCode = d['Family_Code'];
-      selectedMemberName = d['Name'];
-      selectedGender = d['Gender'];
-      _ageController.text = d['Age']?.toString() ?? '';
-      if (d['Examination_Date'] != null) {
-        examinationDate = (d['Examination_Date'] as Timestamp).toDate();
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _ageController.text = data['Age']?.toString() ?? '';
+        }
       }
-      selectedInterviewer = d['Interviewer_s_Name'];
-
-      // OD
-      selectedFailedDistanceOD = d['Failed_Distance'];
-      selectedFailedPinholeOD = d['Failed_Pinhole'];
-      selectedSymptomsOD = d['Signs_and_symptoms'];
-      _othersSymptomsODController.text = d['Any_Others'] ?? '';
-      selectedEyeProblemsOD = d['Eye_Problems_suspected_by_Field_workers_Self_reported'];
-      _othersEyeProblemsODController.text = d['Any_Others1'] ?? '';
-
-      // OS
-      selectedFailedDistanceOS = d['Failed_Distance1'];
-      selectedFailedPinholeOS = d['Failed_Pinhole1'];
-      selectedSymptomsOS = d['Signs_and_symptoms2'];
-      _othersSymptomsOSController.text = d['Any_Others2'] ?? '';
-      selectedEyeProblemsOS = d['Eye_Problems_suspected_by_Field_workers_Self_reported1'];
-      _othersEyeProblemsOSController.text = d['Any_Others3'] ?? '';
     });
-    if (selectedFamilyCode != null) {
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    selectedGender = d['Gender'];
+    _ageController.text = d['Age']?.toString() ?? '';
+    
+    if (d['Examination_Date'] != null) {
+      if (d['Examination_Date'] is Timestamp) {
+        examinationDate = (d['Examination_Date'] as Timestamp).toDate();
+      } else {
+        try {
+          examinationDate = DateFormat('dd-MMM-yyyy').parse(d['Examination_Date'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    selectedInterviewer = d['Interviewer_s_Name_ID'];
+    
+    selectedFailedDistanceOD = d['Did_you_fail_the_distance_visual_acuity_test_Right_Eye_OD'];
+    selectedFailedPinholeOD = d['Did_you_fail_the_Pinhole_test_Right_Eye_OD'];
+    selectedSymptomsOD = d['Symptoms_observed_during_the_Right_Eye_OD_Examination'];
+    _othersSymptomsODController.text = d['Other_Symptoms_encountered_Right_Eye_OD'] ?? '';
+    selectedEyeProblemsOD = d['Current_Eye_Problems_Right_Eye_OD'];
+    _othersEyeProblemsODController.text = d['Other_Eye_Problems_encountered_Right_Eye_OD'] ?? '';
+
+    selectedFailedDistanceOS = d['Did_you_fail_the_distance_visual_acuity_test_Left_Eye_OS'];
+    selectedFailedPinholeOS = d['Did_you_fail_the_Pinhole_test_Left_Eye_OS'];
+    selectedSymptomsOS = d['Symptoms_observed_during_the_Left_Eye_OS_Examination'];
+    _othersSymptomsOSController.text = d['Other_Symptoms_encountered_Left_Eye_OS'] ?? '';
+    selectedEyeProblemsOS = d['Current_Eye_Problems_Left_Eye_OS'];
+    _othersEyeProblemsOSController.text = d['Other_Eye_Problems_encountered_Left_Eye_OS'] ?? '';
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -129,6 +209,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     _formKey.currentState?.reset();
     setState(() {
       _registrationNumber.clear();
+      _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
       selectedGender = null;
@@ -151,6 +232,8 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       _othersEyeProblemsOSController.clear();
       
       familyMemberNames = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -162,7 +245,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       final data = {
         'Registration_Number': _registrationNumber.text,
         'Family_Code': selectedFamilyCode,
-        'Name': selectedMemberName,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
         'Examination_Date': examinationDate != null ? Timestamp.fromDate(examinationDate!) : null,
@@ -188,7 +271,9 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('eye_examination').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('eye_examination').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('eye_examination').add(data);
@@ -318,7 +403,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      child: Text(widget.docId == null ? 'Save Examination' : 'Update Examination', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      child: Text(_isEditMode ? 'Update Examination' : 'Save Examination', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(height: 32),
@@ -341,12 +426,34 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
             const Divider(),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedMemberName = null; familyMemberNames = []; });
-              if (v != null) _fetchMembersByFamily(v);
+
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedMemberName = null;
+                familyMemberNames = [];
+              });
+              if (v.isNotEmpty) {
+                 if (_isEditMode) {
+                   _fetchExistingRecords(v);
+                 } else {
+                   _fetchMembersByFamily(v);
+                 }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', familyMemberNames, selectedMemberName, (v) => setState(() => selectedMemberName = v), isLoading: _isLoadingMembers),
+            _isEditMode
+                ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedMemberName, _onNameSelected, isLoading: _isLoadingMembers)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTextField('Name', _nameController),
+                      if (familyMemberNames.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _buildDropdown('Pick from Family Members', familyMemberNames, null, _onNameSelected, isLoading: _isLoadingMembers),
+                      ],
+                    ],
+                  ),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -376,7 +483,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -392,6 +499,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

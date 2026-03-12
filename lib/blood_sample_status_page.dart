@@ -16,9 +16,14 @@ class BloodSampleStatusPage extends StatefulWidget {
 class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _age = TextEditingController();
   
   String? selectedFamilyCode;
@@ -49,8 +54,9 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   DateTime? modifiedDate = DateTime.now();
 
   List<String> allFamilyCodes = [];
-  List<String> allNames = [];
-  bool _isLoadingLookups = false;
+  List<String> familyMembers = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
+  bool _isLoadingMembers = false;
 
   @override
   void initState() {
@@ -68,59 +74,132 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     });
   }
 
-  Future<void> _fetchNamesByFamily(String familyCode) async {
-    setState(() => _isLoadingLookups = true);
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((name) => name.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        allNames = names..sort();
-        _isLoadingLookups = false;
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
+        _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching names: $e');
-      setState(() => _isLoadingLookups = false);
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedFamilyCode = d['Family_code'];
-      selectedName = d['Name'];
-      selectedGender = d['Gender'];
-      _age.text = d['Age']?.toString() ?? '';
-      if (d['Date_of_Interview'] != null) dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
-      interviewersName = d['Interviewer_s_Name'];
-      notDoneReason = d['If_not_done_reason'];
-
-      collectBloodSample = d['Did_you_collect_Blood_Sample1'];
-      collectHBA1C = d['Did_you_collected_Blood_sample_for_HBA1C'];
-      collectThyroid = d['Did_you_collected_Blood_sample_for_THYROID'];
-      collectCRE = d['Did_you_collected_Blood_sample_for_CRE'];
-      collectSputumTB = d['Did_you_collected_SPUTUM_sample_for_TB_Test'];
-      collectVaginalSwabHPV = d['Did_you_collected_Vaginal_Swab_sample_for_HPV'];
-      collectUrine = d['Did_you_collected_Urine_sample'];
-
-      if (d['Date_of_Blood_sample_collection_for_CBP'] != null) dateCBP = (d['Date_of_Blood_sample_collection_for_CBP'] as Timestamp).toDate();
-      if (d['Date_of_Blood_sample_collection_for_HBA1C'] != null) dateHBA1C = (d['Date_of_Blood_sample_collection_for_HBA1C'] as Timestamp).toDate();
-      if (d['Date_of_Blood_sample_collection_for_THYROID'] != null) dateThyroid = (d['Date_of_Blood_sample_collection_for_THYROID'] as Timestamp).toDate();
-      if (d['Date_of_Blood_sample_collection_for_CRE'] != null) dateCRE = (d['Date_of_Blood_sample_collection_for_CRE'] as Timestamp).toDate();
-      if (d['Date_of_Sputum_sample_collection_for_TB_Test'] != null) dateSputumTB = (d['Date_of_Sputum_sample_collection_for_TB_Test'] as Timestamp).toDate();
-      if (d['Date_of_V_Swab_sample_collection_for_HPV'] != null) dateVaginalSwabHPV = (d['Date_of_V_Swab_sample_collection_for_HPV'] as Timestamp).toDate();
-      if (d['Date_of_Urine_sample_collection'] != null) dateUrine = (d['Date_of_Urine_sample_collection'] as Timestamp).toDate();
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('blood_sample_status')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
       
-      if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
-      if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
 
-      if (selectedFamilyCode != null) _fetchNamesByFamily(selectedFamilyCode!);
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _age.text = data['Age']?.toString() ?? '';
+        }
+      }
     });
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedName = d['Name'];
+    selectedGender = d['Gender'];
+    _age.text = d['Age']?.toString() ?? '';
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    interviewersName = d['Interviewer_s_Name'];
+    notDoneReason = d['If_not_done_reason'];
+
+    collectBloodSample = d['Did_you_collect_Blood_Sample1'];
+    collectHBA1C = d['Did_you_collected_Blood_sample_for_HBA1C'];
+    collectThyroid = d['Did_you_collected_Blood_sample_for_THYROID'];
+    collectCRE = d['Did_you_collected_Blood_sample_for_CRE'];
+    collectSputumTB = d['Did_you_collected_SPUTUM_sample_for_TB_Test'];
+    collectVaginalSwabHPV = d['Did_you_collected_Vaginal_Swab_sample_for_HPV'];
+    collectUrine = d['Did_you_collected_Urine_sample'];
+
+    if (d['Date_of_Blood_sample_collection_for_CBP'] != null) dateCBP = (d['Date_of_Blood_sample_collection_for_CBP'] as Timestamp).toDate();
+    if (d['Date_of_Blood_sample_collection_for_HBA1C'] != null) dateHBA1C = (d['Date_of_Blood_sample_collection_for_HBA1C'] as Timestamp).toDate();
+    if (d['Date_of_Blood_sample_collection_for_THYROID'] != null) dateThyroid = (d['Date_of_Blood_sample_collection_for_THYROID'] as Timestamp).toDate();
+    if (d['Date_of_Blood_sample_collection_for_CRE'] != null) dateCRE = (d['Date_of_Blood_sample_collection_for_CRE'] as Timestamp).toDate();
+    if (d['Date_of_Sputum_sample_collection_for_TB_Test'] != null) dateSputumTB = (d['Date_of_Sputum_sample_collection_for_TB_Test'] as Timestamp).toDate();
+    if (d['Date_of_V_Swab_sample_collection_for_HPV'] != null) dateVaginalSwabHPV = (d['Date_of_V_Swab_sample_collection_for_HPV'] as Timestamp).toDate();
+    if (d['Date_of_Urine_sample_collection'] != null) dateUrine = (d['Date_of_Urine_sample_collection'] as Timestamp).toDate();
+    
+    if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
+    if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
+
+    if (selectedFamilyCode != null && familyMembers.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   Future<void> _save() async {
@@ -157,7 +236,9 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('blood_sample_status').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('blood_sample_status').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('blood_sample_status').add(data);
@@ -180,13 +261,44 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     }
   }
 
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      if (!_isEditMode) {
+        _familyCodeController.clear();
+        selectedFamilyCode = null;
+      }
+      _registrationNumber.clear();
+      selectedName = null;
+      selectedGender = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
+      notDoneReason = null;
+      collectBloodSample = null;
+      collectHBA1C = null;
+      collectThyroid = null;
+      collectCRE = null;
+      collectSputumTB = null;
+      collectVaginalSwabHPV = null;
+      collectUrine = null;
+      dateCBP = null;
+      dateHBA1C = null;
+      dateThyroid = null;
+      dateCRE = null;
+      dateSputumTB = null;
+      dateVaginalSwabHPV = null;
+      dateUrine = null;
+      familyMembers = [];
+      _existingRecords = [];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Blood Sample Status'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Sample Status Form'),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -196,6 +308,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+
                   _buildIdentitySection(),
                   _buildSampleStatusSection(),
                   _buildCollectionDatesSection(),
@@ -208,7 +321,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Save Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Status' : 'Save Status', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 48),
                 ],
@@ -242,25 +355,46 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       children: [
         TextFormField(controller: _registrationNumber, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
         const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
+        TextFormField(
+          controller: _familyCodeController,
           decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
-          value: selectedFamilyCode,
-          items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
           onChanged: (v) {
             setState(() {
               selectedFamilyCode = v;
               selectedName = null;
+              familyMembers = [];
             });
-            if (v != null) _fetchNamesByFamily(v);
+            if (v.isNotEmpty) {
+              if (_isEditMode) {
+                _fetchExistingRecords(v);
+              } else {
+                _fetchMembersByFamily(v);
+              }
+            }
           },
         ),
         const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: InputDecoration(labelText: 'Name', border: OutlineInputBorder(), suffixIcon: _isLoadingLookups ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
-          value: selectedName,
-          items: allNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-          onChanged: (v) => setState(() => selectedName = v),
-        ),
+        if (_isEditMode)
+          DropdownButtonFormField<String>(
+            decoration: InputDecoration(labelText: 'Select Name to Edit', border: const OutlineInputBorder(), suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
+            value: selectedName,
+            items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
+            onChanged: (v) {
+               final record = _existingRecords.firstWhere((r) => r['Name'] == v);
+               setState(() {
+                 selectedName = v;
+                 _editDocId = record['id'];
+                 _populateForm(record);
+               });
+            },
+          )
+        else
+          DropdownButtonFormField<String>(
+            decoration: InputDecoration(labelText: 'Name', border: const OutlineInputBorder(), suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null),
+            value: selectedName,
+            items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+            onChanged: _onNameSelected,
+          ),
         const SizedBox(height: 16),
         Row(
           children: [

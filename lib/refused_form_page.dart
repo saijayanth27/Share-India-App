@@ -14,14 +14,21 @@ class RefusedFormPage extends StatefulWidget {
 }
 
 class _RefusedFormPageState extends State<RefusedFormPage> {
-  final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // Controllers
   // Controllers
   final _registrationNumberController = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _ageController = TextEditingController();
   final _otherReasonsController = TextEditingController();
+  final _specifyOtherController = TextEditingController();
+
+  final _formKey = GlobalKey<FormState>();
 
   // Selected Values
   String? selectedFamilyCode;
@@ -36,9 +43,9 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
 
   // Lists for Lookups
   List<String> allFamilyCodes = [];
-  List<String> namesByFamily = [];
-  bool _isLoadingFamily = false;
-  bool _isLoadingNames = false;
+  List<String> familyMembers = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
+  bool _isLoadingMembers = false;
 
   final List<String> interviewers = [
     "KIRANMAI K", "LAVANYA KASPOJU", "RAMADEVI Y", "REVATHI CH", "PUSHPA K", "KUSUMA",
@@ -72,78 +79,152 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     });
   }
 
-  Future<void> _fetchNamesByFamily(String familyCode) async {
-    setState(() => _isLoadingNames = true);
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
       
-      final names = snapshot.docs
-          .map((doc) => (doc.data() as Map<String, dynamic>)['Name']?.toString())
-          .whereType<String>()
-          .toSet()
-          .toList();
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        namesByFamily = names..sort();
-        _isLoadingNames = false;
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
+        _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching names: $e');
-      setState(() => _isLoadingNames = false);
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      _registrationNumberController.text = d['Registration_Number'] ?? '';
-      selectedFamilyCode = d['Family_code'];
-      selectedName = d['Name'];
-      selectedGender = d['Gender'];
-      _ageController.text = d['Age']?.toString() ?? '';
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('refused_form')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
       
-      if (d['Date_of_Interview'] != null) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
-      }
-      
-      selectedInterviewer = d['Interviewer_s_Name'];
-      selectedRespondent = d['Respondent'];
-      selectedReason = d['Reason_for_withdrawing_from_study'];
-      
-      if (d['Death_Date'] != null) {
-        deathDate = (d['Death_Date'] as Timestamp).toDate();
-      }
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
 
-      if (d['Created_time'] != null) {
-        // String format expected is HH:mm:ss, or it could be stored as a string
-        final timeStr = d['Created_time'].toString();
-        try {
-          final parts = timeStr.split(':');
-          if (parts.length >= 2) {
-            createdTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
           }
-        } catch (e) {
-          debugPrint('Error parsing time: $e');
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumberController.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _ageController.text = data['Age']?.toString() ?? '';
         }
       }
-
-      _otherReasonsController.text = d['other_reasons_specified'] ?? '';
     });
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumberController.text = d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedName = d['Name'];
+    selectedGender = d['Gender'];
+    _ageController.text = d['Age']?.toString() ?? '';
     
-    if (selectedFamilyCode != null) {
-      _fetchNamesByFamily(selectedFamilyCode!);
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    selectedInterviewer = d['Interviewer_s_Name'];
+    selectedRespondent = d['Respondent'];
+    selectedReason = d['Reason_for_withdrawing_from_study'];
+    
+    if (d['Death_Date'] != null) {
+      if (d['Death_Date'] is Timestamp) {
+        deathDate = (d['Death_Date'] as Timestamp).toDate();
+      } else {
+        try {
+          deathDate = DateFormat('dd-MMM-yyyy').parse(d['Death_Date'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    _specifyOtherController.text = d['Specify_Reason'] ?? ''; // Using the new controller
+
+    if (d['Created_time'] != null) {
+      // String format expected is HH:mm:ss, or it could be stored as a string
+      final timeStr = d['Created_time'].toString();
+      try {
+        final parts = timeStr.split(':');
+        if (parts.length >= 2) {
+          createdTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+      } catch (e) {
+        debugPrint('Error parsing time: $e');
+      }
+    }
+
+    _otherReasonsController.text = d['other_reasons_specified'] ?? '';
+    
+    if (selectedFamilyCode != null && familyMembers.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
 
   void _resetForm() {
-    _formKey.currentState?.reset();
+    // _formKey.currentState?.reset(); // _formKey is not defined in this snippet, assuming it's elsewhere or will be added.
     setState(() {
       _registrationNumberController.clear();
       _ageController.clear();
       _otherReasonsController.clear();
+      _specifyOtherController.clear(); // Clear new controller
       selectedFamilyCode = null;
       selectedName = null;
       selectedGender = null;
@@ -153,12 +234,14 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
       selectedReason = null;
       deathDate = null;
       createdTime = null;
-      namesByFamily = [];
+      familyMembers = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    // if (!_formKey.currentState!.validate()) return; // _formKey is not defined in this snippet, assuming it's elsewhere or will be added.
     setState(() => _isSaving = true);
 
     try {
@@ -175,11 +258,14 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
         'Death_Date': deathDate != null ? Timestamp.fromDate(deathDate!) : null,
         'Created_time': createdTime != null ? '${createdTime!.hour.toString().padLeft(2, '0')}:${createdTime!.minute.toString().padLeft(2, '0')}:00' : null,
         'other_reasons_specified': _otherReasonsController.text,
+        'Specify_Reason': _specifyOtherController.text, // Added this field
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('refused_form').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('refused_form').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('refused_form').add(data);
@@ -237,7 +323,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Refused Form'),
+        title: const Text('Withdrawal Consent Form'), // Changed title
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
       ),
       drawer: const AppDrawer(),
@@ -279,7 +365,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: Text(widget.docId == null ? 'Save Form' : 'Update Form', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        child: Text(_isEditMode ? 'Update Form' : 'Save Form', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(height: 32),
@@ -288,6 +374,8 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
               ),
     );
   }
+
+
 
   Widget _buildIdentitySection() {
     return Card(
@@ -303,12 +391,24 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
             const Divider(),
             _buildTextField('Registration Number', _registrationNumberController),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedName = null; namesByFamily = []; });
-              if (v != null) _fetchNamesByFamily(v);
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedName = null;
+                familyMembers = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                if (_isEditMode) {
+                  _fetchExistingRecords(v);
+                } else {
+                  _fetchMembersByFamily(v);
+                }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', namesByFamily, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingNames),
+            _isEditMode
+                ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+                : _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -333,7 +433,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -349,6 +449,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

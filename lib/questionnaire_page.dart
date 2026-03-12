@@ -23,14 +23,16 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
   bool _isEditMode = false;
-  List<dynamic> _allQuestionnaires = [];
+  List<Map<String, dynamic>> _existingRecords = [];
   Map<String, dynamic>? _selectedRecord;
 
 
   // --- Controllers & State Variables ---
   // Section 1: Identity & Registration
+  final _familyCodeController = TextEditingController();
   final _registrationNumber = TextEditingController();
   String? selectedFamilyCode;
+  final _nameController = TextEditingController();
   String? selectedName;
   String? selectedGender;
   final _age = TextEditingController();
@@ -41,6 +43,8 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
   List<String> allFamilyCodes = [];
   List<String> familyMembers = [];
+  bool _isLoading = false;
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   // Section 2: Measurements
@@ -133,21 +137,36 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final members = <String>[];
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
 
       for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final name = data['Name']?.toString() ?? '';
-        members.add(name);
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
       }
 
       setState(() {
-        familyMembers = members..sort();
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -156,31 +175,127 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     }
   }
 
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final records = await MariaDBService.getQuestionnaires();
+      setState(() {
+        _existingRecords = records.where((r) {
+          final recFamilyCode = (r['Family_Code'] ?? r['Family_Code_Creation'])?.toString() ?? '';
+          return recFamilyCode == familyCode;
+        }).map((r) => Map<String, dynamic>.from(r)).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      _nameController.text = name ?? '';
+      if (name != null && _allMembersData.containsKey(name)) {
+        final data = _allMembersData[name]!;
+        _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+        selectedGender = data['Gender']?.toString();
+        _age.text = data['Age']?.toString() ?? '';
+        _contactTel.text = data['Mobile_Number']?.toString() ?? '';
+      }
+    });
+  }
+
 
   void _loadExistingData() {
     final d = _selectedRecord ?? widget.existingData;
     if (d == null) return;
     
     setState(() {
-      // Map MariaDB fields (Regno, INTDT, etc.) to your controllers
-      _registrationNumber.text = (d['Regno'] ?? d['Registration_Number'])?.toString() ?? '';
-      selectedFamilyCode = (d['Family_Code'] ?? d['Family_Code_Creation'])?.toString();
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
-      selectedName = (d['INTNAME'] ?? d['Name'])?.toString();
-      _contactTel.text = (d['CONTACTNO'] ?? d['Contact_Tel'])?.toString() ?? '';
-      selectedGender = d['Gender']?.toString();
-      _age.text = d['Age']?.toString() ?? '';
-      if (d['INTDT'] != null) {
-        dateOfInterview = DateTime.tryParse(d['INTDT'].toString());
-      } else if (d['Date_of_Interview'] != null) {
-        dateOfInterview = (d['Date_of_Interview'] is String) ? DateTime.tryParse(d['Date_of_Interview']) : d['Date_of_Interview'];
-      }
-
-      _heightCm.text = (d['HT'] ?? d['Height_CM'])?.toString() ?? '';
-      _weightKg.text = (d['WT'] ?? d['Weight_Kg'])?.toString() ?? '';
-      
-      // ... continue mapping the rest of the fields (Hypertension, Diabetes, etc.) ...
+          _populateForm(widget.existingData!);
     });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Regno']?.toString() ?? d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'] ?? d['Family_Code_Creation'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    if (selectedFamilyCode != null && familyMembers.isEmpty) _fetchMembersByFamily(selectedFamilyCode!);
+    selectedName = d['Name'] ?? d['INTNAME'];
+    _nameController.text = selectedName ?? '';
+    selectedGender = d['Gender'];
+    _age.text = (d['Age'] ?? '').toString();
+    _contactTel.text = d['CONTACTNO']?.toString() ?? '';
+    
+    if (d['INTDT'] != null) {
+      try {
+        dateOfInterview = DateTime.parse(d['INTDT'].toString());
+      } catch (_) {}
+    }
+    
+    _heightCm.text = (d['HT'] ?? d['Height_Cm'])?.toString() ?? '';
+    _weightKg.text = (d['WT'] ?? d['Weight_Kg'])?.toString() ?? '';
+    generalHealthStatus = d['What_is_your_general_health_status'];
+    
+    hasHypertension = d['Have_you_ever_been_diagnosed_screened_with_hypertension'];
+    _hypertensionDays.text = d['No_of_days1']?.toString() ?? '';
+    hypertensionDuration = d['Duration2'];
+    hypertensionMedicine = d['b_Are_you_currently_using_any_medicine_s_Medicine_Name1'];
+    _hypertensionDosage.text = d['Dosage']?.toString() ?? '';
+    _hypertensionOtherMedicine.text = d['Any_other_Medicine_name1'] ?? '';
+    
+    hasDiabetes = d['Have_you_ever_been_diagnosed_screened_with_Diabetes'];
+    _diabetesDays.text = d['No_of_days']?.toString() ?? '';
+    diabetesDuration = d['Duration1'];
+    diabetesMedicine = d['b_Are_you_currently_using_any_medicine_s_Medicine_Name'];
+    diabetesStrength = d['Strength1'];
+    _diabetesOtherMedicine.text = d['Any_other_Medicine_name'] ?? '';
+    
+    smokesNow = d['Do_you_smoke_chew_tobacco_related_products_now'];
+    if (d['Products_List'] != null) tobaccoProductsPresent = List<Map<String, dynamic>>.from(d['Products_List']);
+    smokedPast = d['Have_you_ever_smoke_chew_in_the_past'];
+    if (d['Products_List_Past'] != null) tobaccoProductsPast = List<Map<String, dynamic>>.from(d['Products_List_Past']);
+    
+    drinksAlcohol = d['Do_you_drink_consume_Alcohol'];
+    _alcoholDuration.text = d['Duration']?.toString() ?? '';
+    alcoholDurationUnit = d['Dropdown'];
+    if (d['List_field'] != null) alcoholProducts = List<Map<String, dynamic>>.from(d['List_field']);
+    
+    sufferGeneralHealth = d['Did_you_suffer_from_General_Health_problems'];
+    generalHealthStatusDetail = d['If_yes7'];
+    _generalHealthOther.text = d['If_Others_Please_Mention7'] ?? '';
+    
+    sufferVision = d['Did_you_suffer_from_Vision_problems1'];
+    visionStatusDetail = d['If_yes'];
+    _visionOther.text = d['If_Others_Please_Mention8'] ?? '';
+
+    sufferEnt = d['Did_you_suffer_from_ENT_problems2'];
+    entStatusDetail = d['If_yes1'];
+    _entOther.text = d['If_Others_Please_Mention9'] ?? '';
+
+    sufferRespiratory = d['Did_you_suffer_from_Respiratory_problems'];
+    respiratoryStatusDetail = d['If_yes2'];
+    _respiratoryOther.text = d['If_Others_Please_Mention10'] ?? '';
+
+    sufferGastro = d['Did_you_suffer_from_Gastrointestinal_problems'];
+    gastroStatusDetail = d['If_yes3'];
+    _gastroOther.text = d['If_Others_Please_Mention11'] ?? '';
+
+    sufferGenitourinary = d['Did_you_suffer_from_Genitourinary_problems'];
+    genitourinaryStatusDetail = d['If_yes4'];
+    _genitourinaryOther.text = d['If_Others_Please_Mention12'] ?? '';
+
+    sufferMusclesBones = d['Did_you_suffer_from_Muscles_or_bones_problems'];
+    musclesBonesStatusDetail = d['If_yes5'];
+    _musclesBonesOther.text = d['If_Others_Please_Mention13'] ?? '';
+
+    sufferSkin = d['Did_you_suffer_from_Skin_problems'];
+    skinStatusDetail = d['If_yes6'];
+    _skinOther.text = d['If_Others_Please_Mention14'] ?? '';
+
+    sufferBlood = d['Did_you_suffer_from_blood_related_problems'];
+    bloodStatusDetail = d['If_yes8'];
+    _bloodOther.text = d['If_Others_Please_Mention15'] ?? '';
   }
 
   Future<void> _pickImage() async {
@@ -200,7 +315,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         'Regno': _registrationNumber.text,
         'INTDT': dateOfInterview?.toIso8601String(),
         'CONTACTNO': _contactTel.text,
-        'INTNAME': selectedName,
+        'INTNAME': _isEditMode ? selectedName : _nameController.text,
         'HT': double.tryParse(_heightCm.text),
         'WT': double.tryParse(_weightKg.text),
         
@@ -208,7 +323,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         'Age': int.tryParse(_age.text),
         'Gender': selectedGender,
         'Family_Code': selectedFamilyCode,
-        'Name': selectedName,
+        'Name': _isEditMode ? selectedName : _nameController.text,
         'What_is_your_general_health_status': generalHealthStatus,
         'Have_you_ever_been_diagnosed_screened_with_hypertension': hasHypertension,
         'No_of_days1': _hypertensionDays.text,
@@ -266,7 +381,11 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Questionnaire saved successfully!'), backgroundColor: Colors.green),
         );
-        Navigator.pop(context);
+        if (widget.existingData != null) {
+          Navigator.pop(context);
+        } else {
+          _resetForm();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -277,6 +396,75 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      if (!_isEditMode) {
+        _familyCodeController.clear();
+        selectedFamilyCode = null;
+      }
+      _registrationNumber.clear();
+      _nameController.clear();
+      selectedName = null;
+      selectedGender = null;
+      _age.clear();
+      _contactTel.clear();
+      dateOfInterview = DateTime.now();
+      _image = null;
+      _heightCm.clear();
+      _weightKg.clear();
+      generalHealthStatus = null;
+      hasHypertension = '(2) No';
+      _hypertensionDays.clear();
+      hypertensionDuration = null;
+      hypertensionMedicine = null;
+      _hypertensionDosage.clear();
+      _hypertensionOtherMedicine.clear();
+      hasDiabetes = '(2) No';
+      _diabetesDays.clear();
+      diabetesDuration = null;
+      diabetesMedicine = null;
+      diabetesStrength = null;
+      _diabetesOtherMedicine.clear();
+      smokesNow = '(2) No';
+      tobaccoProductsPresent = [];
+      smokedPast = '(2) No';
+      tobaccoProductsPast = [];
+      drinksAlcohol = '(2) No';
+      _alcoholDuration.clear();
+      alcoholDurationUnit = null;
+      alcoholProducts = [];
+      sufferGeneralHealth = '(2) No';
+      generalHealthStatusDetail = null;
+      _generalHealthOther.clear();
+      sufferVision = '(2) No';
+      visionStatusDetail = null;
+      _visionOther.clear();
+      sufferEnt = '(2) No';
+      entStatusDetail = null;
+      _entOther.clear();
+      sufferRespiratory = '(2) No';
+      respiratoryStatusDetail = null;
+      _respiratoryOther.clear();
+      sufferGastro = '(2) No';
+      gastroStatusDetail = null;
+      _gastroOther.clear();
+      sufferGenitourinary = '(2) No';
+      genitourinaryStatusDetail = null;
+      _genitourinaryOther.clear();
+      sufferMusclesBones = '(2) No';
+      musclesBonesStatusDetail = null;
+      _musclesBonesOther.clear();
+      sufferSkin = '(2) No';
+      skinStatusDetail = null;
+      _skinOther.clear();
+      sufferBlood = '(2) No';
+      bloodStatusDetail = null;
+      _bloodOther.clear();
+      _existingRecords = [];
+    });
   }
 
   @override
@@ -306,11 +494,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Health Questionnaire',
-                    subtitle: 'Comprehensive health assessment and history',
-                  ),
+
                   _buildIdentitySection(),
                   _buildMeasurementSection(),
                   _buildHypertensionSection(),
@@ -326,36 +510,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Save Questionnaire', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () async {
-                      setState(() => _isSaving = true);
-                      try {
-                        final data = await MariaDBService.getQuestionnaires();
-                        setState(() {
-                          _allQuestionnaires = data;
-                          _isEditMode = true;
-                          _isSaving = false;
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Edit Mode Active')),
-                        );
-                      } catch (e) {
-                        setState(() => _isSaving = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e')),
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.orange.shade600,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Edit Questionnaire Records', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Questionnaire' : 'Save Questionnaire', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 48),
                 ],
@@ -383,11 +538,19 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       title: 'Identity & Registration',
       icon: Icons.person_outline,
       children: [
-        _buildTextField('Registration Number', _registrationNumber),
-        const SizedBox(height: 12),
-        _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-          setState(() { selectedFamilyCode = v; selectedName = null; });
-          if (v != null) _fetchMembersByFamily(v);
+        _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+          setState(() {
+            selectedFamilyCode = v;
+            selectedName = null;
+            familyMembers = [];
+          });
+          if (v != null && v.isNotEmpty) {
+            if (_isEditMode) {
+              _fetchExistingRecords(v);
+            } else {
+              _fetchMembersByFamily(v);
+            }
+          }
         }),
         const SizedBox(height: 12),
         if (_isEditMode)
@@ -396,20 +559,19 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
             children: [
               const Text('Select Name to Edit', style: TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 4),
-              DropdownButtonFormField<Map<String, dynamic>>(
+              DropdownButtonFormField<String>(
                 decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                items: _allQuestionnaires.where((rec) {
-                  final recFamilyCode = (rec['Family_Code'] ?? rec['Family_Code_Creation'])?.toString() ?? '';
-                  return recFamilyCode == selectedFamilyCode;
-                }).map((rec) => DropdownMenuItem(
-                      value: Map<String, dynamic>.from(rec),
-                      child: Text(rec['INTNAME'] ?? rec['Name'] ?? 'Unknown'),
+                value: selectedName,
+                items: _existingRecords.map((rec) => DropdownMenuItem(
+                      value: (rec['INTNAME'] ?? rec['Name'] ?? 'Unknown').toString(),
+                      child: Text((rec['INTNAME'] ?? rec['Name'] ?? 'Unknown').toString()),
                     )).toList(),
-                onChanged: (record) {
-                  if (record != null) {
+                onChanged: (name) {
+                  if (name != null) {
+                    final record = _existingRecords.firstWhere((rec) => (rec['INTNAME'] ?? rec['Name']) == name);
                     setState(() {
                       _selectedRecord = record;
-                      _loadExistingData();
+                      _populateForm(record);
                     });
                   }
                 },
@@ -417,7 +579,18 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
             ],
           )
         else
-          _buildDropdown('Name', familyMembers, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingMembers),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTextField('Name', _nameController, hint: 'Type name or pick from dropdown'),
+              if (familyMembers.isNotEmpty)
+                _buildDropdown('Pick from Family Members', familyMembers, null, (val) {
+                  if (val != null) {
+                    _onNameSelected(val);
+                  }
+                }, isLoading: _isLoadingMembers, hint: '--Select Member--'),
+            ],
+          ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -817,7 +990,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, String? hint, String? helper}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, String? hint, String? helper, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -833,6 +1006,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

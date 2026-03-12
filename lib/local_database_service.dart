@@ -18,10 +18,10 @@ class LocalDatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'lookup_cache_v2.db'); // Bump version in filename for clean start or use version
+    String path = join(await getDatabasesPath(), 'lookup_cache_v3.db'); // Bump version in filename for clean start
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE family_codes (family_id TEXT PRIMARY KEY)');
         await db.execute('''
@@ -31,6 +31,13 @@ class LocalDatabaseService {
           )
         ''');
         await db.execute('CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)');
+        await db.execute('''
+          CREATE TABLE family_members (
+            unique_id TEXT PRIMARY KEY,
+            family_id TEXT,
+            data TEXT
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -38,6 +45,15 @@ class LocalDatabaseService {
           await db.execute('''
             CREATE TABLE family_details (
               family_id TEXT PRIMARY KEY,
+              data TEXT
+            )
+          ''');
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS family_members (
+              unique_id TEXT PRIMARY KEY,
+              family_id TEXT,
               data TEXT
             )
           ''');
@@ -127,6 +143,31 @@ class LocalDatabaseService {
     }
   }
 
+  // --- Family Members Management ---
+
+  Future<void> saveMember(Map<String, dynamic> member) async {
+    final db = await database;
+    // unique_id should be something like Aadhar or Serial or docId
+    String uId = (member['unique_id'] ?? member['uniq_Registration_Number'] ?? member['Name'] + '_' + member['Family_Code']).toString();
+    String fId = member['Family_Code']?.toString() ?? '';
+    
+    await db.insert('family_members', {
+      'unique_id': uId,
+      'family_id': fId,
+      'data': jsonEncode(member)
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getMembersByFamily(String familyId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      'family_members',
+      where: 'family_id = ?',
+      whereArgs: [familyId],
+    );
+    return results.map((e) => jsonDecode(e['data'] as String) as Map<String, dynamic>).toList();
+  }
+
   Future<List<Map<String, dynamic>>> searchFamilyDetails(String query, {int limit = 50}) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
@@ -168,6 +209,7 @@ class LocalDatabaseService {
     final db = await database;
     await db.delete('family_codes');
     await db.delete('family_details');
+    await db.delete('family_members');
     await db.delete('metadata');
   }
 

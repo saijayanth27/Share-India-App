@@ -16,9 +16,15 @@ class MedicinesEntryPage extends StatefulWidget {
 class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Main Form Controllers & State ---
   String? selectedFamilyCode;
+  final _familyCodeController = TextEditingController();
+  final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
   String? selectedGender;
   DateTime? selectedDate;
@@ -38,6 +44,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   // Dropdown Options
   List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   final List<String> interviewers = ["KIRANMAI K", "LAVANYA KASPOJU", "RAMADEVI Y", "REVATHI CH"];
@@ -66,15 +73,36 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMemberNames = names..sort();
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -83,30 +111,80 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      selectedFamilyCode = d['Family_Code'];
-      _regNoController.text = d['Registration_Number'] ?? '';
-      selectedGender = d['Gender'];
-      if (d['Date_field'] != null) {
-        selectedDate = (d['Date_field'] as Timestamp).toDate();
-      }
-      selectedInterviewer = d['Interviewer_s_Name_ID'];
-      selectedMemberName = d['Name'];
-      _ageController.text = d['Age']?.toString() ?? '';
-      selectedSource = d['Source_of_Medicine'];
-      _otherSourceController.text = d['Other'] ?? '';
-      _doctorNameController.text = d['Doctor_Name'] ?? '';
-      _remarksController.text = d['Remarks'] ?? '';
-      _medForController.text = d['MED_FOR']?.toString() ?? '';
-      _medNameController.text = d['MED_NAME']?.toString() ?? '';
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('medicines_entry')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get();
       
-      if (d['SubForm1'] != null) {
-        prescriptionList = List<Map<String, dynamic>>.from(d['SubForm1']);
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _ageController.text = data['Age']?.toString() ?? '';
+        }
       }
     });
-    if (selectedFamilyCode != null) {
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    _regNoController.text = d['Registration_Number'] ?? '';
+    selectedGender = d['Gender'];
+    if (d['Date_field'] != null) {
+      if (d['Date_field'] is Timestamp) {
+        selectedDate = (d['Date_field'] as Timestamp).toDate();
+      } else {
+        try {
+          selectedDate = DateFormat('dd-MMM-yyyy').parse(d['Date_field'].toString());
+        } catch (_) {}
+      }
+    }
+    selectedInterviewer = d['Interviewer_s_Name_ID'];
+    selectedMemberName = d['Name'];
+    _ageController.text = d['Age']?.toString() ?? '';
+    selectedSource = d['Source_of_Medicine'];
+    _otherSourceController.text = d['Other'] ?? '';
+    _doctorNameController.text = d['Doctor_Name'] ?? '';
+    _remarksController.text = d['Remarks'] ?? '';
+    _medForController.text = d['MED_FOR']?.toString() ?? '';
+    _medNameController.text = d['MED_NAME']?.toString() ?? '';
+    
+    if (d['SubForm1'] != null) {
+      prescriptionList = List<Map<String, dynamic>>.from(d['SubForm1']);
+    }
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -129,6 +207,8 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
       _medNameController.clear();
       prescriptionList = [];
       familyMemberNames = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -179,7 +259,9 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('medicines_entry').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('medicines_entry').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('medicines_entry').add(data);
@@ -204,6 +286,26 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, Function(String)? onChanged}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            hintText: hint,
+          ),
+          keyboardType: keyboardType,
+          onChanged: onChanged,
+        ),
+      ],
+    );
   }
 
   Widget _buildSectionCard({required String title, required List<Widget> children}) {
@@ -241,38 +343,65 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+
                   _buildSectionCard(
                     title: 'Basic Information',
                     children: [
                       Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
-                              value: selectedFamilyCode,
-                              items: allFamilyCodes.map((code) => DropdownMenuItem(value: code, child: Text(code))).toList(),
-                              onChanged: (v) {
-                                setState(() {
-                                  selectedFamilyCode = v;
-                                  selectedMemberName = null;
-                                  familyMemberNames = [];
-                                });
-                                if (v != null) _fetchMembersByFamily(v);
-                              },
-                            ),
+                            child: _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+                              setState(() {
+                                selectedFamilyCode = v;
+                                selectedMemberName = null;
+                                familyMemberNames = [];
+                              });
+                              if (v != null && v.isNotEmpty) {
+                                if (_isEditMode) {
+                                  _fetchExistingRecords(v);
+                                } else {
+                                  _fetchMembersByFamily(v);
+                                }
+                              }
+                            }),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: InputDecoration(
-                                labelText: 'Name',
-                                border: const OutlineInputBorder(),
-                                suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                              ),
-                              value: selectedMemberName,
-                              items: familyMemberNames.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                              onChanged: (v) => setState(() => selectedMemberName = v),
-                            ),
+                            child: _isEditMode
+                                ? DropdownButtonFormField<String>(
+                                    decoration: InputDecoration(
+                                      labelText: 'Select Name to Edit',
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                    ),
+                                    value: selectedMemberName,
+                                    items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
+                                    onChanged: _onNameSelected,
+                                  )
+                                : Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      TextFormField(
+                                        controller: _nameController,
+                                        decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
+                                      ),
+                                      if (familyMemberNames.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        DropdownButtonFormField<String>(
+                                          isExpanded: true,
+                                          decoration: InputDecoration(
+                                            labelText: 'Pick from Family Members',
+                                            border: const OutlineInputBorder(),
+                                            suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                          ),
+                                          value: null,
+                                          items: familyMemberNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                                          onChanged: _onNameSelected,
+                                          hint: const Text('--Select Member--'),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                           ),
                         ],
                       ),
@@ -406,7 +535,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                         child: ElevatedButton(
                           onPressed: _save,
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                          child: const Text('Save Entry', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          child: Text(_isEditMode ? 'Update Entry' : 'Save Entry', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 16),

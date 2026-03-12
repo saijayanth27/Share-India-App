@@ -16,9 +16,15 @@ class ColposcopyPage extends StatefulWidget {
 class _ColposcopyPageState extends State<ColposcopyPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Controllers & State ---
+  final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _otherRecommendedController = TextEditingController();
   final _otherPerformedController = TextEditingController();
   final _commentsController = TextEditingController();
@@ -41,6 +47,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   // Dropdowns
   List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   final List<String> visitChoices = ["Choice 1", "Choice 2", "Choice 3"];
@@ -86,15 +93,36 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMemberNames = names..sort();
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -103,37 +131,86 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      _regNoController.text = d['Registration_Number'] ?? '';
-      selectedFamilyCode = d['Family_Code_Creation'];
-      selectedMemberName = d['Name'];
-      selectedGender = d['Gender'];
-      if (d['Interview_Date'] != null) {
-        interviewDate = (d['Interview_Date'] as Timestamp).toDate();
-      }
-      selectedVisitNumber = d['Visit_Number'];
-      selectedAdequacy = d['Colposcopy_adequacy1'];
-      selectedSCJ = d['Level_of_new_squamo_columnar_junction_SCJ1'];
-      selectedImpression = d['Colposcopic_impression'];
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('colposcopy')
+          .where('Family_Code_Creation', isEqualTo: familyCode)
+          .get();
       
-      if (d['Procedure_recommended'] != null) {
-        procedureRecommended = List<String>.from(d['Procedure_recommended']);
-      }
-      _otherRecommendedController.text = d['If_Others_Please_Mention'] ?? '';
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
 
-      if (d['Procedure_performed1'] != null) {
-        procedurePerformed = List<String>.from(d['Procedure_performed1']);
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+        }
       }
-      _otherPerformedController.text = d['If_Others_Please_Mention1'] ?? '';
-
-      selectedBiopsiesCount = d['Number_of_cervical_biopsies_taken']?.toString();
-      selectedImagesCount = d['How_many_colposcopy_images_were_taken1']?.toString();
-      _commentsController.text = d['a_Comments'] ?? '';
-      _detailsController.text = d['Procedure_details_findings_and_comments'] ?? '';
     });
-    if (selectedFamilyCode != null) {
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _regNoController.text = d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_Code_Creation'] ?? d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    selectedGender = d['Gender'];
+    
+    if (d['Interview_Date'] != null) {
+      if (d['Interview_Date'] is Timestamp) {
+        interviewDate = (d['Interview_Date'] as Timestamp).toDate();
+      } else {
+        try {
+          interviewDate = DateFormat('dd-MMM-yyyy').parse(d['Interview_Date'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    selectedVisitNumber = d['Visit_Number'];
+    selectedAdequacy = d['Colposcopy_adequacy1'];
+    selectedSCJ = d['Level_of_new_squamo_columnar_junction_SCJ1'];
+    selectedImpression = d['Colposcopic_impression'];
+    
+    if (d['Procedure_recommended'] != null) {
+      procedureRecommended = List<String>.from(d['Procedure_recommended']);
+    }
+    if (d['Procedure_performed1'] != null) {
+      procedurePerformed = List<String>.from(d['Procedure_performed1']);
+    }
+    
+    _otherRecommendedController.text = d['If_Others_Please_Mention'] ?? '';
+    _otherPerformedController.text = d['If_Others_Please_Mention1'] ?? '';
+    _commentsController.text = d['a_Comments'] ?? '';
+    _detailsController.text = d['Procedure_details_findings_and_comments'] ?? '';
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -142,6 +219,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     _formKey.currentState?.reset();
     setState(() {
       _regNoController.clear();
+      _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
       selectedGender = null;
@@ -158,6 +236,8 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
       selectedImagesCount = null;
       _commentsController.clear();
       _detailsController.clear();
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -169,7 +249,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
       final data = {
         'Registration_Number': _regNoController.text,
         'Family_Code_Creation': selectedFamilyCode,
-        'Name': selectedMemberName,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Interview_Date': interviewDate != null ? Timestamp.fromDate(interviewDate!) : null,
         'Visit_Number': selectedVisitNumber,
@@ -188,7 +268,9 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('colposcopy').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('colposcopy').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('colposcopy').add(data);
@@ -297,32 +379,48 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                       Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: const InputDecoration(labelText: 'Family Code Creation', border: OutlineInputBorder()),
-                              value: selectedFamilyCode,
-                              items: allFamilyCodes.map((code) => DropdownMenuItem(value: code, child: Text(code))).toList(),
+                            child: TextFormField(
+                              controller: _familyCodeController,
+                              decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
                               onChanged: (v) {
                                 setState(() {
                                   selectedFamilyCode = v;
                                   selectedMemberName = null;
                                   familyMemberNames = [];
                                 });
-                                if (v != null) _fetchMembersByFamily(v);
+                                if (v != null && v.isNotEmpty) {
+                                  if (_isEditMode) {
+                                    _fetchExistingRecords(v);
+                                  } else {
+                                    _fetchMembersByFamily(v);
+                                  }
+                                }
                               },
                             ),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: InputDecoration(
-                                labelText: 'Name',
-                                border: const OutlineInputBorder(),
-                                suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                              ),
-                              value: selectedMemberName,
-                              items: familyMemberNames.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                              onChanged: (v) => setState(() => selectedMemberName = v),
-                            ),
+                            child: _isEditMode
+                                ? DropdownButtonFormField<String>(
+                                    decoration: InputDecoration(
+                                      labelText: 'Select Name to Edit',
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                    ),
+                                    value: selectedMemberName,
+                                    items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
+                                    onChanged: _onNameSelected,
+                                  )
+                                : DropdownButtonFormField<String>(
+                                    decoration: InputDecoration(
+                                      labelText: 'Name',
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                    ),
+                                    value: selectedMemberName,
+                                    items: familyMemberNames.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+                                    onChanged: _onNameSelected,
+                                  ),
                           ),
                         ],
                       ),
@@ -413,7 +511,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                         child: ElevatedButton(
                           onPressed: _save,
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                          child: const Text('Save Colposcopy', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          child: Text(_isEditMode ? 'Update Colposcopy' : 'Save Colposcopy', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 16),

@@ -16,6 +16,10 @@ class AnteNatalCareCheckupPage extends StatefulWidget {
 class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Identity Fields ---
   String? selectedFamilyCode;
@@ -60,6 +64,12 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
     }
   }
 
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
   Future<void> _fetchFamilyCodes() async {
     final codes = await DataCacheService().fetchFamilyCodes();
     setState(() {
@@ -87,11 +97,43 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('ante_natal_care_checkup')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        }
+      }
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
     setState(() {
       selectedFamilyCode = d['Family_Code'];
-      if (selectedFamilyCode != null) _fetchFemalesByFamily(selectedFamilyCode!);
+      if (selectedFamilyCode != null && !_isEditMode) _fetchFemalesByFamily(selectedFamilyCode!);
       selectedName = d['Name'];
       _visitNo.text = d['Visit_No'] ?? '';
       if (d['LMP_date'] != null) lmpDate = (d['LMP_date'] as Timestamp).toDate();
@@ -126,6 +168,8 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
       _weight.clear(); _height.clear(); _bpStr.clear(); _systolic.clear(); _diastolic.clear();
       _remarks.clear();
       femaleMembers = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -158,7 +202,9 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('ante_natal_care_checkup').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('ante_natal_care_checkup').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('ante_natal_care_checkup').add(data);
@@ -184,6 +230,8 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
+
+
 
   Widget _buildSectionCard({required String title, required List<Widget> children}) {
     return Card(
@@ -239,22 +287,40 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
                         value: selectedFamilyCode,
                         items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                         onChanged: (v) {
-                          setState(() { selectedFamilyCode = v; selectedName = null; });
-                          if (v != null) _fetchFemalesByFamily(v);
+                          setState(() { selectedFamilyCode = v; selectedName = null; femaleMembers = []; });
+                          if (v != null) {
+                            if (_isEditMode) {
+                              _fetchExistingRecords(v);
+                            } else {
+                              _fetchFemalesByFamily(v);
+                            }
+                          }
                         },
                       ),
                       const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: 'Name (Female)',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: selectedName,
-                        items: femaleMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                        onChanged: (v) => setState(() => selectedName = v),
-                      ),
+                      _isEditMode
+                          ? DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Select Name to Edit',
+                                border: const OutlineInputBorder(),
+                                suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                              ),
+                              value: selectedName,
+                              items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString(), child: Text(r['Name']?.toString() ?? ''))).toList(),
+                              onChanged: _onNameSelected,
+                            )
+                          : DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Name (Female)',
+                                border: const OutlineInputBorder(),
+                                suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                              ),
+                              value: selectedName,
+                              items: femaleMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                              onChanged: _onNameSelected,
+                            ),
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -341,7 +407,7 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: const Text('Save Checkup Record', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Checkup Record' : 'Save Checkup Record', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 32),
                 ],

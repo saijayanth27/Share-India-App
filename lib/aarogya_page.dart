@@ -17,10 +17,14 @@ class AarogyaPage extends StatefulWidget {
 class _AarogyaPageState extends State<AarogyaPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
 
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
   String? selectedFamilyCode;
+  final _nameController = TextEditingController();
   String? selectedName;
   String? selectedGender;
   final _age = TextEditingController();
@@ -65,6 +69,12 @@ class _AarogyaPageState extends State<AarogyaPage> {
     }
   }
 
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
   Future<void> _fetchFamilyCodes() async {
     final codes = await DataCacheService().fetchFamilyCodes();
     setState(() {
@@ -91,16 +101,63 @@ class _AarogyaPageState extends State<AarogyaPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('aarogya')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) {
+    setState(() {
+      selectedName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final m = _existingRecords.firstWhere((record) => record['Name'] == name, orElse: () => {});
+          if (m.isNotEmpty) {
+            _editDocId = m['id'];
+            _populateForm(m);
+          }
+        } else {
+          final m = memberDetails.firstWhere((element) => element['Name'] == name, orElse: () => {});
+          if (m.isNotEmpty) {
+            relationship = m['Relationship'];
+            _relationCode.text = m['Relation_Code'] ?? '';
+          }
+        }
+      }
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
     setState(() {
       _registrationNumber.text = (d['Registration_Number'] ?? '').toString();
       selectedFamilyCode = d['Family_code'] ?? d['Family_Code_Creation'];
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
       selectedName = d['Name'];
+      _nameController.text = (d['Name'] ?? '').toString();
       selectedGender = d['Gender'];
       _age.text = (d['Age'] ?? '').toString();
-      if (d['Date_of_Interview'] != null) dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      if (d['Date_of_Interview'] != null) {
+        if (d['Date_of_Interview'] is Timestamp) {
+          dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+        } else {
+          try {
+            dateOfInterview = DateTime.parse(d['Date_of_Interview'].toString());
+          } catch (_) {}
+        }
+      }
       interviewersName = d['Interviewer_s_Name'];
       relationship = d['Relations'];
       _finalFamilyCode.text = d['Final_family_code'] ?? '';
@@ -137,6 +194,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
     _formKey.currentState?.reset();
     setState(() {
       _registrationNumber.clear();
+      _nameController.clear();
       selectedFamilyCode = null; selectedName = null;
       selectedGender = null; _age.clear();
       dateOfInterview = DateTime.now(); interviewersName = null;
@@ -148,6 +206,8 @@ class _AarogyaPageState extends State<AarogyaPage> {
       outpatientConditions = []; _outpatientOthers.clear();
       inpatientConditions = []; _inpatientOthers.clear();
       memberDetails = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -159,7 +219,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
       final data = {
         'Registration_Number': _registrationNumber.text,
         'Family_code': selectedFamilyCode,
-        'Name': selectedName,
+        'Name': _isEditMode ? selectedName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_age.text),
         'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
@@ -185,7 +245,9 @@ class _AarogyaPageState extends State<AarogyaPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('aarogya').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('aarogya').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('aarogya').add(data);
@@ -286,6 +348,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                     title: 'Aarogya Assessment',
                     subtitle: 'Evaluate family health needs and insurance eligibility',
                   ),
+
                   _buildIdentitySection(),
                   _buildSectionCard(
                     context: context,
@@ -394,7 +457,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: const Text('Save Aarogya Assessment', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Aarogya Assessment' : 'Save Aarogya Assessment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 32),
                 ],
@@ -418,17 +481,31 @@ class _AarogyaPageState extends State<AarogyaPage> {
             const SizedBox(height: 12),
             _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
               setState(() { selectedFamilyCode = v; selectedName = null; relationship = null; });
-              if (v != null) _fetchMembersByFamily(v);
+              if (v != null) {
+                if (_isEditMode) {
+                  _fetchExistingRecords(v);
+                } else {
+                  _fetchMembersByFamily(v);
+                }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', memberDetails.map((m) => m['Name'].toString()).toList(), selectedName, (v) {
-              final m = memberDetails.firstWhere((element) => element['Name'] == v);
-              setState(() {
-                selectedName = v;
-                relationship = m['Relationship'];
-                _relationCode.text = m['Relation_Code'] ?? '';
-              });
-            }, isLoading: _isLoadingMembers),
+            if (_isEditMode)
+              _buildDropdown('Select Name to Edit', _existingRecords.map((m) => m['Name'].toString()).toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTextField('Name', _nameController, helper: 'Type name or pick from dropdown below'),
+                  if (memberDetails.isNotEmpty)
+                    _buildDropdown('Pick from Family Members', memberDetails.map((m) => m['Name'].toString()).toList(), null, (val) {
+                      if (val != null) {
+                        _nameController.text = val;
+                        _onNameSelected(val);
+                      }
+                    }, isLoading: _isLoadingMembers, hint: '--Select Member--'),
+                ],
+              ),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(

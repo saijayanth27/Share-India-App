@@ -16,10 +16,15 @@ class QuarterlySurveyPage extends StatefulWidget {
 
 class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   final _formKey = GlobalKey<FormState>();
+  bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
   bool _isLoading = false;
 
   // Controllers
   final TextEditingController _regNoController = TextEditingController();
+  final TextEditingController _familyIdController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
   final TextEditingController _interviewDateController = TextEditingController();
   final TextEditingController _visitOthersController = TextEditingController();
@@ -60,9 +65,10 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   String? _htnStoppedWorse;
 
   // Data for lookups
-  List<Map<String, dynamic>> _familyMembers = [];
   List<String> _familyIds = [];
-  List<String> _namesForSelectedFamily = [];
+  List<String> familyMembers = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
+  bool _isLoadingMembers = false;
 
   final List<String> _interviewerList = ['Interviewer 1', 'Interviewer 2', 'Staff A', 'Staff B'];
   final List<String> _medSourceList = ['Govt. hospital', 'Private hospital', 'Medical shop', 'NGO', 'Weekly clinic', 'Others'];
@@ -70,7 +76,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFamilyData();
+    _fetchFamilyIds();
     if (widget.existingData != null) {
       _loadExistingData();
     } else {
@@ -79,9 +85,15 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   }
 
   void _loadExistingData() {
-    final data = widget.existingData!;
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> data) {
     _regNoController.text = data['Registration_Number']?.toString() ?? '';
     _selectedFamilyId = data['Family_Code'];
+    _familyIdController.text = _selectedFamilyId ?? '';
     _selectedName = data['Name'];
     _selectedGender = data['Gender'];
     _ageController.text = data['Age']?.toString() ?? '';
@@ -113,24 +125,131 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     _htnNeglected = data['HTN_Neglected'];
     _htnStoppedBetter = data['HTN_Stopped_Better'];
     _htnStoppedWorse = data['HTN_Stopped_Worse'];
+
+    if (_selectedFamilyId != null && familyMembers.isEmpty) {
+      _fetchMembersByFamily(_selectedFamilyId!);
+    }
   }
 
-  Future<void> _fetchFamilyData() async {
-    final members = await DataCacheService().fetchFamilyDetails();
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      // 1. Fetch from Firestore (Cache favored)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('personal_details')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
+
+      setState(() {
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('quarterly_survey')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
     setState(() {
-      _familyMembers = members;
-      _familyIds = members.map((m) => m['Family_ID']?.toString() ?? '').toSet().toList();
-      _familyIds.removeWhere((id) => id.isEmpty);
-      if (_selectedFamilyId != null) _updateNamesForFamily(_selectedFamilyId!);
+      _selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+          _selectedGender = data['Gender']?.toString();
+          _ageController.text = data['Age']?.toString() ?? '';
+        }
+      }
     });
   }
 
-  void _updateNamesForFamily(String familyId) {
+  void _resetForm() {
+    _formKey.currentState?.reset();
     setState(() {
-      _namesForSelectedFamily = _familyMembers
-          .where((m) => m['Family_ID'] == familyId)
-          .map((m) => m['Name']?.toString() ?? '')
-          .toList();
+      _regNoController.clear();
+      _familyIdController.clear();
+      _selectedFamilyId = null;
+      _selectedName = null;
+      _selectedGender = null;
+      _ageController.clear();
+      _interviewDateController.text = DateFormat('dd-MMM-yyyy').format(DateTime.now());
+      _selectedInterviewer = null;
+      _visitedFacility = null;
+      _visitReasons.updateAll((key, value) => false);
+      _visitOthersController.clear();
+      _takingDmMed = null;
+      _dmMedSource = null;
+      _dmMedSourceOthersController.clear();
+      _dmMedNamesController.clear();
+      _dmForget = null;
+      _dmNeglected = null;
+      _dmStoppedBetter = null;
+      _dmStoppedWorse = null;
+      _takingHtnMed = null;
+      _htnMedSource = null;
+      _htnMedSourceOthersController.clear();
+      _htnMedNamesController.clear();
+      _htnForget = null;
+      _htnNeglected = null;
+      _htnStoppedBetter = null;
+      _htnStoppedWorse = null;
+      familyMembers = [];
+      _existingRecords = [];
+      _editDocId = null;
+    });
+  }
+
+  Future<void> _fetchFamilyIds() async {
+    final codes = await DataCacheService().fetchFamilyCodes();
+    setState(() {
+      _familyIds = codes;
     });
   }
 
@@ -180,14 +299,20 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     };
 
     try {
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('quarterly_survey').doc(_editDocId).update(formData);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('quarterly_survey').doc(widget.docId).update(formData);
       } else {
         await FirebaseFirestore.instance.collection('quarterly_survey').add(formData);
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Survey saved successfully!')));
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Survey saved successfully!'), backgroundColor: Colors.green));
+        if (widget.docId != null) {
+          Navigator.pop(context);
+        } else {
+          _resetForm();
+        }
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
@@ -199,7 +324,9 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Quarterly Survey Questionnaire')),
+      appBar: AppBar(
+        title: const Text('Quarterly Survey'),
+      ),
       drawer: const AppDrawer(),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -208,16 +335,26 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+
               _buildSectionTitle('Identification'),
               _buildTextField('Registration Number', _regNoController),
-              _buildDropdown('Family Code', _familyIds, _selectedFamilyId, (val) {
+              _buildTextField('Family Code', _familyIdController, onChanged: (val) {
                 setState(() {
                   _selectedFamilyId = val;
                   _selectedName = null;
-                  _updateNamesForFamily(val!);
+                  familyMembers = [];
                 });
+                if (val.isNotEmpty) {
+                  if (_isEditMode) {
+                    _fetchExistingRecords(val);
+                  } else {
+                    _fetchMembersByFamily(val);
+                  }
+                }
               }),
-              _buildDropdown('Name', _namesForSelectedFamily, _selectedName, (val) => setState(() => _selectedName = val)),
+              _isEditMode
+                  ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), _selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+                  : _buildDropdown('Name', familyMembers, _selectedName, _onNameSelected, isLoading: _isLoadingMembers),
               _buildRadioGroup('Gender', ['Male', 'Female'], _selectedGender, (val) => setState(() => _selectedGender = val)),
               _buildTextField('Age', _ageController, keyboardType: TextInputType.number),
               _buildDatePicker('Date of Interview', _interviewDateController),
@@ -276,7 +413,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     backgroundColor: Colors.blue.shade700,
                   ),
-                  child: const Text('Submit', style: TextStyle(fontSize: 18, color: Colors.white)),
+                  child: Text(_isEditMode ? 'Update' : 'Submit', style: const TextStyle(fontSize: 18, color: Colors.white)),
                 ),
               ),
               const SizedBox(height: 20),
@@ -300,7 +437,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, Function(String)? onChanged}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -313,13 +450,14 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
             decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
             keyboardType: keyboardType,
             maxLines: maxLines,
+            onChanged: onChanged,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged) {
+  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -329,7 +467,11 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
           const SizedBox(height: 4),
           DropdownButtonFormField<String>(
             value: selectedValue,
-            decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+            ),
             items: items.map((i) => DropdownMenuItem(value: i, child: Text(i))).toList(),
             onChanged: onChanged,
             hint: const Text('-Select-'),

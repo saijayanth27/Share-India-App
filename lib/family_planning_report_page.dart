@@ -26,21 +26,20 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
     'Husband Name': 'Husband_Name',
     'Entry Screen': 'Select_Entry_Screen',
     'Reg No': 'Registration_Number',
-    'Oral?': 'Used_Oral',
-    'Oral Dur': 'How_Long_Oral',
+    'Oral?': 'Used_Oral_Contraceptives',
+    'Oral Dur': 'How_Long_Use_Oral',
     'Oral Date': 'Last_Use_Oral_Date',
     'Inject?': 'Used_Injectable',
-    'Inject Dur': 'How_Long_Injectable',
+    'Inject Dur': 'How_Long_Using_Injectable',
     'Inject Date': 'Last_Use_Injectable_Date',
     'Condoms?': 'Used_Condoms',
-    'Condoms Date': 'Condoms_Date',
-    'Copper-T?': 'Used_Copper_T',
+    'Condoms Date': 'Condom_Last_Date',
+    'Copper-T?': 'Used_CopperT',
     'Other?': 'Used_Other',
-    'Other Details': 'Other_If_Yes',
-    'Permanent?': 'Used_Permanent',
-    'Perm Date': 'Permanent_Date',
-    'Perm Place': 'Permanent_Place',
-    'Perm Remarks': 'Permanent_Remarks',
+    'Other Details': 'If_Yes_Other',
+    'Used?': 'Used',
+    'Used Date': 'Used_Date',
+    'Used Place': 'Used_Place',
   };
 
   void _deleteRecord(String docId) {
@@ -53,7 +52,7 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              FirebaseFirestore.instance.collection('family_planning').doc(docId).delete();
+              FirebaseFirestore.instance.collection('reproductive_health').doc(docId).delete();
               Navigator.pop(context);
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
@@ -172,7 +171,7 @@ class _FamilyPlanningReportPageState extends State<FamilyPlanningReportPage> {
       ),
       drawer: const AppDrawer(),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('family_planning').snapshots(includeMetadataChanges: true),
+        stream: FirebaseFirestore.instance.collection('reproductive_health').snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));

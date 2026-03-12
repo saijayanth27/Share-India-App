@@ -16,9 +16,13 @@ class TBQuestionnairePage extends StatefulWidget {
 class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Main Form Controllers & State ---
-  // --- Main Form Controllers & State ---
+  final _nameController = TextEditingController();
   final _registrationNumber = TextEditingController();
   String? selectedFamilyCode;
   String? selectedMemberName;
@@ -27,6 +31,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
   DateTime? interviewDate = DateTime.now();
   String? selectedInterviewer;
   String? selectedReason;
+  final _familyCodeController = TextEditingController();
   final _singleLineController = TextEditingController();
 
   // Questions State (Yes/No)
@@ -55,6 +60,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
   // Dropdown Options
   List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   final List<String> interviewers = [
@@ -88,15 +94,36 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMemberNames = names..sort();
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -105,41 +132,94 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      selectedFamilyCode = d['Family_code'];
-      _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedMemberName = d['Name'];
-      selectedGender = d['Gender'];
-      _ageController.text = d['Age']?.toString() ?? '';
-      if (d['Date_of_Interview'] != null) {
-        interviewDate = (d['Date_of_Interview'] as Timestamp).toDate();
-      }
-      selectedInterviewer = d['Interviewer_s_Name'];
-      selectedReason = d['If_not_done_reason'];
-      _singleLineController.text = d['Single_Line'] ?? '';
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('tb_questionnaire')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
 
-      answers['cough_2wks'] = d['Have_you_had_a_cough_for_more_than_2_weeks'] ?? '(2) No';
-      answers['fever_2wks'] = d['Have_you_had_a_fever_for_more_than_2_weeks'] ?? '(2) No';
-      answers['weight_loss'] = d['Do_you_feel_like_you_have_lost_weight'] ?? '(2) No';
-      answers['night_sweats'] = d['Are_you_experiencing_excessive_sweating_at_night_Night_sweats'] ?? '(2) No';
-      answers['haemoptysis'] = d['Haemoptysis_coughing_up_blood'] ?? '(2) No';
-      answers['tb_before'] = d['Medical_History1'] ?? '(2) No';
-      _tbDetailsController.text = d['If_yes_provide_details'] ?? '';
-      answers['tb_exposure'] = d['Medical_History2'] ?? '(2) No';
-      answers['respiratory_history'] = d['Respiratory_and_General_Health1'] ?? '(2) No';
-      _respiratoryDetailsController.text = d['If_yes_please_provide_details'] ?? '';
-      answers['recent_infection'] = d['Respiratory_and_General_Health2'] ?? '(2) No';
-      answers['crowded_places'] = d['Social_and_Environmental_Factors1'] ?? '(2) No';
-      answers['tb_household'] = d['Social_and_Environmental_Factors2'] ?? '(2) No';
-      answers['healthcare_work'] = d['Occupational_History1'] ?? '(2) No';
-      answers['high_risk_env'] = d['Occupational_History2'] ?? '(2) No';
-      answers['smoking'] = d['Behavioural_Risk_Factors1'] ?? '(2) No';
-      answers['alcohol'] = d['Behavioural_Risk_Factors2'] ?? '(2) No';
-      answers['recent_tests'] = d['Diagnostic_Tests1'] ?? '(2) No';
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _ageController.text = data['Age']?.toString() ?? '';
+        }
+      }
     });
-    if (selectedFamilyCode != null) {
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    selectedGender = d['Gender'];
+    _ageController.text = d['Age']?.toString() ?? '';
+    
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        interviewDate = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          interviewDate = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    selectedInterviewer = d['Interviewer_s_Name'];
+    selectedReason = d['If_not_done_reason'];
+    _singleLineController.text = d['Single_Line'] ?? '';
+
+    answers['cough_2wks'] = d['Have_you_had_a_cough_for_more_than_2_weeks'] ?? '(2) No';
+    answers['fever_2wks'] = d['Have_you_had_a_fever_for_more_than_2_weeks'] ?? '(2) No';
+    answers['weight_loss'] = d['Do_you_feel_like_you_have_lost_weight'] ?? '(2) No';
+    answers['night_sweats'] = d['Are_you_experiencing_excessive_sweating_at_night_Night_sweats'] ?? '(2) No';
+    answers['haemoptysis'] = d['Haemoptysis_coughing_up_blood'] ?? '(2) No';
+    answers['tb_before'] = d['Medical_History1'] ?? '(2) No';
+    _tbDetailsController.text = d['If_yes_provide_details'] ?? '';
+    answers['tb_exposure'] = d['Medical_History2'] ?? '(2) No';
+    answers['respiratory_history'] = d['Respiratory_and_General_Health1'] ?? '(2) No';
+    _respiratoryDetailsController.text = d['If_yes_please_provide_details'] ?? '';
+    answers['recent_infection'] = d['Respiratory_and_General_Health2'] ?? '(2) No';
+    answers['crowded_places'] = d['Social_and_Environmental_Factors1'] ?? '(2) No';
+    answers['tb_household'] = d['Social_and_Environmental_Factors2'] ?? '(2) No';
+    answers['healthcare_work'] = d['Occupational_History1'] ?? '(2) No';
+    answers['high_risk_env'] = d['Occupational_History2'] ?? '(2) No';
+    answers['smoking'] = d['Behavioural_Risk_Factors1'] ?? '(2) No';
+    answers['alcohol'] = d['Behavioural_Risk_Factors2'] ?? '(2) No';
+    answers['recent_tests'] = d['Diagnostic_Tests1'] ?? '(2) No';
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -149,6 +229,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     setState(() {
       selectedFamilyCode = null;
       _registrationNumber.clear();
+      _nameController.clear();
       selectedMemberName = null;
       selectedGender = null;
       _ageController.clear();
@@ -160,6 +241,8 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
       _tbDetailsController.clear();
       _respiratoryDetailsController.clear();
       familyMemberNames = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -172,7 +255,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
       final data = {
         'Family_code': selectedFamilyCode,
         'Registration_Number': int.tryParse(_registrationNumber.text),
-        'Name': selectedMemberName,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
         'Date_of_Interview': interviewDate != null ? Timestamp.fromDate(interviewDate!) : null,
@@ -203,7 +286,9 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('tb_questionnaire').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('tb_questionnaire').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('tb_questionnaire').add(data);
@@ -290,7 +375,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('TUBERCULOSIS QUESTIONNAIRE'),
+        title: const Text('TB Questionnaire'),
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
       ),
       drawer: const AppDrawer(),
@@ -382,7 +467,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      child: Text(widget.docId == null ? 'Save Questionnaire' : 'Update Questionnaire', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      child: Text(_isEditMode ? 'Update Questionnaire' : 'Save Questionnaire', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(height: 32),
@@ -391,6 +476,8 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
             ),
     );
   }
+
+
 
   Widget _buildIdentitySection() {
     return Card(
@@ -405,12 +492,33 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
             const Divider(),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedMemberName = null; familyMemberNames = []; });
-              if (v != null) _fetchMembersByFamily(v);
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedMemberName = null;
+                familyMemberNames = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                if (_isEditMode) {
+                  _fetchExistingRecords(v);
+                } else {
+                  _fetchMembersByFamily(v);
+                }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', familyMemberNames, selectedMemberName, (v) => setState(() => selectedMemberName = v), isLoading: _isLoadingMembers),
+            _isEditMode
+                ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedMemberName, _onNameSelected, isLoading: _isLoadingMembers)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTextField('Name', _nameController),
+                      if (familyMemberNames.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _buildDropdown('Pick from Family Members', familyMemberNames, null, _onNameSelected, isLoading: _isLoadingMembers),
+                      ],
+                    ],
+                  ),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -440,7 +548,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -456,6 +564,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

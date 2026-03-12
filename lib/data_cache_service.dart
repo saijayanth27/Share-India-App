@@ -107,11 +107,48 @@ class DataCacheService {
   }
 
   Future<void> addGeneratedDetail(Map<String, dynamic> detail) async {
-    // Check if record already exists based on some unique ID or just add it
-    // For lookup simplicity, we often just append or replace
+    // 1. Update in-memory
     _familyDetails.add(detail);
+    
+    // 2. Save to SQLite (family_details table)
     await _db.addSingleFamilyDetail(detail);
-    debugPrint('DataCacheService: Added new member detail to local cache.');
+    debugPrint('DataCacheService: Saved new family detail to local cache.');
+  }
+
+  Future<void> addMember(Map<String, dynamic> member) async {
+    // 1. Update in-memory if needed (optional)
+    // 2. Save to SQLite
+    await _db.saveMember(member);
+    debugPrint('DataCacheService: Saved member ${member['Name']} to local offline storage.');
+  }
+
+  Future<List<Map<String, dynamic>>> fetchMembersLocally(String familyCode) async {
+    final members = await _db.getMembersByFamily(familyCode);
+    debugPrint('DataCacheService: Fetched ${members.length} members from local SQLite for $familyCode.');
+    return members;
+  }
+
+  Future<void> updateHeadOfFamily(String familyId, String headName) async {
+    // 1. Update in-memory
+    int index = _familyDetails.indexWhere((d) => (d['family_id'] ?? d['Family_ID']) == familyId);
+    Map<String, dynamic>? detail;
+    
+    if (index != -1) {
+      _familyDetails[index]['Head_of_the_family'] = headName;
+      detail = _familyDetails[index];
+    } else {
+      // 2. If not in memory, try to get from DB
+      detail = await _db.getSingleFamilyDetail(familyId);
+      if (detail != null) {
+        detail['Head_of_the_family'] = headName;
+        _familyDetails.add(detail);
+      }
+    }
+
+    if (detail != null) {
+      await _db.addSingleFamilyDetail(detail);
+      debugPrint('DataCacheService: Updated Head of Family for $familyId in local cache.');
+    }
   }
 
   Future<void> clearCache() async {

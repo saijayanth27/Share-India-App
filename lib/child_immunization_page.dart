@@ -17,9 +17,13 @@ class ChildImmunizationPage extends StatefulWidget {
 class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
 
   // --- Identity Fields ---
   String? selectedFamilyCode;
+  final _nameController = TextEditingController();
   String? selectedName;
   final _motherName = TextEditingController();
   String? selectEntryScreen;
@@ -73,6 +77,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
   List<String> allFamilyCodes = [];
   List<String> familyMembers = [];
   bool _isLoadingMembers = false;
+  Map<String, Map<String, dynamic>> _allMembersData = {};
 
   @override
   void initState() {
@@ -90,17 +95,63 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     });
   }
 
-  Future<void> _fetchMembersByFamily(String familyCode) async {
+  Future<void> _fetchMembersByFamily(String familyCode, {String? entryScreen}) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final members = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Fetch existing immunization records to exclude
+      Set<String> alreadyRegistered = {};
+      if (entryScreen != null) {
+        final existingRecords = await FirebaseFirestore.instance
+            .collection('child_immunization')
+            .where('Family_Code', isEqualTo: familyCode)
+            .where('Select_Entry_Screen', isEqualTo: entryScreen)
+            .get(const GetOptions(source: Source.serverAndCache));
+        alreadyRegistered = existingRecords.docs.map((doc) => doc.data()['Name']?.toString() ?? '').toSet();
+      }
+
+      // 4. Merge and Filter logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> filteredNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+
+        if (alreadyRegistered.contains(name)) return;
+
+        final mother = data['Mother_Name']?.toString() ?? '';
+        final father = data['Father_Name']?.toString() ?? '';
+        final weight = data['Birth_Weight'] ?? data['Birth_weight'];
+
+        bool hasMother = mother.isNotEmpty && mother != 'No Mother';
+        bool hasFather = father.isNotEmpty && father != 'No Father';
+        bool hasWeight = weight != null && weight.toString().isNotEmpty;
+
+        if (hasMother || hasFather || hasWeight) {
+          filteredNames.add(name);
+        }
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
+
       setState(() {
-        familyMembers = members..sort();
+        _allMembersData = memberMap;
+        familyMembers = filteredNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -109,82 +160,163 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchExistingRecords(String familyCode, {String? entryScreen}) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      var query = FirebaseFirestore.instance
+          .collection('child_immunization')
+          .where('Family_Code', isEqualTo: familyCode);
+      
+      if (entryScreen != null) {
+        query = query.where('Select_Entry_Screen', isEqualTo: entryScreen);
+      }
+
+      final snapshot = await query.get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) {
     setState(() {
-      selectedFamilyCode = d['Family_Code'];
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
+      selectedName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+        
+        // Auto-populate DOB
+        if (data['Date_of_Birth'] != null) {
+          if (data['Date_of_Birth'] is Timestamp) {
+            dob = (data['Date_of_Birth'] as Timestamp).toDate();
+          } else if (data['Date_of_Birth'] is String) {
+            dob = DateTime.tryParse(data['Date_of_Birth']);
+          }
+        }
+
+        // Auto-populate Registration Number
+        _regNo.text = data['Registration_Number1'] ?? data['Registration_Number'] ?? '';
+
+        // Auto-populate Birth Weight
+        final weight = data['Birth_Weight'] ?? data['Birth_weight'];
+        if (weight != null) {
+          _birthWeight.text = weight.toString();
+        }
+
+        // Auto-populate Mother Name
+        final motherId = data['Mother_Name']?.toString();
+        if (motherId != null && motherId != 'No Mother') {
+          // Look through cached members for a member with this ID or Name
+          String? foundMotherName;
+          _allMembersData.forEach((key, value) {
+            if (value['ID'].toString() == motherId || key == motherId) {
+              foundMotherName = key;
+            }
+          });
+          _motherName.text = foundMotherName ?? motherId;
+        } else {
+          _motherName.clear();
+        }
+        }
+      }
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    setState(() {
       selectedName = d['Name'];
-      _motherName.text = d['Mother_Name'] ?? '';
+      _nameController.text = selectedName ?? '';
+      _editDocId = d['id'];
+      selectedFamilyCode = d['Family_Code'];
       selectEntryScreen = d['Select_Entry_Screen'];
-      if (d['Date_of_Birth'] != null) dob = (d['Date_of_Birth'] as Timestamp).toDate();
-      _regNo.text = d['Registration_Number'] ?? '';
+      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!, entryScreen: selectEntryScreen);
+      if (d['Date_of_Birth'] != null) {
+        if (d['Date_of_Birth'] is Timestamp) {
+          dob = (d['Date_of_Birth'] as Timestamp).toDate();
+        } else if (d['Date_of_Birth'] is String) {
+          dob = DateTime.tryParse(d['Date_of_Birth']);
+        }
+      }
+      _regNo.text = (d['Registration_Number'] ?? d['Registration_Number1'] ?? '').toString();
+      _motherName.text = d['Mother_Name'] ?? '';
 
       bcgGiven = d['BCG_Given_Y_N'];
-      if (d['BCG_Dt'] != null) bcgDate = (d['BCG_Dt'] as Timestamp).toDate();
+      if (d['BCG_Dt'] != null) bcgDate = (d['BCG_Dt'] is Timestamp) ? (d['BCG_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['BCG_Dt']?.toString() ?? '');
       bcgGivenBy = d['BCG_Given_By'];
 
       dpt1Given = d['DPT1_Given_Y_N'];
-      if (d['DPT1_Dt3'] != null) dpt1Date = (d['DPT1_Dt3'] as Timestamp).toDate();
+      if (d['DPT1_Dt3'] != null) dpt1Date = (d['DPT1_Dt3'] is Timestamp) ? (d['DPT1_Dt3'] as Timestamp).toDate() : DateTime.tryParse(d['DPT1_Dt3']?.toString() ?? '');
       dpt1By = d['DPT1_Given_Y_N1'];
       dpt2Given = d['DPT2_Given_Y_N2'];
-      if (d['DPT2_Dt'] != null) dpt2Date = (d['DPT2_Dt'] as Timestamp).toDate();
+      if (d['DPT2_Dt'] != null) dpt2Date = (d['DPT2_Dt'] is Timestamp) ? (d['DPT2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT2_Dt']?.toString() ?? '');
       dpt2By = d['DPT2_Given_By'];
       dpt3Given = d['DPT3_Given_Y_N3'];
-      if (d['DPT3_Dt'] != null) dpt3Date = (d['DPT3_Dt'] as Timestamp).toDate();
+      if (d['DPT3_Dt'] != null) dpt3Date = (d['DPT3_Dt'] is Timestamp) ? (d['DPT3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT3_Dt']?.toString() ?? '');
       dpt3By = d['DPT3_Given_By'];
       dptBGiven = d['DPTB_Given_Y_N'];
-      if (d['DPT_B_Dt'] != null) dptBDate = (d['DPT_B_Dt'] as Timestamp).toDate();
+      if (d['DPT_B_Dt'] != null) dptBDate = (d['DPT_B_Dt'] is Timestamp) ? (d['DPT_B_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT_B_Dt']?.toString() ?? '');
       dptBBy = d['DPTB_Given_Y_N1'];
 
       opv0Given = d['OPVO_Given_Y_N'];
-      if (d['OPV0_Dt'] != null) opv0Date = (d['OPV0_Dt'] as Timestamp).toDate();
+      if (d['OPV0_Dt'] != null) opv0Date = (d['OPV0_Dt'] is Timestamp) ? (d['OPV0_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV0_Dt']?.toString() ?? '');
       opv0By = d['OPVO_Given_By'];
       opv1Given = d['OPVO_Given_By1'];
-      if (d['OPV_1_Dt'] != null) opv1Date = (d['OPV_1_Dt'] as Timestamp).toDate();
+      if (d['OPV_1_Dt'] != null) opv1Date = (d['OPV_1_Dt'] is Timestamp) ? (d['OPV_1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV_1_Dt']?.toString() ?? '');
       opv1By = d['OPV1_Given_By'];
       opv2Given = d['OPV2_Given_yes_no'];
-      if (d['OPV2_Dt'] != null) opv2Date = (d['OPV2_Dt'] as Timestamp).toDate();
+      if (d['OPV2_Dt'] != null) opv2Date = (d['OPV2_Dt'] is Timestamp) ? (d['OPV2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV2_Dt']?.toString() ?? '');
       opv2By = d['Drop_OPV2_Given_By'];
       opv3Given = d['OPV3_Given_by_Y_N'];
-      if (d['OPV3_Dt'] != null) opv3Date = (d['OPV3_Dt'] as Timestamp).toDate();
+      if (d['OPV3_Dt'] != null) opv3Date = (d['OPV3_Dt'] is Timestamp) ? (d['OPV3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV3_Dt']?.toString() ?? '');
       opv3By = d['OPV2_Given_By2'];
       opvBGiven = d['OPV_B_Given_Y_N'];
-      if (d['OPV_B_Dt'] != null) opvBDate = (d['OPV_B_Dt'] as Timestamp).toDate();
+      if (d['OPV_B_Dt'] != null) opvBDate = (d['OPV_B_Dt'] is Timestamp) ? (d['OPV_B_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV_B_Dt']?.toString() ?? '');
       opvBBy = d['OPV2_Given_By1'];
 
       measlesGiven = d['Measles1'];
-      if (d['Measles_Dt'] != null) measlesDate = (d['Measles_Dt'] as Timestamp).toDate();
+      if (d['Measles_Dt'] != null) measlesDate = (d['Measles_Dt'] is Timestamp) ? (d['Measles_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['Measles_Dt']?.toString() ?? '');
       measlesBy = d['Measles_Given_Y_N'];
 
       hepB1Given = d['HepB1_Given_Y_N'];
-      if (d['HepB1_Dt'] != null) hepB1Date = (d['HepB1_Dt'] as Timestamp).toDate();
+      if (d['HepB1_Dt'] != null) hepB1Date = (d['HepB1_Dt'] is Timestamp) ? (d['HepB1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB1_Dt']?.toString() ?? '');
       hepB1By = d['HepB1_Given_By'];
       hepB2Given = d['HepB2_Given_Y_N'];
-      if (d['HepB2_Dt'] != null) hepB2Date = (d['HepB2_Dt'] as Timestamp).toDate();
+      if (d['HepB2_Dt'] != null) hepB2Date = (d['HepB2_Dt'] is Timestamp) ? (d['HepB2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB2_Dt']?.toString() ?? '');
       hepB2By = d['HepB2'];
       hepB3Given = d['HepB3_Given_Y_N'];
-      if (d['HepB3_Dt'] != null) hepB3Date = (d['HepB3_Dt'] as Timestamp).toDate();
+      if (d['HepB3_Dt'] != null) hepB3Date = (d['HepB3_Dt'] is Timestamp) ? (d['HepB3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB3_Dt']?.toString() ?? '');
       hepB3By = d['HepB3_Given_By'];
 
       vitA1Given = d['VitA1_Given_Y_N'];
-      if (d['VitA1_Dt'] != null) vitA1Date = (d['VitA1_Dt'] as Timestamp).toDate();
+      if (d['VitA1_Dt'] != null) vitA1Date = (d['VitA1_Dt'] is Timestamp) ? (d['VitA1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA1_Dt']?.toString() ?? '');
       vitA1By = d['VitA1_Given_By'];
       vitA2Given = d['VitA2_Given_Y_N'];
-      if (d['VitA2_Dt'] != null) vitA2Date = (d['VitA2_Dt'] as Timestamp).toDate();
+      if (d['VitA2_Dt'] != null) vitA2Date = (d['VitA2_Dt'] is Timestamp) ? (d['VitA2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA2_Dt']?.toString() ?? '');
       vitA2By = d['VitA2_Given_By'];
       vitA3Given = d['VitA3_Given_Y_N1'];
-      if (d['VitA3_Dt'] != null) vitA3Date = (d['VitA3_Dt'] as Timestamp).toDate();
+      if (d['VitA3_Dt'] != null) vitA3Date = (d['VitA3_Dt'] is Timestamp) ? (d['VitA3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA3_Dt']?.toString() ?? '');
       vitA3By = d['V'];
       vitA4Given = d['Vita4_Given_Y_N'];
-      if (d['VitA4_Dt'] != null) vitA4Date = (d['VitA4_Dt'] as Timestamp).toDate();
+      if (d['VitA4_Dt'] != null) vitA4Date = (d['VitA4_Dt'] is Timestamp) ? (d['VitA4_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA4_Dt']?.toString() ?? '');
       vitA4By = d['VitA4_Given_By'];
       vitABGiven = d['VitAB_Given_Y_N'];
-      if (d['VitAB_Dt1'] != null) vitABDate = (d['VitAB_Dt1'] as Timestamp).toDate();
+      if (d['VitAB_Dt1'] != null) vitABDate = (d['VitAB_Dt1'] is Timestamp) ? (d['VitAB_Dt1'] as Timestamp).toDate() : DateTime.tryParse(d['VitAB_Dt1']?.toString() ?? '');
       vitABBy = d['VitAB_Given_By'];
 
       dtGiven = d['DT_Given_Y_N'];
-      if (d['DT_Dt'] != null) dtDate = (d['DT_Dt'] as Timestamp).toDate();
+      if (d['DT_Dt'] != null) dtDate = (d['DT_Dt'] is Timestamp) ? (d['DT_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DT_Dt']?.toString() ?? '');
       dtBy = d['DT_Given_By'];
 
       _remarks.text = d['Remarks1'] ?? '';
@@ -195,10 +327,14 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     });
   }
 
+  void _loadExistingData() {
+    _populateForm(widget.existingData!);
+  }
+
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
-      selectedFamilyCode = null; selectedName = null; _motherName.clear(); selectEntryScreen = null; dob = null; _regNo.clear();
+      selectedFamilyCode = null; selectedName = null; _nameController.clear(); _motherName.clear(); selectEntryScreen = null; dob = null; _regNo.clear();
       bcgGiven = null; bcgDate = null; bcgGivenBy = null;
       dpt1Given = null; dpt1Date = null; dpt1By = null;
       dpt2Given = null; dpt2Date = null; dpt2By = null;
@@ -221,6 +357,8 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
       dtGiven = null; dtDate = null; dtBy = null;
       _remarks.clear(); _birthWeight.clear(); _birthHeight.clear(); diarrhea = null; breastfeeding = null;
       familyMembers = [];
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -231,7 +369,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     try {
       final data = {
         'Family_Code': selectedFamilyCode,
-        'Name': selectedName,
+        'Name': _isEditMode ? selectedName : _nameController.text,
         'Mother_Name': _motherName.text,
         'Select_Entry_Screen': selectEntryScreen,
         'Date_of_Birth': dob != null ? Timestamp.fromDate(dob!) : null,
@@ -313,7 +451,9 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('child_immunization').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('child_immunization').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('child_immunization').add(data);
@@ -439,23 +579,55 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                         decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
                         value: selectedFamilyCode,
                         items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                        onChanged: (v) {
-                          setState(() { selectedFamilyCode = v; selectedName = null; });
-                          if (v != null) _fetchMembersByFamily(v);
-                        },
+                         onChanged: (v) {
+                           setState(() { selectedFamilyCode = v; selectedName = null; });
+                           if (v != null) {
+                             if (_isEditMode) {
+                               _fetchExistingRecords(v, entryScreen: selectEntryScreen);
+                             } else {
+                               _fetchMembersByFamily(v, entryScreen: selectEntryScreen);
+                             }
+                           }
+                         },
                       ),
                       const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: 'Name',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                        ),
-                        value: selectedName,
-                        items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                        onChanged: (v) => setState(() => selectedName = v),
-                      ),
+                        if (_isEditMode)
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              labelText: 'Select Name to Edit',
+                              border: const OutlineInputBorder(),
+                              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                            ),
+                            value: selectedName,
+                            items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
+                            onChanged: _onNameSelected,
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TextFormField(
+                                controller: _nameController,
+                                decoration: const InputDecoration(labelText: 'Name (Child)', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
+                              ),
+                              if (familyMembers.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Pick from Family Members',
+                                    border: const OutlineInputBorder(),
+                                    suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                  ),
+                                  value: null,
+                                  items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                                  onChanged: _onNameSelected,
+                                  hint: const Text('--Select Member--'),
+                                ),
+                              ],
+                            ],
+                          ),
                       const SizedBox(height: 16),
                       TextFormField(controller: _motherName, decoration: const InputDecoration(labelText: 'Mother Name', border: OutlineInputBorder())),
                       const SizedBox(height: 16),
@@ -466,7 +638,19 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                         decoration: const InputDecoration(labelText: 'Select Entry Screen', border: OutlineInputBorder()),
                         value: selectEntryScreen,
                         items: ['BCG', 'DPT', 'OPV', 'Measles', 'HepB', 'Vitamin A', 'DT', 'Remarks'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => selectEntryScreen = v),
+                         onChanged: (v) {
+                           setState(() {
+                             selectEntryScreen = v;
+                             selectedName = null;
+                           });
+                           if (selectedFamilyCode != null) {
+                             if (_isEditMode) {
+                               _fetchExistingRecords(selectedFamilyCode!, entryScreen: v);
+                             } else {
+                               _fetchMembersByFamily(selectedFamilyCode!, entryScreen: v);
+                             }
+                           }
+                         },
                       ),
                       const SizedBox(height: 16),
                       TextFormField(controller: _regNo, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
@@ -591,7 +775,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: const Text('Save Immunization Record', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Immunization Record' : 'Save Immunization Record', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 32),
                 ],

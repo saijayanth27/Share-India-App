@@ -17,10 +17,15 @@ class CervicalCancerScreeningPage extends StatefulWidget {
 class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Controllers ---
-  // --- Controllers ---
+  final _nameController = TextEditingController();
   final _registrationNumber = TextEditingController();
+  final _familyIdController = TextEditingController();
   final _ageController = TextEditingController();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -39,10 +44,14 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
   String? selectedAttendedSchool;
   String? selectedReligion;
   String? selectedMaritalStatus;
+  String? selectedMenopause;
+  String? selectedVIA;
+  String? selectedTreatment;
 
   // Lookup Options
   List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   @override
@@ -66,15 +75,36 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final names = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMemberNames = names..sort();
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -83,34 +113,112 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('cervical_screening')
+          .where('Family_ID', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
     setState(() {
-      _registrationNumber.text = d['Registration_Number'] ?? '';
-      selectedFamilyId = d['Family_ID'];
-      selectedMemberName = d['Name'];
-      selectedGender = d['Gender'];
-      _ageController.text = d['Age']?.toString() ?? '';
-      if (d['Exam_Date'] != null) examDate = (d['Exam_Date'] as Timestamp).toDate();
-      _firstNameController.text = d['Interviewer_s_Name_first_name'] ?? '';
-      _lastNameController.text = d['Interviewer_s_Name_last_name'] ?? '';
-      if (d['Date_of_Birth'] != null) dateOfBirth = (d['Date_of_Birth'] as Timestamp).toDate();
-      selectedAttendedSchool = d['Have_you_ever_attended'];
-      _schoolLevelController.text = d['What_was_the_highest_level_of_school_you_completed'] ?? '';
-      _occupationController.text = d['What_is_your_occupation'] ?? '';
-      selectedReligion = d['Religion'];
-      _monthlyIncomeController.text = d['What_is_the_total_monthly_income_of_your_family']?.toString() ?? '';
-      _familyMembersCountController.text = d['How_many_family_members_are_there_in_your_house']?.toString() ?? '';
-      selectedMaritalStatus = d['Marital_status'];
-      _age1Controller.text = d['Age1']?.toString() ?? '';
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          
+          final gender = data['Gender']?.toString();
+          if (gender != null) {
+            if (gender.contains('Male')) {
+              selectedGender = 'Male';
+            } else if (gender.contains('Female')) {
+              selectedGender = 'Female';
+            }
+          }
+          
+          _ageController.text = data['Age']?.toString() ?? '';
+        }
+      }
     });
-    if (selectedFamilyId != null) _fetchMembersByFamily(selectedFamilyId!);
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number'] ?? '';
+    selectedFamilyId = d['Family_ID'] ?? d['Family_Code'] ?? d['Family_code'];
+    _familyIdController.text = selectedFamilyId ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    selectedGender = d['Gender'];
+    _ageController.text = d['Age']?.toString() ?? '';
+    
+    if (d['Exam_Date'] != null) {
+      if (d['Exam_Date'] is Timestamp) {
+        examDate = (d['Exam_Date'] as Timestamp).toDate();
+      } else {
+        try {
+          examDate = DateFormat('dd-MMM-yyyy').parse(d['Exam_Date'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    _firstNameController.text = d['Interviewer_s_Name_first_name'] ?? '';
+    _lastNameController.text = d['Interviewer_s_Name_last_name'] ?? '';
+    
+    if (d['Date_of_Birth'] != null) {
+      if (d['Date_of_Birth'] is Timestamp) {
+        dateOfBirth = (d['Date_of_Birth'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfBirth = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Birth'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    selectedAttendedSchool = d['Have_you_attended_school'];
+    _schoolLevelController.text = d['If_Yes_What_was_the_highest_level_attended'] ?? '';
+    _occupationController.text = d['Occupation'] ?? '';
+    _monthlyIncomeController.text = d['Monthly_Household_Income']?.toString() ?? '';
+    _familyMembersCountController.text = d['Total_Number_of_household_living_at_home']?.toString() ?? '';
+    _age1Controller.text = d['Age1']?.toString() ?? '';
+    selectedMenopause = d['Menopause_Status'];
+    selectedVIA = d['VIA_Examination_Result'];
+    selectedTreatment = d['Treatment_Provided'];
+
+    if (selectedFamilyId != null && familyMemberNames.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyId!);
+    }
   }
 
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
       _registrationNumber.clear();
+      _nameController.clear();
       selectedFamilyId = null;
       selectedMemberName = null;
       selectedGender = null;
@@ -127,7 +235,13 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
       _familyMembersCountController.clear();
       selectedMaritalStatus = null;
       _age1Controller.clear();
+      selectedMenopause = null;
+      selectedVIA = null;
+      selectedTreatment = null;
+      selectedVIA = null;
+      selectedTreatment = null;
       familyMemberNames = [];
+      _existingRecords = [];
     });
   }
 
@@ -139,26 +253,31 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
       final data = {
         'Registration_Number': _registrationNumber.text,
         'Family_ID': selectedFamilyId,
-        'Name': selectedMemberName,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
         'Exam_Date': examDate != null ? Timestamp.fromDate(examDate!) : null,
         'Interviewer_s_Name_first_name': _firstNameController.text,
         'Interviewer_s_Name_last_name': _lastNameController.text,
         'Date_of_Birth': dateOfBirth != null ? Timestamp.fromDate(dateOfBirth!) : null,
-        'Have_you_ever_attended': selectedAttendedSchool,
-        'What_was_the_highest_level_of_school_you_completed': _schoolLevelController.text,
-        'What_is_your_occupation': _occupationController.text,
+        'Have_you_attended_school': selectedAttendedSchool, // Changed key
+        'If_Yes_What_was_the_highest_level_attended': _schoolLevelController.text, // Changed key
+        'Occupation': _occupationController.text, // Changed key
         'Religion': selectedReligion,
-        'What_is_the_total_monthly_income_of_your_family': _monthlyIncomeController.text.isNotEmpty ? int.tryParse(_monthlyIncomeController.text) : null,
-        'How_many_family_members_are_there_in_your_house': _familyMembersCountController.text.isNotEmpty ? int.tryParse(_familyMembersCountController.text) : null,
+        'Monthly_Household_Income': _monthlyIncomeController.text.isNotEmpty ? int.tryParse(_monthlyIncomeController.text) : null, // Changed key
+        'Total_Number_of_household_living_at_home': _familyMembersCountController.text.isNotEmpty ? int.tryParse(_familyMembersCountController.text) : null, // Changed key
         'Marital_status': selectedMaritalStatus,
         'Age1': _age1Controller.text.isNotEmpty ? int.tryParse(_age1Controller.text) : null,
+        'Menopause_Status': selectedMenopause,
+        'VIA_Examination_Result': selectedVIA,
+        'Treatment_Provided': selectedTreatment,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('cervical_screening').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('cervical_screening').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('cervical_screening').add(data);
@@ -188,8 +307,10 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cervical Screening Questionnaire')),
-      drawer: const AppDrawer(),
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: const Text('Cervical Cancer Screening'),
+      ),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -256,7 +377,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: Text(widget.docId == null ? 'Submit Screening' : 'Update Screening', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        child: Text(_isEditMode ? 'Update Screening' : 'Submit Screening', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(height: 40),
@@ -281,12 +402,41 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
             const Divider(),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyId, (v) {
-              setState(() { selectedFamilyId = v; selectedMemberName = null; familyMemberNames = []; });
-              if (v != null) _fetchMembersByFamily(v);
+            _buildTextField('Family Code', _familyIdController, onChanged: (v) {
+              setState(() {
+                selectedFamilyId = v;
+                selectedMemberName = null;
+                familyMemberNames = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                 if (_isEditMode) {
+                   _fetchExistingRecords(v);
+                 } else {
+                   _fetchMembersByFamily(v);
+                 }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', familyMemberNames, selectedMemberName, (v) => setState(() => selectedMemberName = v), isLoading: _isLoadingMembers),
+            if (_isEditMode)
+              _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedMemberName, (v) {
+                 final record = _existingRecords.firstWhere((r) => r['Name'] == v);
+                 setState(() {
+                   selectedMemberName = v;
+                   _editDocId = record['id'];
+                   _populateForm(record);
+                 });
+              }, isLoading: _isLoadingMembers)
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTextField('Name', _nameController),
+                  if (familyMemberNames.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _buildDropdown('Pick from Family Members', familyMemberNames, null, _onNameSelected, isLoading: _isLoadingMembers),
+                  ],
+                ],
+              ),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -338,7 +488,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -353,6 +503,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
             helperText: helper,
           ),
           keyboardType: keyboardType,
+          onChanged: onChanged,
         ),
       ],
     );

@@ -16,9 +16,14 @@ class AnthropometryPage extends StatefulWidget {
 class _AnthropometryPageState extends State<AnthropometryPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   String? selectedFamilyCode;
   String? selectedName;
   String? selectedGender;
@@ -38,6 +43,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
 
   List<String> allFamilyCodes = [];
   List<String> familyMembers = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
   @override
@@ -59,15 +65,36 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final members = snapshot.docs.map((doc) => doc.data()['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
 
       setState(() {
-        familyMembers = members..sort();
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
@@ -76,29 +103,89 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
-    setState(() {
-      _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedFamilyCode = d['Family_ID'] ?? d['Family_code'];
-      selectedName = d['Name'];
-      selectedGender = d['Gender'];
-      _age.text = d['Age']?.toString() ?? '';
-      interviewersName = d['Interviewer_s_Name'];
-      if (d['Date_of_Interview'] != null) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('anthropometry')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
+      
+      if (snapshot.docs.isEmpty) {
+        final snapshot2 = await FirebaseFirestore.instance
+            .collection('anthropometry')
+            .where('Family_ID', isEqualTo: familyCode)
+            .get();
+        setState(() {
+          _existingRecords = snapshot2.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        });
+      } else {
+        setState(() {
+          _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        });
       }
-      notDoneReason = d['If_not_done_reason'];
-      _notDoneOther.text = d['If_Other_please_mention'] ?? '';
-      chvName = d['CHV'];
-      _waistMeasurement.text = d['Waist_Measurement']?.toString() ?? '';
-      _weight.text = d['weight']?.toString() ?? '';
-      _hipMeasurement.text = d['Hip_Measurement']?.toString() ?? '';
-      _height.text = d['Height']?.toString() ?? '';
-      _otherDetails.text = d['Other_Details'] ?? '';
+      setState(() => _isLoadingMembers = false);
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
 
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _age.text = data['Age']?.toString() ?? '';
+        }
+      }
     });
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_ID'] ?? d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedName = d['Name'];
+    selectedGender = d['Gender'];
+    _age.text = d['Age']?.toString() ?? '';
+    interviewersName = d['Interviewer_s_Name'];
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    notDoneReason = d['If_not_done_reason'];
+    _notDoneOther.text = d['If_Other_please_mention'] ?? '';
+    chvName = d['CHV'];
+    _waistMeasurement.text = d['Waist_Measurement']?.toString() ?? '';
+    _weight.text = d['weight']?.toString() ?? '';
+    _hipMeasurement.text = d['Hip_Measurement']?.toString() ?? '';
+    _height.text = d['Height']?.toString() ?? '';
+    _otherDetails.text = d['Other_Details'] ?? '';
+
+    if (selectedFamilyCode != null && familyMembers.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   Future<void> _save() async {
@@ -127,7 +214,9 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('anthropometry').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('anthropometry').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('anthropometry').add(data);
@@ -150,13 +239,36 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     }
   }
 
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      if (!_isEditMode) {
+        _familyCodeController.clear();
+        selectedFamilyCode = null;
+      }
+      _registrationNumber.clear();
+      selectedName = null;
+      selectedGender = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
+      notDoneReason = null;
+      _notDoneOther.clear();
+      _waistMeasurement.clear();
+      _weight.clear();
+      _hipMeasurement.clear();
+      _height.clear();
+      _otherDetails.clear();
+      familyMembers = [];
+      _existingRecords = [];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Anthropometry Measurement'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Text('Anthropometry Form'),
       ),
       drawer: const AppDrawer(),
       body: _isSaving
@@ -166,6 +278,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+
                 _buildIdentitySection(),
                   _buildSectionCard(
                     title: 'Interview Details',
@@ -213,7 +326,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text(widget.docId == null ? 'Save Assessment' : 'Update Assessment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditMode ? 'Update Assessment' : 'Save Assessment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 32),
                 ],
@@ -235,12 +348,32 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
             const Divider(),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedName = null; });
-              if (v != null) _fetchMembersByFamily(v);
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedName = null;
+                familyMembers = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                 if (_isEditMode) {
+                   _fetchExistingRecords(v);
+                 } else {
+                   _fetchMembersByFamily(v);
+                 }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', familyMembers, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingMembers),
+            if (_isEditMode)
+               _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, (v) {
+                 final record = _existingRecords.firstWhere((r) => r['Name'] == v);
+                 setState(() {
+                   selectedName = v;
+                   _editDocId = record['id'];
+                   _populateForm(record);
+                 });
+               }, isLoading: _isLoadingMembers)
+            else
+              _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -289,7 +422,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -305,6 +438,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

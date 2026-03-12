@@ -43,6 +43,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   List<String?> _bpStoragePaths = [null, null, null];
 
   // --- Identity & Registration Controllers ---
+  final _familyCodeController = TextEditingController();
   final _registrationNumber = TextEditingController();
   final _age = TextEditingController();
   final _othersMention = TextEditingController();
@@ -64,8 +65,12 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
 
   List<String> allFamilyCodes = [];
   List<String> familyMembers = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
 
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
   bool _isLoading = false;
   bool _isOnline = false; // CACHED connectivity state for zero-lag
   String _statusMessage = '';
@@ -89,43 +94,55 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     dateOfInterview = DateTime.now();
 
     if (widget.existingData != null) {
-      final d = widget.existingData!;
-      _registrationNumber.text = (d['Registration_Number'] ?? '').toString();
-      selectedFamilyCode = d['Family_code'];
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
-      selectedName = d['Name'];
-      selectedGender = d['Gender'];
-      _age.text = (d['Age'] ?? '').toString();
-      if (d['Date_of_Interview'] != null) dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
-      interviewersName = d['Interviewer_s_Name'];
-      ifNotDoneReason = d['If_not_done_reason'];
-      _othersMention.text = d['If_Others_Please_Mention'] ?? '';
-      
-      _d1.text = d['/d1'] ?? d['Single_Line4'] ?? '';
-      _d2.text = d['/d2'] ?? d['Single_Line3'] ?? '';
-      _d3.text = d['/d3'] ?? d['Single_Line1'] ?? '';
-
-      if (d['Date1'] != null) date1 = (d['Date1'] as Timestamp).toDate();
-      if (d['Date2'] != null) date2 = (d['Date2'] as Timestamp).toDate();
-      if (d['Date3'] != null) date3 = (d['Date3'] as Timestamp).toDate();
-      if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
-      if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
-
-      for (int i = 0; i < 3; i++) {
-        final suffix = i == 0 ? '' : (i + 1).toString();
-        _sysControllers[i].text = (d['systolic$suffix'] ?? '').toString();
-        _diaControllers[i].text = (d['diastolic$suffix'] ?? '').toString();
-        _pulseControllers[i].text = (d['pulse$suffix'] ?? d['Heart_Beat${i == 0 ? '1' : (i + 1).toString()}'] ?? '').toString();
-        
-        final pathKey = i == 0 ? 'bp_image_path' : 'bp_image_path${i + 1}';
-        final storagePathKey = i == 0 ? 'bp_storage_path' : 'bp_storage_path${i + 1}';
-        
-        if (d[storagePathKey] != null) _bpStoragePaths[i] = d[storagePathKey] as String;
-        if (d[pathKey] != null && File(d[pathKey]).existsSync()) _bpImages[i] = File(d[pathKey]);
-      }
+      _populateForm(widget.existingData!);
     }
     // Trigger background sync for any previous offline records immediately on launch
     HealthOCRService.processPendingReadings();
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = (d['Registration_Number'] ?? '').toString();
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    if (selectedFamilyCode != null && familyMembers.isEmpty) _fetchMembersByFamily(selectedFamilyCode!);
+    selectedName = d['Name'];
+    selectedGender = d['Gender'];
+    _age.text = (d['Age'] ?? '').toString();
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    interviewersName = d['Interviewer_s_Name'];
+    ifNotDoneReason = d['If_not_done_reason'];
+    _othersMention.text = d['If_Others_Please_Mention'] ?? '';
+    
+    _d1.text = d['/d1'] ?? d['Single_Line4'] ?? '';
+    _d2.text = d['/d2'] ?? d['Single_Line3'] ?? '';
+    _d3.text = d['/d3'] ?? d['Single_Line1'] ?? '';
+
+    if (d['Date1'] != null) date1 = (d[ 'Date1'] as Timestamp).toDate();
+    if (d['Date2'] != null) date2 = (d['Date2'] as Timestamp).toDate();
+    if (d['Date3'] != null) date3 = (d['Date3'] as Timestamp).toDate();
+    if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
+    if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
+
+    for (int i = 0; i < 3; i++) {
+      final suffix = i == 0 ? '' : (i + 1).toString();
+      _sysControllers[i].text = (d['systolic$suffix'] ?? '').toString();
+      _diaControllers[i].text = (d['diastolic$suffix'] ?? '').toString();
+      _pulseControllers[i].text = (d['pulse$suffix'] ?? d['Heart_Beat${i == 0 ? '1' : (i + 1).toString()}'] ?? '').toString();
+      
+      final pathKey = i == 0 ? 'bp_image_path' : 'bp_image_path${i + 1}';
+      final storagePathKey = i == 0 ? 'bp_storage_path' : 'bp_storage_path${i + 1}';
+      
+      if (d[storagePathKey] != null) _bpStoragePaths[i] = d[storagePathKey] as String;
+      if (d[pathKey] != null && File(d[pathKey]).existsSync()) _bpImages[i] = File(d[pathKey]);
+    }
   }
 
   Future<void> _fetchFamilyCodes() async {
@@ -138,27 +155,91 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final members = <String>[];
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
 
       for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final name = data['Name']?.toString() ?? '';
-        members.add(name);
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
       }
 
       setState(() {
-        familyMembers = members..sort();
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
         _isLoadingMembers = false;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
       setState(() => _isLoadingMembers = false);
     }
+  }
+
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('health_readings')
+          .where('Family_code', isEqualTo: familyCode) // Note lower case 'code' in some forms
+          .get();
+      
+      // Some forms use 'Family_Code', checking both if needed or sticking to one
+      if (snapshot.docs.isEmpty) {
+         final snapshot2 = await FirebaseFirestore.instance
+            .collection('health_readings')
+            .where('Family_Code', isEqualTo: familyCode)
+            .get();
+         setState(() {
+           _existingRecords = snapshot2.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+         });
+      } else {
+        setState(() {
+          _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        });
+      }
+      setState(() => _isLoadingMembers = false);
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _age.text = data['Age']?.toString() ?? '';
+        }
+      }
+    });
   }
 
   void _setupConnectivityListener() {
@@ -958,7 +1039,15 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
         'needs_gemini_extraction': _bpImages.any((img) => img != null && _sysControllers[_bpImages.indexOf(img)].text.isEmpty),
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('health_readings').doc(_editDocId).update(healthData);
+        _showSnackBar('BP Form updated successfully!', isSuccess: true);
+        if (widget.existingData != null) {
+          Navigator.pop(context);
+        } else {
+          _clearForm();
+        }
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('health_readings').doc(widget.docId).update(healthData);
         _showSnackBar('BP Form updated successfully!', isSuccess: true);
         Navigator.pop(context);
@@ -998,7 +1087,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     });
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1013,6 +1102,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
             helperText: helper,
           ),
           keyboardType: keyboardType,
+          onChanged: onChanged,
         ),
       ],
     );
@@ -1073,12 +1163,13 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: isSuccess ? Colors.green : Colors.red));
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('BP & Glucose Monitoring', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('BP & Glucose Form'), // Modified title
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -1108,6 +1199,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
                     title: 'Health Readings',
                     subtitle: 'Monitor and track vital signs',
                   ),
+
                   if (_statusMessage.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),
@@ -1154,12 +1246,25 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
           children: [
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedName = null; });
-              if (v != null) _fetchMembersByFamily(v);
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedName = null;
+                familyMembers = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                 if (_isEditMode) {
+                   _fetchExistingRecords(v);
+                 } else {
+                   _fetchMembersByFamily(v);
+                 }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', familyMembers, selectedName, (v) => setState(() => selectedName = v), isLoading: _isLoadingMembers),
+            if (_isEditMode)
+              _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
+            else
+              _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -1242,6 +1347,6 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   }
 
   Widget _buildSaveButton() {
-    return ElevatedButton(onPressed: _saveReadings, child: const Text('Save BP Readings'));
+    return ElevatedButton(onPressed: _saveReadings, child: Text(_isEditMode ? 'Update BP Readings' : 'Save BP Readings'));
   }
 }

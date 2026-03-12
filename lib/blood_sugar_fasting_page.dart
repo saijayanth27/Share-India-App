@@ -17,9 +17,13 @@ class BloodSugarFastingPage extends StatefulWidget {
 class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
 
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   String? selectedFamilyCode;
   String? selectedName;
   String? selectedGender;
@@ -35,8 +39,9 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   String? _notDoneReason;
 
   List<String> allFamilyCodes = [];
-  List<Map<String, dynamic>> _familyMembers = [];
-  List<String> _namesForSelectedFamily = [];
+  List<String> familyMembers = []; // List of names
+  Map<String, Map<String, dynamic>> _allMembersData = {}; // Full details
+  bool _isLoadingMembers = false;
 
   final List<String> _reasonList = [
     "(1) Not available",
@@ -55,29 +60,37 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   }
 
   void _loadExistingData() {
-    final d = widget.existingData!;
     setState(() {
-      _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-      selectedFamilyCode = d['Family_code'] ?? d['Family_Code_Creation'];
-      selectedName = d['Name'];
-      selectedGender = d['Gender'];
-      _age.text = d['Age']?.toString() ?? '';
-      if (d['Date_of_Interview'] != null) {
-        if (d['Date_of_Interview'] is Timestamp) {
-          dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
-        } else {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        }
-      }
-      interviewersName = d['Interviewer_s_Name'];
-      _notDoneReason = d['If_not_done_reason'];
-      _otherReasonController.text = d['reason'] ?? '';
-      _lastMealDateController.text = d['Date_of_Last_Meal'] ?? '';
-      _lastMealTimeController.text = d['Time_of_Last_Meal'] ?? '';
-      _fbsResultController.text = d['FBS_Test_Result']?.toString() ?? '';
-
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!);
+      _populateForm(widget.existingData!);
     });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code_Creation'] ?? d['Family_Code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedName = d['Name'];
+    selectedGender = d['Gender'];
+    _age.text = d['Age']?.toString() ?? '';
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    interviewersName = d['Interviewer_s_Name'];
+    _notDoneReason = d['If_not_done_reason'];
+    _otherReasonController.text = d['reason'] ?? '';
+    _lastMealDateController.text = d['Date_of_Last_Meal'] ?? '';
+    _lastMealTimeController.text = d['Time_of_Last_Meal'] ?? '';
+    _fbsResultController.text = d['FBS_Test_Result']?.toString() ?? '';
+
+    if (selectedFamilyCode != null && familyMembers.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   Future<void> _fetchFamilyCodes() async {
@@ -88,20 +101,82 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
     try {
+      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
 
-      final members = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
+
       setState(() {
-        _familyMembers = members;
-        _namesForSelectedFamily = members.map((m) => m['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList()..sort();
+        _allMembersData = memberMap;
+        familyMembers = allNames.toList()..sort();
+        _isLoadingMembers = false;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
     }
+  }
+
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('blood_sugar_fasting')
+          .where('Family_code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedName = name;
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
+          selectedGender = data['Gender']?.toString();
+          _age.text = data['Age']?.toString() ?? '';
+        }
+      }
+    });
   }
 
   Future<void> _saveForm() async {
@@ -127,14 +202,20 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     };
 
     try {
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(_editDocId).update(formData);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(widget.docId).update(formData);
       } else {
         await FirebaseFirestore.instance.collection('blood_sugar_fasting').add(formData);
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Form saved successfully!')));
-        Navigator.pop(context);
+        if (widget.docId != null || _isEditMode) {
+          Navigator.pop(context);
+        } else {
+          _resetForm();
+        }
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
@@ -143,10 +224,34 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     }
   }
 
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      if (!_isEditMode) {
+        _familyCodeController.clear();
+        selectedFamilyCode = null;
+      }
+      _registrationNumber.clear();
+      selectedName = null;
+      selectedGender = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
+      _notDoneReason = null;
+      _otherReasonController.clear();
+      _lastMealDateController.clear();
+      _lastMealTimeController.clear();
+      _fbsResultController.clear();
+      familyMembers = [];
+      _existingRecords = [];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Blood Sugar Form(After Eating)')),
+      appBar: AppBar(
+        title: const Text('Blood Sugar Form(After Eating)'),
+      ),
       drawer: const AppDrawer(),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -193,7 +298,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
                     backgroundColor: Colors.blue.shade700,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text(widget.docId == null ? 'Submit' : 'Update', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Text(_isEditMode ? 'Update' : 'Submit', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 40),
@@ -217,12 +322,32 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
             const Divider(),
             _buildTextField('Registration Number', _registrationNumber),
             const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedName = null; });
-              if (v != null) _fetchMembersByFamily(v);
+            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
+              setState(() {
+                selectedFamilyCode = v;
+                selectedName = null;
+                familyMembers = [];
+              });
+              if (v != null && v.isNotEmpty) {
+                if (_isEditMode) {
+                  _fetchExistingRecords(v);
+                } else {
+                  _fetchMembersByFamily(v);
+                }
+              }
             }),
             const SizedBox(height: 12),
-            _buildDropdown('Name', _namesForSelectedFamily, selectedName, (v) => setState(() => selectedName = v)),
+            if (_isEditMode)
+              _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, (v) {
+                final record = _existingRecords.firstWhere((r) => r['Name'] == v);
+                setState(() {
+                  selectedName = v;
+                  _editDocId = record['id'];
+                  _populateForm(record);
+                });
+              }, isLoading: _isLoadingMembers)
+            else
+              _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
             const SizedBox(height: 12),
             const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
             Row(
@@ -271,7 +396,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, String? hint}) {
+  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, String? hint, Function(String)? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -286,6 +411,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
           ),
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
         ),
       ],
     );

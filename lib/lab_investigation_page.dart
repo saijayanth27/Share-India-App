@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
+import 'data_cache_service.dart';
 
 class LabInvestigationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -16,9 +17,15 @@ class LabInvestigationPage extends StatefulWidget {
 class _LabInvestigationPageState extends State<LabInvestigationPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _isEditMode = false;
+  String? _editDocId;
+  List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoading = false;
 
   // --- Controllers ---
+  final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _fastingSugarController = TextEditingController();
   final _hba1cController = TextEditingController();
   final _glycosylatedHbController = TextEditingController();
@@ -29,12 +36,21 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
   final _proteinUrineSpotController = TextEditingController();
   final _creatinineUrineSpotController = TextEditingController();
   final _proteinCreatinineRatioController = TextEditingController();
+  
+  // New Identification State
+  String? selectedFamilyCode;
+  String? selectedMemberName;
+  List<String> allFamilyCodes = [];
+  List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
+  bool _isLoadingMembers = false;
 
   DateTime? investigationDate;
 
   @override
   void initState() {
     super.initState();
+    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     } else {
@@ -42,30 +58,138 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     }
   }
 
-  void _loadExistingData() {
-    final d = widget.existingData!;
+  Future<void> _fetchFamilyCodes() async {
+    final codes = await DataCacheService().fetchFamilyCodes();
     setState(() {
-      _regNoController.text = d['Registration_Number_of'] ?? '';
-      if (d['Date_of_Lab_Investigation'] != null) {
-        investigationDate = (d['Date_of_Lab_Investigation'] as Timestamp).toDate();
-      }
-      _fastingSugarController.text = d['Fasting_blood_sugar']?.toString() ?? '';
-      _hba1cController.text = d['hemoglobin_A1c']?.toString() ?? '';
-      _glycosylatedHbController.text = d['Glycosylated_Hemoglobin']?.toString() ?? '';
-      _meanGlucoseController.text = d['Mean_Blood_Glucose']?.toString() ?? '';
-      _creatinineController.text = d['Creatinine']?.toString() ?? '';
-      _urineAlbuminController.text = d['urine_albumin']?.toString() ?? '';
-      _albuminRatioController.text = d['albumin_ratio']?.toString() ?? '';
-      _proteinUrineSpotController.text = d['protein_urine_spot']?.toString() ?? '';
-      _creatinineUrineSpotController.text = d['Creatinine_urine_spot']?.toString() ?? '';
-      _proteinCreatinineRatioController.text = d['protein_Creatinine_ratio']?.toString() ?? '';
+      allFamilyCodes = codes;
     });
+  }
+
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      // 1. Fetch from Firestore (Cache favored)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('personal_details')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      // 2. Fetch from Local SQLite for offline support
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+
+      // 3. Merge logic
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+
+      for (var doc in snapshot.docs) {
+        processMember(doc.data());
+      }
+      for (var local in localMembers) {
+        processMember(local);
+      }
+
+      setState(() {
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  Future<void> _fetchExistingRecords(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('lab_investigation')
+          .where('Family_Code', isEqualTo: familyCode)
+          .get();
+      
+      setState(() {
+        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching existing records: $e');
+      setState(() => _isLoadingMembers = false);
+    }
+  }
+
+  void _onNameSelected(String? name) async {
+    setState(() {
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+        }
+      }
+    });
+  }
+
+  void _loadExistingData() {
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _regNoController.text = d['Registration_Number_of'] ?? d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    
+    if (d['Date_of_Lab_Investigation'] != null) {
+      if (d['Date_of_Lab_Investigation'] is Timestamp) {
+        investigationDate = (d['Date_of_Lab_Investigation'] as Timestamp).toDate();
+      } else {
+        try {
+          investigationDate = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Lab_Investigation'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    _fastingSugarController.text = d['Fasting_blood_sugar']?.toString() ?? '';
+    _hba1cController.text = d['hemoglobin_A1c']?.toString() ?? '';
+    _glycosylatedHbController.text = d['Glycosylated_Hemoglobin']?.toString() ?? '';
+    _meanGlucoseController.text = d['Mean_Blood_Glucose']?.toString() ?? '';
+    _creatinineController.text = d['Creatinine']?.toString() ?? '';
+    _urineAlbuminController.text = d['urine_albumin']?.toString() ?? '';
+    _albuminRatioController.text = d['albumin_ratio']?.toString() ?? '';
+    _proteinUrineSpotController.text = d['protein_urine_spot']?.toString() ?? '';
+    _creatinineUrineSpotController.text = d['Creatinine_urine_spot']?.toString() ?? '';
+    _proteinCreatinineRatioController.text = d['protein_Creatinine_ratio']?.toString() ?? '';
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
       _regNoController.clear();
+      _nameController.clear();
+      selectedFamilyCode = null;
+      selectedMemberName = null;
+      familyMemberNames = [];
       investigationDate = DateTime.now();
       _fastingSugarController.clear();
       _hba1cController.clear();
@@ -77,6 +201,8 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
       _proteinUrineSpotController.clear();
       _creatinineUrineSpotController.clear();
       _proteinCreatinineRatioController.clear();
+      _existingRecords = [];
+      _editDocId = null;
     });
   }
 
@@ -87,6 +213,8 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     try {
       final data = {
         'Registration_Number_of': _regNoController.text,
+        'Family_Code': selectedFamilyCode,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Date_of_Lab_Investigation': investigationDate != null ? Timestamp.fromDate(investigationDate!) : null,
         'Fasting_blood_sugar': double.tryParse(_fastingSugarController.text),
         'hemoglobin_A1c': double.tryParse(_hba1cController.text),
@@ -102,7 +230,9 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
         'needs_zoho_sync': true,
       };
 
-      if (widget.docId != null) {
+      if (_isEditMode && _editDocId != null) {
+        await FirebaseFirestore.instance.collection('lab_investigation').doc(_editDocId).update(data);
+      } else if (widget.docId != null) {
         await FirebaseFirestore.instance.collection('lab_investigation').doc(widget.docId).update(data);
       } else {
         await FirebaseFirestore.instance.collection('lab_investigation').add(data);
@@ -177,6 +307,7 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+
                   _buildSectionCard(
                     title: 'Identification',
                     children: [
@@ -186,6 +317,69 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
                           labelText: 'Registration Number of the participant',
                           border: OutlineInputBorder(),
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _familyCodeController,
+                              decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
+                              onChanged: (v) {
+                                setState(() {
+                                  selectedFamilyCode = v;
+                                  selectedMemberName = null;
+                                  familyMemberNames = [];
+                                });
+                                if (v.isNotEmpty) {
+                                  if (_isEditMode) {
+                                    _fetchExistingRecords(v);
+                                  } else {
+                                    _fetchMembersByFamily(v);
+                                  }
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _isEditMode
+                              ? DropdownButtonFormField<String>(
+                                decoration: InputDecoration(
+                                  labelText: 'Select Name to Edit',
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                ),
+                                value: selectedMemberName,
+                                items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
+                                onChanged: _onNameSelected,
+                              )
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    TextFormField(
+                                      controller: _nameController,
+                                      decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
+                                    ),
+                                    if (familyMemberNames.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      DropdownButtonFormField<String>(
+                                        isExpanded: true,
+                                        decoration: InputDecoration(
+                                          labelText: 'Pick from Family Members',
+                                          border: const OutlineInputBorder(),
+                                          suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
+                                        ),
+                                        value: null,
+                                        items: familyMemberNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                                        onChanged: _onNameSelected,
+                                        hint: const Text('--Select Member--'),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       InkWell(
@@ -265,7 +459,7 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
-                          child: const Text('Save Lab Results', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          child: Text(_isEditMode ? 'Update Lab Results' : 'Save Lab Results', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 16),
