@@ -1,3 +1,7 @@
 build/
 .dart_tool/
 .env
+.Relation-RelationCode Report.xlsx
+.State_District_Mandal_Village Report (1).xlsx
+.All Generations.xlsx
+*.xlsx

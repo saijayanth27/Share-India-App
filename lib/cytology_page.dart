@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,7 +21,7 @@ class _CytologyPageState extends State<CytologyPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
-  bool _isLoading = false;
+  bool _isLoadingMembers = false;
 
   // --- Main Form Controllers ---
   final _nameController = TextEditingController();
@@ -45,10 +46,8 @@ class _CytologyPageState extends State<CytologyPage> {
   List<String> selectedGlandularCells = [];
 
   // --- Options ---
-  List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
-  bool _isLoadingMembers = false;
 
   final List<String> adequacyChoices = [
     "(1) Satisfactory",
@@ -98,60 +97,38 @@ class _CytologyPageState extends State<CytologyPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
-    } else {
-      dateReceived = DateTime.now();
-      dateRead = DateTime.now();
     }
-  }
-
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -159,16 +136,15 @@ class _CytologyPageState extends State<CytologyPage> {
     setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('cytology')
-          .where('Family_Code_Creation', isEqualTo: familyCode)
+          .collection('cytology_screening')
+          .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
@@ -186,7 +162,7 @@ class _CytologyPageState extends State<CytologyPage> {
           }
         } else if (_allMembersData.containsKey(name)) {
           final data = _allMembersData[name]!;
-          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+          _regNoController.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
           selectedGender = data['Gender']?.toString();
         }
       }
@@ -201,410 +177,340 @@ class _CytologyPageState extends State<CytologyPage> {
 
   void _populateForm(Map<String, dynamic> d) {
     _regNoController.text = d['Registration_Number'] ?? '';
-    selectedFamilyCode = d['Family_Code_Creation'] ?? d['Family_Code'] ?? d['Family_code'];
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_Code_Creation'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     
-    if (d['Date_received'] != null) {
-      if (d['Date_received'] is Timestamp) {
-        dateReceived = (d['Date_received'] as Timestamp).toDate();
+    if (d['Date_received_in_lab'] != null) {
+      if (d['Date_received_in_lab'] is Timestamp) {
+        dateReceived = (d['Date_received_in_lab'] as Timestamp).toDate();
       } else {
         try {
-          dateReceived = DateFormat('dd-MMM-yyyy').parse(d['Date_received'].toString());
-        } catch (_) {}
-      }
-    }
-    if (d['Date_read'] != null) {
-      if (d['Date_read'] is Timestamp) {
-        dateRead = (d['Date_read'] as Timestamp).toDate();
-      } else {
-        try {
-          dateRead = DateFormat('dd-MMM-yyyy').parse(d['Date_read'].toString());
+          dateReceived = DateFormat('dd-MMM-yyyy').parse(d['Date_received_in_lab'].toString());
         } catch (_) {}
       }
     }
     
-    selectedAdequacy = d['Specimen_adequacy'];
-    if (d['a_Specify_reason'] != null) selectedAdequacyReasons = List<String>.from(d['a_Specify_reason']);
-    _otherAdequacyReasonController.text = d['If_any_other_please_mention'] ?? '';
+    if (d['Date_read_reported'] != null) {
+      if (d['Date_read_reported'] is Timestamp) {
+        dateRead = (d['Date_read_reported'] as Timestamp).toDate();
+      } else {
+        try {
+          dateRead = DateFormat('dd-MMM-yyyy').parse(d['Date_read_reported'].toString());
+        } catch (_) {}
+      }
+    }
     
-    if (d['Infection'] != null) selectedInfections = List<String>.from(d['Infection']);
-    selectedEpithelialDiagnosis = d['Epithelial_cell_diagnosis'];
-    
-    if (d['Squamous_cell'] != null) selectedSquamousCells = List<String>.from(d['Squamous_cell']);
-    if (d['Glandular_cell'] != null) selectedGlandularCells = List<String>.from(d['Glandular_cell']);
-    
-    _otherNonNeoplasticController.text = d['Other_Non_Neoplastic_Findings'] ?? '';
-    _otherNeoplasticController.text = d['Specify_Others'] ?? '';
-    _commentController.text = d['Other_comments'] ?? '';
+    selectedAdequacy = d['Cytology_adequacy'];
+    selectedAdequacyReasons = List<String>.from(d['Adequacy_reasons'] ?? []);
+    _otherAdequacyReasonController.text = d['Adequacy_other_reason'] ?? '';
+    selectedInfections = List<String>.from(d['Infections_identified'] ?? []);
+    selectedEpithelialDiagnosis = d['Epithelial_abnormality_diagnosis'];
+    selectedSquamousCells = List<String>.from(d['Squamous_cell_abnormalities'] ?? []);
+    _otherNeoplasticController.text = d['Squamous_other_neoplastic'] ?? '';
+    selectedGlandularCells = List<String>.from(d['Glandular_cell_abnormalities'] ?? []);
+    _otherNonNeoplasticController.text = d['Glandular_other_non_neoplastic'] ?? '';
+    _commentController.text = d['Comments'] ?? '';
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
+
   void _resetForm() {
-    // _formKey.currentState?.reset(); // This line is commented out as _formKey is not defined in the provided context.
+    _formKey.currentState?.reset();
     setState(() {
       _regNoController.clear();
+      _familyCodeController.clear();
       _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
       selectedGender = null;
-      dateReceived = DateTime.now();
-      dateRead = DateTime.now();
+      dateReceived = null;
+      dateRead = null;
       selectedAdequacy = null;
       selectedAdequacyReasons = [];
       _otherAdequacyReasonController.clear();
       selectedInfections = [];
       selectedEpithelialDiagnosis = null;
       selectedSquamousCells = [];
-      selectedGlandularCells = [];
       _otherNeoplasticController.clear();
+      selectedGlandularCells = [];
       _otherNonNeoplasticController.clear();
       _commentController.clear();
       familyMemberNames = [];
       _existingRecords = [];
-      _editDocId = null;
     });
   }
 
   Future<void> _save() async {
-    // if (!_formKey.currentState!.validate()) return; // This line is commented out as _formKey is not defined in the provided context.
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
 
     try {
-      final now = DateTime.now();
       final data = {
         'Registration_Number': _regNoController.text,
-        'Family_Code_Creation': selectedFamilyCode,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
-        'Date_received': dateReceived != null ? Timestamp.fromDate(dateReceived!) : null,
-        'Date_read': dateRead != null ? Timestamp.fromDate(dateRead!) : null,
-        'Specimen_adequacy': selectedAdequacy,
-        'a_Specify_reason': selectedAdequacyReasons,
-        'If_any_other_please_mention': _otherAdequacyReasonController.text,
-        'Infection': selectedInfections,
-        'Epithelial_cell_diagnosis': selectedEpithelialDiagnosis,
-        'a_Squamous_cells': selectedSquamousCells,
-        'Glandular_Cells': selectedGlandularCells,
-        'Other_neoplastic': _otherNeoplasticController.text,
-        'Other_non_neoplastic': _otherNonNeoplasticController.text,
-        'Comment': _commentController.text,
-        'clientUpdatedAt': now.millisecondsSinceEpoch,
+        'Date_received_in_lab': dateReceived != null ? Timestamp.fromDate(dateReceived!) : null,
+        'Date_read_reported': dateRead != null ? Timestamp.fromDate(dateRead!) : null,
+        'Cytology_adequacy': selectedAdequacy,
+        'Adequacy_reasons': selectedAdequacyReasons,
+        'Adequacy_other_reason': _otherAdequacyReasonController.text,
+        'Infections_identified': selectedInfections,
+        'Epithelial_abnormality_diagnosis': selectedEpithelialDiagnosis,
+        'Squamous_cell_abnormalities': selectedSquamousCells,
+        'Squamous_other_neoplastic': _otherNeoplasticController.text,
+        'Glandular_cell_abnormalities': selectedGlandularCells,
+        'Glandular_other_non_neoplastic': _otherNonNeoplasticController.text,
+        'Comments': _commentController.text,
+        'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('cytology').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('cytology').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('cytology').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('cytology', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cytology record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Cytology updated! Syncing...' : 'Cytology saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performCytologySync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required List<Widget> children,
-    IconData? icon,
-  }) {
-    return buildSectionCard(
-      context: context,
-      title: title,
-      children: children,
-      icon: icon,
-    );
-  }
-
-  Widget _buildRadioGroup(String title, List<String> options, String? groupValue, Function(String?) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ...options.map((opt) => RadioListTile<String>(
-          title: Text(opt),
-          value: opt,
-          groupValue: groupValue,
-          onChanged: onChanged,
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        )),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  Widget _buildCheckboxGroup(String title, List<String> options, List<String> selectedValues, Function(String, bool) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ...options.map((opt) => CheckboxListTile(
-          title: Text(opt),
-          value: selectedValues.contains(opt),
-          onChanged: (val) => onChanged(opt, val ?? false),
-          controlAffinity: ListTileControlAffinity.leading,
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        )),
-        const SizedBox(height: 16),
-      ],
-    );
+  void _performCytologySync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('cytology_screening').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('cytology_screening').add(data);
+      }
+    } catch (e) {
+      debugPrint('Cytology Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Cytology', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.pink.shade700, Colors.pinkAccent.shade200],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Cytology (Pap Smear)'), elevation: 0),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            key: const PageStorageKey('cytology_scroll'),
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Cytology Examination',
-                    subtitle: 'Cellular analysis and reporting',
-                  ),
-
-                  _buildSectionCard(
-                    title: 'Identification',
-                    icon: Icons.person_outline,
-                    children: [
-                      TextFormField(
-                        controller: _regNoController,
-                        decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder()),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _familyCodeController,
-                              decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
-                              onChanged: (v) {
-                                setState(() {
-                                  selectedFamilyCode = v;
-                                  selectedMemberName = null;
-                                  familyMemberNames = [];
-                                });
-                                if (v.isNotEmpty) {
-                                  if (_isEditMode) {
-                                    _fetchExistingRecords(v);
-                                  } else {
-                                    _fetchMembersByFamily(v);
-                                  }
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _isEditMode
-                                ? DropdownButtonFormField<String>(
-                                    decoration: InputDecoration(
-                                      labelText: 'Select Name to Edit',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                    ),
-                                    value: selectedMemberName,
-                                    items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
-                                    onChanged: _onNameSelected,
-                                  )
-                                : Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      TextFormField(
-                                        controller: _nameController,
-                                        decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
-                                      ),
-                                      if (familyMemberNames.isNotEmpty) ...[
-                                        const SizedBox(height: 8),
-                                        DropdownButtonFormField<String>(
-                                          isExpanded: true,
-                                          decoration: InputDecoration(
-                                            labelText: 'Pick from Family Members',
-                                            border: const OutlineInputBorder(),
-                                            suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                          ),
-                                          value: null,
-                                          items: familyMemberNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                                          onChanged: _onNameSelected,
-                                          hint: const Text('--Select Member--'),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Gender', style: TextStyle(fontWeight: FontWeight.w600)),
-                          Row(
-                            children: [
-                              Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                              Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () async {
-                                final picked = await showDatePicker(context: context, initialDate: dateReceived ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-                                if (picked != null) setState(() => dateReceived = picked);
-                              },
-                              child: InputDecorator(
-                                decoration: const InputDecoration(labelText: 'Date received', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                                child: Text(dateReceived == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(dateReceived!)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () async {
-                                final picked = await showDatePicker(context: context, initialDate: dateRead ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-                                if (picked != null) setState(() => dateRead = picked);
-                              },
-                              child: InputDecorator(
-                                decoration: const InputDecoration(labelText: 'Date read', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                                child: Text(dateRead == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(dateRead!)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Specimen Assessment',
-                    icon: Icons.assignment_outlined,
-                    children: [
-                      _buildRadioGroup('8. Specimen adequacy', adequacyChoices, selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
-                      _buildCheckboxGroup('8a. Specify reason', adequacyReasonChoices, selectedAdequacyReasons, (opt, val) {
-                        setState(() => val ? selectedAdequacyReasons.add(opt) : selectedAdequacyReasons.remove(opt));
-                      }),
-                      TextFormField(
-                        controller: _otherAdequacyReasonController,
-                        decoration: const InputDecoration(labelText: 'If any other please mention', border: OutlineInputBorder()),
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Diagnosis & Findings',
-                    icon: Icons.medical_services_outlined,
-                    children: [
-                      _buildCheckboxGroup('9. Infection', infectionChoices, selectedInfections, (opt, val) {
-                        setState(() => val ? selectedInfections.add(opt) : selectedInfections.remove(opt));
-                      }),
-                      _buildRadioGroup('10 Epithelial cell diagnosis', epithelialDiagnosisChoices, selectedEpithelialDiagnosis, (v) => setState(() => selectedEpithelialDiagnosis = v)),
-                      _buildCheckboxGroup('11a. Squamous cells', squamousCellChoices, selectedSquamousCells, (opt, val) {
-                        setState(() => val ? selectedSquamousCells.add(opt) : selectedSquamousCells.remove(opt));
-                      }),
-                      _buildCheckboxGroup('11b. Glandular Cells', glandularCellChoices, selectedGlandularCells, (opt, val) {
-                        setState(() => val ? selectedGlandularCells.add(opt) : selectedGlandularCells.remove(opt));
-                      }),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Other Results',
-                    icon: Icons.description_outlined,
-                    children: [
-                      TextFormField(
-                        controller: _otherNeoplasticController,
-                        decoration: const InputDecoration(labelText: '(10) Other neoplastic', border: OutlineInputBorder()),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _otherNonNeoplasticController,
-                        decoration: const InputDecoration(labelText: '(11) Other non-neoplastic', border: OutlineInputBorder()),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _commentController,
-                        maxLines: 4,
-                        decoration: const InputDecoration(labelText: '12 Comment', border: OutlineInputBorder()),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.pink.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text(_isEditMode ? 'Update Cytology' : 'Save Cytology', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: _resetForm,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Cytology Details',
+                      icon: Icons.biotech_outlined,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: _buildDatePicker('Date received in lab', dateReceived, (v) => setState(() => dateReceived = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildDatePicker('Date read and reported', dateRead, (v) => setState(() => dateRead = v))),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        formSearchableDropdown(context, 'Cytology adequacy?', adequacyChoices, selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
+                        if (selectedAdequacy != adequacyChoices[0]) ...[
+                          const SizedBox(height: 12),
+                          const Text('Adequacy reasons', style: TextStyle(fontWeight: FontWeight.w500)),
+                          ...adequacyReasonChoices.map((c) => CheckboxListTile(
+                                title: Text(c, style: const TextStyle(fontSize: 13)),
+                                value: selectedAdequacyReasons.contains(c),
+                                onChanged: (v) => setState(() => v == true ? selectedAdequacyReasons.add(c) : selectedAdequacyReasons.remove(c)),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              )),
+                          if (selectedAdequacyReasons.contains("(6) Other")) formTextField('Specify Other Reason', _otherAdequacyReasonController),
+                        ],
+                        const SizedBox(height: 16),
+                        const Text('Infections identified', style: TextStyle(fontWeight: FontWeight.w500)),
+                        ...infectionChoices.map((c) => CheckboxListTile(
+                              title: Text(c, style: const TextStyle(fontSize: 13)),
+                              value: selectedInfections.contains(c),
+                              onChanged: (v) => setState(() => v == true ? selectedInfections.add(c) : selectedInfections.remove(c)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            )),
+                        const SizedBox(height: 16),
+                        formSearchableDropdown(context, 'Epithelial abnormality diagnosis', epithelialDiagnosisChoices, selectedEpithelialDiagnosis, (v) => setState(() => selectedEpithelialDiagnosis = v)),
+                        const SizedBox(height: 16),
+                        const Text('Squamous cell abnormalities', style: TextStyle(fontWeight: FontWeight.w500)),
+                        ...squamousCellChoices.map((c) => CheckboxListTile(
+                              title: Text(c, style: const TextStyle(fontSize: 13)),
+                              value: selectedSquamousCells.contains(c),
+                              onChanged: (v) => setState(() => v == true ? selectedSquamousCells.add(c) : selectedSquamousCells.remove(c)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            )),
+                        formTextField('Other Neoplastic', _otherNeoplasticController),
+                        const SizedBox(height: 16),
+                        const Text('Glandular cell abnormalities', style: TextStyle(fontWeight: FontWeight.w500)),
+                        ...glandularCellChoices.map((c) => CheckboxListTile(
+                              title: Text(c, style: const TextStyle(fontSize: 13)),
+                              value: selectedGlandularCells.contains(c),
+                              onChanged: (v) => setState(() => v == true ? selectedGlandularCells.add(c) : selectedGlandularCells.remove(c)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            )),
+                        formTextField('Other Non-Neoplastic Cell Changes', _otherNonNeoplasticController),
+                        const SizedBox(height: 16),
+                        formTextField('Comments', _commentController, maxLines: 3),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+          if (_isSaving)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField(
+          'Registration Number',
+          _regNoController,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
+          children: [
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

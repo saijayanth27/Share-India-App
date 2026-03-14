@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LocalDatabaseService {
   static final LocalDatabaseService _instance = LocalDatabaseService._internal();
@@ -21,7 +22,7 @@ class LocalDatabaseService {
     String path = join(await getDatabasesPath(), 'lookup_cache_v3.db'); // Bump version in filename for clean start
     return await openDatabase(
       path,
-      version: 3,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE family_codes (family_id TEXT PRIMARY KEY)');
         await db.execute('''
@@ -36,6 +37,15 @@ class LocalDatabaseService {
             unique_id TEXT PRIMARY KEY,
             family_id TEXT,
             data TEXT
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE offline_submissions (
+            id TEXT PRIMARY KEY,
+            collection TEXT,
+            data TEXT,
+            timestamp INTEGER,
+            synced_at INTEGER
           )
         ''');
       },
@@ -57,6 +67,23 @@ class LocalDatabaseService {
               data TEXT
             )
           ''');
+        }
+        if (oldVersion < 4) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS offline_submissions (
+              id TEXT PRIMARY KEY,
+              collection TEXT,
+              data TEXT,
+              timestamp INTEGER,
+              synced_at INTEGER
+            )
+          ''');
+        }
+        if (oldVersion < 5) {
+          // Add synced_at column to existing offline_submissions table
+          try {
+            await db.execute('ALTER TABLE offline_submissions ADD COLUMN synced_at INTEGER');
+          } catch (_) {} // Column may already exist
         }
       },
     );
@@ -105,7 +132,7 @@ class LocalDatabaseService {
         if (fId.isNotEmpty) {
           batch.insert('family_details', {
             'family_id': fId,
-            'data': jsonEncode(detail)
+            'data': jsonEncode(detail, toEncodable: (val) => val is Timestamp ? val.toDate().toIso8601String() : val.toString())
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
@@ -138,7 +165,7 @@ class LocalDatabaseService {
     if (fId.isNotEmpty) {
       await db.insert('family_details', {
         'family_id': fId,
-        'data': jsonEncode(detail)
+        'data': jsonEncode(detail, toEncodable: (val) => val is Timestamp ? val.toDate().toIso8601String() : val.toString())
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
@@ -154,7 +181,7 @@ class LocalDatabaseService {
     await db.insert('family_members', {
       'unique_id': uId,
       'family_id': fId,
-      'data': jsonEncode(member)
+      'data': jsonEncode(member, toEncodable: (val) => val is Timestamp ? val.toDate().toIso8601String() : val.toString())
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -178,6 +205,81 @@ class LocalDatabaseService {
       limit: limit,
     );
     return results.map((e) => jsonDecode(e['data'] as String) as Map<String, dynamic>).toList();
+  }
+
+  // --- Offline Submissions Management ---
+
+  Future<void> saveOfflineSubmission(String collection, Map<String, dynamic> data) async {
+    final db = await database;
+    
+    // Priority for unique ID:
+    // 1. firestoreDocId (If editing, this is the most reliable unique key)
+    // 2. id (explicitly provided)
+    // 3. Registration_Number
+    // 4. Name
+    // 5. Timestamp (fallback)
+    String uId = (data['firestoreDocId'] ?? data['id'] ?? data['Registration_Number']?.toString() ?? data['Name']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString()).toString();
+    
+    await db.insert('offline_submissions', {
+      'id': uId,
+      'collection': collection,
+      'data': jsonEncode(data, toEncodable: (Object? value) {
+        if (value is Timestamp) {
+          return value.toDate().toIso8601String();
+        }
+        return value.toString();
+      }),
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'synced_at': null, // Explicitly set to NULL to mark as pending
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getOfflineSubmissions(String collection) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      'offline_submissions',
+      where: 'collection = ?',
+      whereArgs: [collection],
+      orderBy: 'timestamp DESC',
+    );
+    return results.map((e) => jsonDecode(e['data'] as String) as Map<String, dynamic>).toList();
+  }
+
+  /// Returns all submissions that have NOT been synced to Firestore yet.
+  Future<List<Map<String, dynamic>>> getPendingSubmissions() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      'offline_submissions',
+      where: 'synced_at IS NULL',
+      orderBy: 'timestamp ASC',
+    );
+    return results.map((row) => {
+      'id': row['id'] as String,
+      'collection': row['collection'] as String,
+      'rawData': row['data'] as String, // raw JSON string
+      'timestamp': row['timestamp'] as int,
+    }).toList();
+  }
+
+  /// Marks a submission as synced by recording the sync timestamp.
+  Future<void> markSubmissionSynced(String id) async {
+    final db = await database;
+    await db.update(
+      'offline_submissions',
+      {'synced_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Permanently deletes a submission after successful sync cleanup.
+  Future<void> deleteOfflineSubmission(String id) async {
+    final db = await database;
+    await db.delete(
+      'offline_submissions',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // --- Utility Methods ---

@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,7 +21,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
-  bool _isLoading = false;
+  bool _isLoadingMembers = false;
 
   // --- Controllers & State ---
   String? selectedFamilyCode;
@@ -30,67 +31,53 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   String? selectedGender;
   final _registrationNumberController = TextEditingController();
   final _ageController = TextEditingController();
-  DateTime? selectedPrescriptionDate;
+  DateTime? selectedPrescriptionDate = DateTime.now();
 
-  List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
-  bool _isLoadingMembers = false;
+
+  final List<Map<String, dynamic>> _medicines = [];
+  final _medicineNameController = TextEditingController();
+  final _dosageController = TextEditingController();
+  final _frequencyController = TextEditingController();
+  final _durationController = TextEditingController();
+  final _remarksController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -101,7 +88,6 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
           .collection('doctor_prescriptions')
           .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
@@ -112,7 +98,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     }
   }
 
-  void _onNameSelected(String? name) async {
+  void _onNameSelected(String? name) {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
@@ -140,6 +126,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   }
 
   void _populateForm(Map<String, dynamic> d) {
+    _registrationNumberController.text = d['Registration_Number'] ?? '';
     selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
@@ -147,18 +134,19 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Doctor_s_Prescription_date'] != null) {
-      if (d['Doctor_s_Prescription_date'] is Timestamp) {
-        selectedPrescriptionDate = (d['Doctor_s_Prescription_date'] as Timestamp).toDate();
+    if (d['Prescription_Date'] != null) {
+      if (d['Prescription_Date'] is Timestamp) {
+        selectedPrescriptionDate = (d['Prescription_Date'] as Timestamp).toDate();
       } else {
         try {
-          selectedPrescriptionDate = DateFormat('dd-MMM-yyyy').parse(d['Doctor_s_Prescription_date'].toString());
-        } catch (_) {
-          try {
-             selectedPrescriptionDate = DateTime.parse(d['Doctor_s_Prescription_date'].toString());
-          } catch (_) {}
-        }
+          selectedPrescriptionDate = DateFormat('dd-MMM-yyyy').parse(d['Prescription_Date'].toString());
+        } catch (_) {}
       }
+    }
+    
+    _medicines.clear();
+    if (d['Medicines'] != null) {
+      _medicines.addAll(List<Map<String, dynamic>>.from(d['Medicines']));
     }
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
@@ -169,15 +157,35 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
+      _registrationNumberController.clear();
+      _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
-      _nameController.clear();
       selectedGender = null;
       _ageController.clear();
-      selectedPrescriptionDate = null;
+      selectedPrescriptionDate = DateTime.now();
+      _medicines.clear();
+      _familyCodeController.clear();
       familyMemberNames = [];
       _existingRecords = [];
-      _editDocId = null;
+    });
+  }
+
+  void _addMedicine() {
+    if (_medicineNameController.text.isEmpty) return;
+    setState(() {
+      _medicines.add({
+        'name': _medicineNameController.text,
+        'dosage': _dosageController.text,
+        'frequency': _frequencyController.text,
+        'duration': _durationController.text,
+        'remarks': _remarksController.text,
+      });
+      _medicineNameController.clear();
+      _dosageController.clear();
+      _frequencyController.clear();
+      _durationController.clear();
+      _remarksController.clear();
     });
   }
 
@@ -187,248 +195,252 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
 
     try {
       final data = {
-        'Family_code': selectedFamilyCode,
+        'Registration_Number': _registrationNumberController.text,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
-        'Doctor_s_Prescription_date': selectedPrescriptionDate,
+        'Prescription_Date': selectedPrescriptionDate != null ? Timestamp.fromDate(selectedPrescriptionDate!) : null,
+        'Medicines': _medicines,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('doctor_prescriptions').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('doctor_prescriptions').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('doctor_prescriptions').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+
+      // Capture BEFORE reset
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('doctor_prescriptions', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Prescription saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Prescription updated! Syncing...' : 'Prescription saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
+        
+        // If editing, stay on form; if new, reset for next entry
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performPrescriptionSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, Function(String)? onChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            hintText: hint,
-          ),
-          keyboardType: keyboardType,
-          onChanged: onChanged,
-        ),
-      ],
-    );
+  void _performPrescriptionSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('doctor_prescriptions').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('doctor_prescriptions').add(data);
+      }
+    } catch (e) {
+      debugPrint('Prescription Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Doctor Prescriptions', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.indigo.shade700, Colors.indigo.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Doctor Prescription'), elevation: 0),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Prescription Entry',
-                    subtitle: 'Record medical prescriptions for family members',
-                  ),
-
-                  buildSectionCard(
-                    context: context,
-                    title: 'Prescription Details',
-                    icon: Icons.medical_services_outlined,
-                    children: [
-                      // Family Code Lookup
-                      _buildTextField('Family code', _familyCodeController, onChanged: (v) {
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
                         setState(() {
-                          selectedFamilyCode = v;
-                          selectedMemberName = null;
-                          familyMemberNames = [];
+                          _isEditMode = false;
+                          _resetForm();
                         });
-                        if (v.isNotEmpty) {
-                          if (_isEditMode) {
-                            _fetchExistingRecords(v);
-                          } else {
-                            _fetchMembersByFamily(v);
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
                           }
-                        }
-                      }),
-                      const SizedBox(height: 16),
-
-                      // Name Lookup (Member of Family)
-                      _isEditMode
-                          ? DropdownButtonFormField<String>(
-                              decoration: InputDecoration(
-                                labelText: 'Select Name to Edit',
-                                border: const OutlineInputBorder(),
-                                suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                              ),
-                              value: selectedMemberName,
-                              items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
-                              onChanged: _onNameSelected,
-                              validator: (v) => v == null ? 'Please select a name' : null,
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                TextFormField(
-                                  controller: _nameController,
-                                  decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
-                                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-                                ),
-                                if (familyMemberNames.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  DropdownButtonFormField<String>(
-                                    isExpanded: true,
-                                    decoration: InputDecoration(
-                                      labelText: 'Pick from Family Members',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                    ),
-                                    value: null,
-                                    items: familyMemberNames.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                                    onChanged: _onNameSelected,
-                                    hint: const Text('--Select Member--'),
-                                  ),
-                                ],
-                              ],
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Prescription Details',
+                      icon: Icons.history_edu_outlined,
+                      children: [
+                        _buildDatePicker('Prescription Date', selectedPrescriptionDate, (v) => setState(() => selectedPrescriptionDate = v)),
+                        const SizedBox(height: 24),
+                        const Text('Add Medicine', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const Divider(),
+                        formTextField('Medicine Name', _medicineNameController),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: formTextField('Dosage', _dosageController)),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Frequency', _frequencyController)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: formTextField('Duration', _durationController)),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Remarks', _remarksController)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _addMedicine,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add to List'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
-                      const SizedBox(height: 16),
-
-                      // Gender Radio
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Gender', style: TextStyle(fontWeight: FontWeight.w600)),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: RadioListTile<String>(
-                                  title: const Text('(1) Male'),
-                                  value: '(1) Male',
-                                  groupValue: selectedGender,
-                                  onChanged: (v) => setState(() => selectedGender = v),
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
+                          ),
+                        ),
+                        if (_medicines.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          const Text('Medicines List', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _medicines.length,
+                            itemBuilder: (context, index) {
+                              final med = _medicines[index];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child: ListTile(
+                                  title: Text(med['name'] ?? ''),
+                                  subtitle: Text('${med['dosage'] ?? ''} - ${med['frequency'] ?? ''} (${med['duration'] ?? ''})'),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                    onPressed: () => setState(() => _medicines.removeAt(index)),
+                                  ),
                                 ),
-                              ),
-                              Expanded(
-                                child: RadioListTile<String>(
-                                  title: const Text('(0) Female'),
-                                  value: '(0) Female',
-                                  groupValue: selectedGender,
-                                  onChanged: (v) => setState(() => selectedGender = v),
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                ),
-                              ),
-                            ],
+                              );
+                            },
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Age
-                      TextFormField(
-                        controller: _ageController,
-                        decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder(), hintText: '#######'),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Prescription Date
-                      InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: selectedPrescriptionDate ?? DateTime.now(),
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime(2100),
-                          );
-                          if (picked != null) setState(() => selectedPrescriptionDate = picked);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: "Doctor's Prescription date", border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                          child: Text(selectedPrescriptionDate == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(selectedPrescriptionDate!)),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text(_isEditMode ? 'Update Prescription' : 'Save Prescription', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: _resetForm,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+    );
+  }
+
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField('Registration Number', _registrationNumberController),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
+          children: [
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formTextField('Age', _ageController, keyboardType: TextInputType.number),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

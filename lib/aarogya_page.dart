@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,19 +21,22 @@ class _AarogyaPageState extends State<AarogyaPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoadingMembers = false;
 
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
-  String? selectedFamilyCode;
+  final _familyCodeController = TextEditingController();
   final _nameController = TextEditingController();
+  final _age = TextEditingController();
+  final _finalFamilyCode = TextEditingController();
+  final _relationCode = TextEditingController();
+
+  String? selectedFamilyCode;
   String? selectedName;
   String? selectedGender;
-  final _age = TextEditingController();
   DateTime? dateOfInterview = DateTime.now();
   String? interviewersName;
   String? relationship;
-  final _finalFamilyCode = TextEditingController();
-  final _relationCode = TextEditingController();
 
   // --- Income Information ---
   final _earnersCount = TextEditingController();
@@ -56,14 +60,16 @@ class _AarogyaPageState extends State<AarogyaPage> {
   final _inpatientOthers = TextEditingController();
 
   // Lookups
-  List<String> allFamilyCodes = [];
-  List<Map<String, dynamic>> memberDetails = [];
-  bool _isLoadingMembers = false;
+  List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
+
+  final List<String> interviewers = [
+    'KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
@@ -75,29 +81,33 @@ class _AarogyaPageState extends State<AarogyaPage> {
     });
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
-
-      final details = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+          .get(const GetOptions(source: Source.serverAndCache));
+      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> allNames = {};
+      void processMember(Map<String, dynamic> data) {
+        final name = data['Name']?.toString() ?? '';
+        if (name.isEmpty) return;
+        memberMap[name] = data;
+        allNames.add(name);
+      }
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
-        memberDetails = details;
-        _isLoadingMembers = false;
+        _allMembersData = memberMap;
+        familyMemberNames = allNames.toList()..sort();
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -129,12 +139,12 @@ class _AarogyaPageState extends State<AarogyaPage> {
           if (m.isNotEmpty) {
             _editDocId = m['id'];
             _populateForm(m);
-          }
-        } else {
-          final m = memberDetails.firstWhere((element) => element['Name'] == name, orElse: () => {});
-          if (m.isNotEmpty) {
-            relationship = m['Relationship'];
+          } else if (_allMembersData.containsKey(name)) {
+            // New record for existing member
             _relationCode.text = m['Relation_Code'] ?? '';
+            selectedGender = m['Gender'];
+            _age.text = m['Age']?.toString() ?? '';
+            _registrationNumber.text = m['Registration_Number'] ?? '';
           }
         }
       }
@@ -145,6 +155,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
     setState(() {
       _registrationNumber.text = (d['Registration_Number'] ?? '').toString();
       selectedFamilyCode = d['Family_code'] ?? d['Family_Code_Creation'];
+      _familyCodeController.text = selectedFamilyCode ?? '';
       selectedName = d['Name'];
       _nameController.text = (d['Name'] ?? '').toString();
       selectedGender = d['Gender'];
@@ -187,6 +198,10 @@ class _AarogyaPageState extends State<AarogyaPage> {
         inpatientConditions = List<String>.from(d['For_which_of_the_following_conditions_usually_requiring_admission_to_a_hospital_you_would_like_to']);
       }
       _inpatientOthers.text = d['If_Others_Please_Mention2'] ?? '';
+
+      if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+        _fetchMembersByFamily(selectedFamilyCode!);
+      }
     });
   }
 
@@ -194,6 +209,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
     _formKey.currentState?.reset();
     setState(() {
       _registrationNumber.clear();
+      _familyCodeController.clear();
       _nameController.clear();
       selectedFamilyCode = null; selectedName = null;
       selectedGender = null; _age.clear();
@@ -205,7 +221,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
       estimateAmount = null; _pay2L.clear();
       outpatientConditions = []; _outpatientOthers.clear();
       inpatientConditions = []; _inpatientOthers.clear();
-      memberDetails = [];
+      familyMemberNames = [];
       _existingRecords = [];
       _editDocId = null;
     });
@@ -218,13 +234,13 @@ class _AarogyaPageState extends State<AarogyaPage> {
     try {
       final data = {
         'Registration_Number': _registrationNumber.text,
-        'Family_code': selectedFamilyCode,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_age.text),
         'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
         'Interviewer_s_Name': interviewersName,
-        'Family_Code_Creation': selectedFamilyCode,
+        'Family_Code_Creation': selectedFamilyCode ?? _familyCodeController.text,
         'Final_family_code': _finalFamilyCode.text,
         'Relations': relationship,
         'Relation_Code': _relationCode.text,
@@ -245,321 +261,251 @@ class _AarogyaPageState extends State<AarogyaPage> {
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('aarogya').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('aarogya').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('aarogya').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('aarogya', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aarogya assessment saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Aarogya updated! Syncing...' : 'Aarogya saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performAarogyaSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildMultiSelect({
-    required String title,
-    required List<String> options,
-    required List<String> selectedValues,
-    required Function(String, bool) onToggle,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: options.map((opt) {
-            final isSelected = selectedValues.contains(opt);
-            return FilterChip(
-              label: Text(opt, style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : Colors.black87)),
-              selected: isSelected,
-              selectedColor: Colors.blue,
-              checkmarkColor: Colors.white,
-              onSelected: (val) => onToggle(opt, val),
-            );
-          }).toList(),
-        ),
-      ],
-    );
+  void _performAarogyaSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('aarogya').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('aarogya').add(data);
+      }
+    } catch (e) {
+      debugPrint('Aarogya Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Aarogya Assessment', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.deepPurple.shade700, Colors.deepPurple.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Aarogya Assessment'), elevation: 0),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Aarogya Assessment',
-                    subtitle: 'Evaluate family health needs and insurance eligibility',
-                  ),
-
-                  _buildIdentitySection(),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Aarogya Identity (Legacy)',
-                    icon: Icons.badge_outlined,
-                    children: [
-                      _buildTextField('Final Family Code', _finalFamilyCode),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: InputDecorator(decoration: const InputDecoration(labelText: 'Relationship', border: OutlineInputBorder()), child: Text(relationship ?? 'Select Name first'))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Relation Code', _relationCode)),
-                        ],
-                      ),
-                    ],
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Income Information',
-                    icon: Icons.attach_money_outlined,
-                    children: [
-                      _buildTextField('1. How many members in your family earn an income?', _earnersCount),
-                      const SizedBox(height: 12),
-                      _buildTextField('2. What is the total monthly income earning members?', _monthlyIncome),
-                    ],
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Health Insurance',
-                    icon: Icons.health_and_safety_outlined,
-                    children: [
-                      _buildRadioGroup(
-                        '3. Do you have an Aarogyasri Card?',
-                        ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'],
-                        hasAarogyasri,
-                        (v) => setState(() => hasAarogyasri = v),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRadioGroup(
-                        '4. Do you know about Health Insurance policies?',
-                        ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'],
-                        knowsInsurance,
-                        (v) => setState(() => knowsInsurance = v),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRadioGroup(
-                        '5. Would you be willing to pay for a Health Insurance policy?',
-                        ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'],
-                        willingToPay,
-                        (v) => setState(() => willingToPay = v),
-                      ),
-                      if (willingToPay == '(2) No') ...[
-                        const SizedBox(height: 16),
-                        _buildMultiSelect(
-                          title: '5a. If answer is NO, Why?',
-                          options: [
-                            '(a) Already have Aarogyasri card',
-                            '(b) Already have a health insurance policy',
-                            '(c) I don’t think I need it for my family',
-                            '(d) too expensive to afford',
-                            '(e)Any other reason'
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Aarogya Identity (Legacy)',
+                      icon: Icons.badge_outlined,
+                      children: [
+                        formTextField('Final Family Code', _finalFamilyCode),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: InputDecorator(decoration: const InputDecoration(labelText: 'Relationship', border: OutlineInputBorder()), child: Text(relationship ?? 'Select Name first'))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Relation Code', _relationCode)),
                           ],
-                          selectedValues: whyNoInsurance,
-                          onToggle: (val, add) => setState(() => add ? whyNoInsurance.add(val) : whyNoInsurance.remove(val)),
                         ),
-                        const SizedBox(height: 16),
-                        _buildTextField('If Others Please Mention', _whyNoOthers, maxLines: 2),
                       ],
-                      const SizedBox(height: 16),
-                      _buildRadioGroup(
-                        '6. Availing annual health insurance cover of Rs 2 lakhs per family?',
-                        ['(3) Don’t Know', '(4) Did not answer'],
-                        estimateAmount,
-                        (v) => setState(() => estimateAmount = v),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildTextField('PAY_2L', _pay2L),
-                    ],
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Inpatient & Outpatient Needs',
-                    icon: Icons.local_hospital_outlined,
-                    children: [
-                      _buildMultiSelect(
-                        title: '7. Outpatient conditions usually not requiring admission:',
-                        options: ['(a)HYPERTENSION', '(b)FEVER', '(c)DIABETIC', '(d)STROKE', '(e)PAIN ABDOMEN', '(f)Any other reason'],
-                        selectedValues: outpatientConditions,
-                        onToggle: (val, add) => setState(() => add ? outpatientConditions.add(val) : outpatientConditions.remove(val)),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildTextField('If Others Mention', _outpatientOthers),
-                      const SizedBox(height: 16),
-                      _buildMultiSelect(
-                        title: '8. Inpatient conditions usually requiring admission:',
-                        options: ['(a)LOW BACK ACHE', '(b)Urinary tract infection', '(c)Neonatal jaundice', '(d)VIRAL PYREXIA', '(e)Osteoarthritis', '(f)Any other reason'],
-                        selectedValues: inpatientConditions,
-                        onToggle: (val, add) => setState(() => add ? inpatientConditions.add(val) : inpatientConditions.remove(val)),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildTextField('If Others Mention', _inpatientOthers),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: Text(_isEditMode ? 'Update Aarogya Assessment' : 'Save Aarogya Assessment', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Income Information',
+                      icon: Icons.attach_money_outlined,
+                      children: [
+                        formTextField('1. How many members in your family earn an income?', _earnersCount, keyboardType: TextInputType.number),
+                        const SizedBox(height: 12),
+                        formTextField('2. What is the total monthly income earning members?', _monthlyIncome, keyboardType: TextInputType.number),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Health Insurance',
+                      icon: Icons.health_and_safety_outlined,
+                      children: [
+                        _buildRadioGroup('3. Do you have an Aarogyasri Card?', ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'], hasAarogyasri, (v) => setState(() => hasAarogyasri = v)),
+                        const SizedBox(height: 16),
+                        _buildRadioGroup('4. Do you know about Health Insurance policies?', ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'], knowsInsurance, (v) => setState(() => knowsInsurance = v)),
+                        const SizedBox(height: 16),
+                        _buildRadioGroup('5. Would you be willing to pay for a Health Insurance policy?', ['(1) Yes', '(2) No', '(3) Don’t Know', '(4) Did not answer'], willingToPay, (v) => setState(() => willingToPay = v)),
+                        if (willingToPay == '(2) No') ...[
+                          const SizedBox(height: 16),
+                          const Text('5a. If answer is NO, Why?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ...['(a) Already have Aarogyasri card', '(b) Already have a health insurance policy', '(c) I don’t think I need it for my family', '(d) too expensive to afford', '(e)Any other reason'].map((opt) => CheckboxListTile(
+                            title: Text(opt, style: const TextStyle(fontSize: 13)),
+                            value: whyNoInsurance.contains(opt),
+                            onChanged: (val) => setState(() => val == true ? whyNoInsurance.add(opt) : whyNoInsurance.remove(opt)),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                          )),
+                          if (whyNoInsurance.contains('(e)Any other reason')) formTextField('If Others Please Mention', _whyNoOthers, maxLines: 2),
+                        ],
+                        const SizedBox(height: 16),
+                        _buildRadioGroup('6. Availing annual health insurance cover of Rs 2 lakhs per family?', ['(3) Don’t Know', '(4) Did not answer'], estimateAmount, (v) => setState(() => estimateAmount = v)),
+                        const SizedBox(height: 16),
+                        formTextField('PAY_2L', _pay2L),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Inpatient & Outpatient Needs',
+                      icon: Icons.local_hospital_outlined,
+                      children: [
+                        const Text('7. Outpatient conditions usually not requiring admission:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ...['(a)HYPERTENSION', '(b)FEVER', '(c)DIABETIC', '(d)STROKE', '(e)PAIN ABDOMEN', '(f)Any other reason'].map((opt) => CheckboxListTile(
+                          title: Text(opt, style: const TextStyle(fontSize: 13)),
+                          value: outpatientConditions.contains(opt),
+                          onChanged: (val) => setState(() => val == true ? outpatientConditions.add(opt) : outpatientConditions.remove(opt)),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        )),
+                        if (outpatientConditions.contains('(f)Any other reason')) formTextField('If Others Mention', _outpatientOthers),
+                        const SizedBox(height: 16),
+                        const Text('8. Inpatient conditions usually requiring admission:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ...['(a)LOW BACK ACHE', '(b)Urinary tract infection', '(c)Neonatal jaundice', '(d)VIRAL PYREXIA', '(e)Osteoarthritis', '(f)Any other reason'].map((opt) => CheckboxListTile(
+                          title: Text(opt, style: const TextStyle(fontSize: 13)),
+                          value: inpatientConditions.contains(opt),
+                          onChanged: (val) => setState(() => val == true ? inpatientConditions.add(opt) : inpatientConditions.remove(opt)),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        )),
+                        if (inpatientConditions.contains('(f)Any other reason')) formTextField('If Others Mention', _inpatientOthers),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
     );
   }
 
   Widget _buildIdentitySection() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return buildSectionCard(
+      context: context,
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField('Registration Number', _registrationNumber),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
           children: [
-            const Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            const Divider(),
-            _buildTextField('Registration Number', _registrationNumber),
-            const SizedBox(height: 12),
-            _buildDropdown('Family Code', allFamilyCodes, selectedFamilyCode, (v) {
-              setState(() { selectedFamilyCode = v; selectedName = null; relationship = null; });
-              if (v != null) {
-                if (_isEditMode) {
-                  _fetchExistingRecords(v);
-                } else {
-                  _fetchMembersByFamily(v);
-                }
-              }
-            }),
-            const SizedBox(height: 12),
-            if (_isEditMode)
-              _buildDropdown('Select Name to Edit', _existingRecords.map((m) => m['Name'].toString()).toList(), selectedName, _onNameSelected, isLoading: _isLoadingMembers)
-            else
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildTextField('Name', _nameController, helper: 'Type name or pick from dropdown below'),
-                  if (memberDetails.isNotEmpty)
-                    _buildDropdown('Pick from Family Members', memberDetails.map((m) => m['Name'].toString()).toList(), null, (val) {
-                      if (val != null) {
-                        _nameController.text = val;
-                        _onNameSelected(val);
-                      }
-                    }, isLoading: _isLoadingMembers, hint: '--Select Member--'),
-                ],
-              ),
-            const SizedBox(height: 12),
-            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
-            Row(
-              children: [
-                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildTextField('Age', _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
-                const SizedBox(width: 12),
-                Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildDropdown(
-              'Interviewer’s Name',
-              ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
-              interviewersName,
-              (v) => setState(() => interviewersName = v),
-            ),
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            hintText: hint,
-            helperText: helper,
-          ),
-          keyboardType: keyboardType,
-          maxLines: maxLines,
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
         ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 'Interviewer’s Name', interviewers, interviewersName, (v) => setState(() => interviewersName = v)),
       ],
     );
   }
 
-  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false, String? hint = '-Select-'}) {
+  Widget _buildRadioGroup(String title, List<String> options, String? currentValue, Function(String) onChanged) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          value: selectedValue,
-          isExpanded: true,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-          ),
-          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
-          onChanged: onChanged,
-          hint: hint != null ? Text(hint) : null,
-        ),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 8),
+        ...options.map((opt) => RadioListTile<String>(
+          title: Text(opt, style: const TextStyle(fontSize: 13)),
+          value: opt,
+          groupValue: currentValue,
+          onChanged: (val) => val != null ? onChanged(val) : null,
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+        )),
       ],
     );
   }
@@ -569,7 +515,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         InkWell(
           onTap: () async {
             final picked = await showDatePicker(
@@ -581,32 +527,15 @@ class _AarogyaPageState extends State<AarogyaPage> {
             if (picked != null) onPicked(picked);
           },
           child: InputDecorator(
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
             child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildRadioGroup(String title, List<String> options, String? currentValue, Function(String) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        const SizedBox(height: 8),
-        ...options.map((opt) => RadioListTile<String>(
-          title: Text(opt, style: const TextStyle(fontSize: 13)),
-          value: opt,
-          groupValue: currentValue,
-          onChanged: (val) => val != null ? onChanged(val) : null,
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        )),
       ],
     );
   }

@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,172 +21,113 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoadingMembers = false;
 
-  // --- Identity Fields ---
-  String? selectedFamilyCode;
+  // --- Controllers & State Variables ---
+  final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _nameController = TextEditingController();
-  String? selectedName;
   final _motherName = TextEditingController();
-  String? selectEntryScreen;
-  DateTime? dob;
-  final _regNo = TextEditingController();
-
-  // --- BCG ---
-  String? bcgGiven;
-  DateTime? bcgDate;
-  String? bcgGivenBy;
-
-  // --- DPT ---
-  String? dpt1Given; DateTime? dpt1Date; String? dpt1By;
-  String? dpt2Given; DateTime? dpt2Date; String? dpt2By;
-  String? dpt3Given; DateTime? dpt3Date; String? dpt3By;
-  String? dptBGiven; DateTime? dptBDate; String? dptBBy;
-
-  // --- OPV ---
-  String? opv0Given; DateTime? opv0Date; String? opv0By;
-  String? opv1Given; DateTime? opv1Date; String? opv1By;
-  String? opv2Given; DateTime? opv2Date; String? opv2By;
-  String? opv3Given; DateTime? opv3Date; String? opv3By;
-  String? opvBGiven; DateTime? opvBDate; String? opvBBy;
-
-  // --- Measles ---
-  String? measlesGiven; DateTime? measlesDate; String? measlesBy;
-
-  // --- HepB ---
-  String? hepB1Given; DateTime? hepB1Date; String? hepB1By;
-  String? hepB2Given; DateTime? hepB2Date; String? hepB2By;
-  String? hepB3Given; DateTime? hepB3Date; String? hepB3By;
-
-  // --- Vitamin A ---
-  String? vitA1Given; DateTime? vitA1Date; String? vitA1By;
-  String? vitA2Given; DateTime? vitA2Date; String? vitA2By;
-  String? vitA3Given; DateTime? vitA3Date; String? vitA3By;
-  String? vitA4Given; DateTime? vitA4Date; String? vitA4By;
-  String? vitABGiven; DateTime? vitABDate; String? vitABBy;
-
-  // --- DT ---
-  String? dtGiven; DateTime? dtDate; String? dtBy;
-
-  // --- General/Others ---
-  final _remarks = TextEditingController();
+  final _age = TextEditingController();
+  final _remarksController = TextEditingController();
   final _birthWeight = TextEditingController();
   final _birthHeight = TextEditingController();
-  String? diarrhea;
-  String? breastfeeding;
+  
+  String? selectedFamilyCode;
+  String? selectedMemberName;
+  String? selectEntryScreen;
+  DateTime? dob;
+  DateTime? dateOfInterview = DateTime.now();
+  String? interviewersName;
+  String? hasDiarrhea;
+  String? isBreastfeeding;
 
-  // Lookups
-  List<String> allFamilyCodes = [];
-  List<String> familyMembers = [];
-  bool _isLoadingMembers = false;
+  // Vaccine Data Map
+  Map<String, Map<String, dynamic>> vaccines = {
+    'BCG': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'DPT1': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'DPT2': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'DPT3': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'DPTB': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'OPV0': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'OPV1': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'OPV2': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'OPV3': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'OPVB': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'Measles': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'HepB1': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'HepB2': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'HepB3': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'VitA1': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'VitA2': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'VitA3': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'VitA4': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'VitAB': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+    'DT': {'given': '(0) No', 'date': null, 'by': '(0) RHC'},
+  };
+
+  List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+
+  final List<String> interviewerList = ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'];
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
-  Future<void> _fetchMembersByFamily(String familyCode, {String? entryScreen}) async {
+  Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Fetch existing immunization records to exclude
-      Set<String> alreadyRegistered = {};
-      if (entryScreen != null) {
-        final existingRecords = await FirebaseFirestore.instance
-            .collection('child_immunization')
-            .where('Family_Code', isEqualTo: familyCode)
-            .where('Select_Entry_Screen', isEqualTo: entryScreen)
-            .get(const GetOptions(source: Source.serverAndCache));
-        alreadyRegistered = existingRecords.docs.map((doc) => doc.data()['Name']?.toString() ?? '').toSet();
-      }
-
-      // 4. Merge and Filter logic
       final Map<String, Map<String, dynamic>> memberMap = {};
-      final Set<String> filteredNames = {};
-      
+      final Set<String> allNames = {};
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
-
-        if (alreadyRegistered.contains(name)) return;
-
-        final mother = data['Mother_Name']?.toString() ?? '';
-        final father = data['Father_Name']?.toString() ?? '';
-        final weight = data['Birth_Weight'] ?? data['Birth_weight'];
-
-        bool hasMother = mother.isNotEmpty && mother != 'No Mother';
-        bool hasFather = father.isNotEmpty && father != 'No Father';
-        bool hasWeight = weight != null && weight.toString().isNotEmpty;
-
-        if (hasMother || hasFather || hasWeight) {
-          filteredNames.add(name);
-        }
+        allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
-        familyMembers = filteredNames.toList()..sort();
-        _isLoadingMembers = false;
+        familyMemberNames = allNames.toList()..sort();
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
   Future<void> _fetchExistingRecords(String familyCode, {String? entryScreen}) async {
     setState(() => _isLoadingMembers = true);
     try {
-      var query = FirebaseFirestore.instance
-          .collection('child_immunization')
-          .where('Family_Code', isEqualTo: familyCode);
-      
-      if (entryScreen != null) {
-        query = query.where('Select_Entry_Screen', isEqualTo: entryScreen);
-      }
-
+      Query query = FirebaseFirestore.instance.collection('child_immunization').where('Family_Code', isEqualTo: familyCode);
+      if (entryScreen != null) query = query.where('Entry_Screen', isEqualTo: entryScreen);
       final snapshot = await query.get();
-      
       setState(() {
-        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _existingRecords = snapshot.docs.map((doc) => {...(doc.data() as Map<String, dynamic>), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
-      selectedName = name;
+      selectedMemberName = name;
       _nameController.text = name ?? '';
       if (name != null) {
         if (_isEditMode) {
@@ -196,169 +138,111 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
           }
         } else if (_allMembersData.containsKey(name)) {
           final data = _allMembersData[name]!;
-        
-        // Auto-populate DOB
-        if (data['Date_of_Birth'] != null) {
-          if (data['Date_of_Birth'] is Timestamp) {
-            dob = (data['Date_of_Birth'] as Timestamp).toDate();
-          } else if (data['Date_of_Birth'] is String) {
-            dob = DateTime.tryParse(data['Date_of_Birth']);
+          _registrationNumber.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
+          _age.text = data['Age']?.toString() ?? '';
+          _motherName.text = data['Mother_Name']?.toString() ?? '';
+          if (data['Date_of_Birth'] != null) {
+            dob = data['Date_of_Birth'] is Timestamp ? (data['Date_of_Birth'] as Timestamp).toDate() : null;
           }
         }
-
-        // Auto-populate Registration Number
-        _regNo.text = data['Registration_Number1'] ?? data['Registration_Number'] ?? '';
-
-        // Auto-populate Birth Weight
-        final weight = data['Birth_Weight'] ?? data['Birth_weight'];
-        if (weight != null) {
-          _birthWeight.text = weight.toString();
-        }
-
-        // Auto-populate Mother Name
-        final motherId = data['Mother_Name']?.toString();
-        if (motherId != null && motherId != 'No Mother') {
-          // Look through cached members for a member with this ID or Name
-          String? foundMotherName;
-          _allMembersData.forEach((key, value) {
-            if (value['ID'].toString() == motherId || key == motherId) {
-              foundMotherName = key;
-            }
-          });
-          _motherName.text = foundMotherName ?? motherId;
-        } else {
-          _motherName.clear();
-        }
-        }
       }
-    });
-  }
-
-  void _populateForm(Map<String, dynamic> d) {
-    setState(() {
-      selectedName = d['Name'];
-      _nameController.text = selectedName ?? '';
-      _editDocId = d['id'];
-      selectedFamilyCode = d['Family_Code'];
-      selectEntryScreen = d['Select_Entry_Screen'];
-      if (selectedFamilyCode != null) _fetchMembersByFamily(selectedFamilyCode!, entryScreen: selectEntryScreen);
-      if (d['Date_of_Birth'] != null) {
-        if (d['Date_of_Birth'] is Timestamp) {
-          dob = (d['Date_of_Birth'] as Timestamp).toDate();
-        } else if (d['Date_of_Birth'] is String) {
-          dob = DateTime.tryParse(d['Date_of_Birth']);
-        }
-      }
-      _regNo.text = (d['Registration_Number'] ?? d['Registration_Number1'] ?? '').toString();
-      _motherName.text = d['Mother_Name'] ?? '';
-
-      bcgGiven = d['BCG_Given_Y_N'];
-      if (d['BCG_Dt'] != null) bcgDate = (d['BCG_Dt'] is Timestamp) ? (d['BCG_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['BCG_Dt']?.toString() ?? '');
-      bcgGivenBy = d['BCG_Given_By'];
-
-      dpt1Given = d['DPT1_Given_Y_N'];
-      if (d['DPT1_Dt3'] != null) dpt1Date = (d['DPT1_Dt3'] is Timestamp) ? (d['DPT1_Dt3'] as Timestamp).toDate() : DateTime.tryParse(d['DPT1_Dt3']?.toString() ?? '');
-      dpt1By = d['DPT1_Given_Y_N1'];
-      dpt2Given = d['DPT2_Given_Y_N2'];
-      if (d['DPT2_Dt'] != null) dpt2Date = (d['DPT2_Dt'] is Timestamp) ? (d['DPT2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT2_Dt']?.toString() ?? '');
-      dpt2By = d['DPT2_Given_By'];
-      dpt3Given = d['DPT3_Given_Y_N3'];
-      if (d['DPT3_Dt'] != null) dpt3Date = (d['DPT3_Dt'] is Timestamp) ? (d['DPT3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT3_Dt']?.toString() ?? '');
-      dpt3By = d['DPT3_Given_By'];
-      dptBGiven = d['DPTB_Given_Y_N'];
-      if (d['DPT_B_Dt'] != null) dptBDate = (d['DPT_B_Dt'] is Timestamp) ? (d['DPT_B_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DPT_B_Dt']?.toString() ?? '');
-      dptBBy = d['DPTB_Given_Y_N1'];
-
-      opv0Given = d['OPVO_Given_Y_N'];
-      if (d['OPV0_Dt'] != null) opv0Date = (d['OPV0_Dt'] is Timestamp) ? (d['OPV0_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV0_Dt']?.toString() ?? '');
-      opv0By = d['OPVO_Given_By'];
-      opv1Given = d['OPVO_Given_By1'];
-      if (d['OPV_1_Dt'] != null) opv1Date = (d['OPV_1_Dt'] is Timestamp) ? (d['OPV_1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV_1_Dt']?.toString() ?? '');
-      opv1By = d['OPV1_Given_By'];
-      opv2Given = d['OPV2_Given_yes_no'];
-      if (d['OPV2_Dt'] != null) opv2Date = (d['OPV2_Dt'] is Timestamp) ? (d['OPV2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV2_Dt']?.toString() ?? '');
-      opv2By = d['Drop_OPV2_Given_By'];
-      opv3Given = d['OPV3_Given_by_Y_N'];
-      if (d['OPV3_Dt'] != null) opv3Date = (d['OPV3_Dt'] is Timestamp) ? (d['OPV3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV3_Dt']?.toString() ?? '');
-      opv3By = d['OPV2_Given_By2'];
-      opvBGiven = d['OPV_B_Given_Y_N'];
-      if (d['OPV_B_Dt'] != null) opvBDate = (d['OPV_B_Dt'] is Timestamp) ? (d['OPV_B_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['OPV_B_Dt']?.toString() ?? '');
-      opvBBy = d['OPV2_Given_By1'];
-
-      measlesGiven = d['Measles1'];
-      if (d['Measles_Dt'] != null) measlesDate = (d['Measles_Dt'] is Timestamp) ? (d['Measles_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['Measles_Dt']?.toString() ?? '');
-      measlesBy = d['Measles_Given_Y_N'];
-
-      hepB1Given = d['HepB1_Given_Y_N'];
-      if (d['HepB1_Dt'] != null) hepB1Date = (d['HepB1_Dt'] is Timestamp) ? (d['HepB1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB1_Dt']?.toString() ?? '');
-      hepB1By = d['HepB1_Given_By'];
-      hepB2Given = d['HepB2_Given_Y_N'];
-      if (d['HepB2_Dt'] != null) hepB2Date = (d['HepB2_Dt'] is Timestamp) ? (d['HepB2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB2_Dt']?.toString() ?? '');
-      hepB2By = d['HepB2'];
-      hepB3Given = d['HepB3_Given_Y_N'];
-      if (d['HepB3_Dt'] != null) hepB3Date = (d['HepB3_Dt'] is Timestamp) ? (d['HepB3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['HepB3_Dt']?.toString() ?? '');
-      hepB3By = d['HepB3_Given_By'];
-
-      vitA1Given = d['VitA1_Given_Y_N'];
-      if (d['VitA1_Dt'] != null) vitA1Date = (d['VitA1_Dt'] is Timestamp) ? (d['VitA1_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA1_Dt']?.toString() ?? '');
-      vitA1By = d['VitA1_Given_By'];
-      vitA2Given = d['VitA2_Given_Y_N'];
-      if (d['VitA2_Dt'] != null) vitA2Date = (d['VitA2_Dt'] is Timestamp) ? (d['VitA2_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA2_Dt']?.toString() ?? '');
-      vitA2By = d['VitA2_Given_By'];
-      vitA3Given = d['VitA3_Given_Y_N1'];
-      if (d['VitA3_Dt'] != null) vitA3Date = (d['VitA3_Dt'] is Timestamp) ? (d['VitA3_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA3_Dt']?.toString() ?? '');
-      vitA3By = d['V'];
-      vitA4Given = d['Vita4_Given_Y_N'];
-      if (d['VitA4_Dt'] != null) vitA4Date = (d['VitA4_Dt'] is Timestamp) ? (d['VitA4_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['VitA4_Dt']?.toString() ?? '');
-      vitA4By = d['VitA4_Given_By'];
-      vitABGiven = d['VitAB_Given_Y_N'];
-      if (d['VitAB_Dt1'] != null) vitABDate = (d['VitAB_Dt1'] is Timestamp) ? (d['VitAB_Dt1'] as Timestamp).toDate() : DateTime.tryParse(d['VitAB_Dt1']?.toString() ?? '');
-      vitABBy = d['VitAB_Given_By'];
-
-      dtGiven = d['DT_Given_Y_N'];
-      if (d['DT_Dt'] != null) dtDate = (d['DT_Dt'] is Timestamp) ? (d['DT_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['DT_Dt']?.toString() ?? '');
-      dtBy = d['DT_Given_By'];
-
-      _remarks.text = d['Remarks1'] ?? '';
-      _birthWeight.text = d['Birth_Weight']?.toString() ?? '';
-      _birthHeight.text = d['Birth_Height'] ?? '';
-      diarrhea = d['Diarrhea'];
-      breastfeeding = d['Breastfeeding'];
     });
   }
 
   void _loadExistingData() {
-    _populateForm(widget.existingData!);
+    setState(() {
+      _populateForm(widget.existingData!);
+    });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'] ?? d['Family_ID'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    _motherName.text = d['Mother_Name']?.toString() ?? '';
+    _age.text = d['Age']?.toString() ?? '';
+    selectEntryScreen = d['Entry_Screen'] ?? d['Select_Entry_Screen'];
+    
+    if (d['Date_of_Interview'] != null) {
+      if (d['Date_of_Interview'] is Timestamp) {
+        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      } else {
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
+        } catch (_) {}
+      }
+    }
+    
+    if (d['DOB'] != null) dob = d['DOB'] is Timestamp ? (d['DOB'] as Timestamp).toDate() : (d['Date_of_Birth'] is Timestamp ? (d['Date_of_Birth'] as Timestamp).toDate() : null);
+    interviewersName = d['Interviewer_s_Name'];
+
+    // Map vaccine data
+    void mapVaccine(String key, String ynKey, String dtKey, String byKey) {
+      vaccines[key]!['given'] = d[ynKey] ?? '(0) No';
+      if (d[dtKey] != null) vaccines[key]!['date'] = d[dtKey] is Timestamp ? (d[dtKey] as Timestamp).toDate() : DateTime.tryParse(d[dtKey].toString());
+      vaccines[key]!['by'] = d[byKey] ?? '(0) RHC';
+    }
+
+    mapVaccine('BCG', 'BCG_Given_Y_N', 'BCG_Dt', 'BCG_Given_By');
+    mapVaccine('DPT1', 'DPT1_Given_Y_N', 'DPT1_Dt3', 'DPT1_Given_Y_N1');
+    mapVaccine('DPT2', 'DPT2_Given_Y_N2', 'DPT2_Dt', 'DPT2_Given_By');
+    mapVaccine('DPT3', 'DPT3_Given_Y_N3', 'DPT3_Dt', 'DPT3_Given_By');
+    mapVaccine('DPTB', 'DPTB_Given_Y_N', 'DPT_B_Dt', 'DPTB_Given_Y_N1');
+    mapVaccine('OPV0', 'OPVO_Given_Y_N', 'OPV0_Dt', 'OPVO_Given_By');
+    mapVaccine('OPV1', 'OPVO_Given_By1', 'OPV_1_Dt', 'OPV1_Given_By');
+    mapVaccine('OPV2', 'OPV2_Given_yes_no', 'OPV2_Dt', 'Drop_OPV2_Given_By');
+    mapVaccine('OPV3', 'OPV3_Given_by_Y_N', 'OPV3_Dt', 'OPV2_Given_By2');
+    mapVaccine('OPVB', 'OPV_B_Given_Y_N', 'OPV_B_Dt', 'OPV2_Given_By1');
+    mapVaccine('Measles', 'Measles1', 'Measles_Dt', 'Measles_Given_Y_N');
+    mapVaccine('HepB1', 'HepB1_Given_Y_N', 'HepB1_Dt', 'HepB1_Given_By');
+    mapVaccine('HepB2', 'HepB2_Given_Y_N', 'HepB2_Dt', 'HepB2');
+    mapVaccine('HepB3', 'HepB3_Given_Y_N', 'HepB3_Dt', 'HepB3_Given_By');
+    mapVaccine('VitA1', 'VitA1_Given_Y_N', 'VitA1_Dt', 'VitA1_Given_By');
+    mapVaccine('VitA2', 'VitA2_Given_Y_N', 'VitA2_Dt', 'VitA2_Given_By');
+    mapVaccine('VitA3', 'VitA3_Given_Y_N1', 'VitA3_Dt', 'V');
+    mapVaccine('VitA4', 'Vita4_Given_Y_N', 'VitA4_Dt', 'VitA4_Given_By');
+    mapVaccine('VitAB', 'VitAB_Given_Y_N', 'VitAB_Dt1', 'VitAB_Given_By');
+    mapVaccine('DT', 'DT_Given_Y_N', 'DT_Dt', 'DT_Given_By');
+
+    _remarksController.text = d['Remarks1'] ?? d['Remarks'] ?? '';
+    _birthWeight.text = d['Birth_Weight']?.toString() ?? '';
+    _birthHeight.text = d['Birth_Height']?.toString() ?? '';
+    hasDiarrhea = d['Diarrhea'];
+    isBreastfeeding = d['Breastfeeding'];
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
-      selectedFamilyCode = null; selectedName = null; _nameController.clear(); _motherName.clear(); selectEntryScreen = null; dob = null; _regNo.clear();
-      bcgGiven = null; bcgDate = null; bcgGivenBy = null;
-      dpt1Given = null; dpt1Date = null; dpt1By = null;
-      dpt2Given = null; dpt2Date = null; dpt2By = null;
-      dpt3Given = null; dpt3Date = null; dpt3By = null;
-      dptBGiven = null; dptBDate = null; dptBBy = null;
-      opv0Given = null; opv0Date = null; opv0By = null;
-      opv1Given = null; opv1Date = null; opv1By = null;
-      opv2Given = null; opv2Date = null; opv2By = null;
-      opv3Given = null; opv3Date = null; opv3By = null;
-      opvBGiven = null; opvBDate = null; opvBBy = null;
-      measlesGiven = null; measlesDate = null; measlesBy = null;
-      hepB1Given = null; hepB1Date = null; hepB1By = null;
-      hepB2Given = null; hepB2Date = null; hepB2By = null;
-      hepB3Given = null; hepB3Date = null; hepB3By = null;
-      vitA1Given = null; vitA1Date = null; vitA1By = null;
-      vitA2Given = null; vitA2Date = null; vitA2By = null;
-      vitA3Given = null; vitA3Date = null; vitA3By = null;
-      vitA4Given = null; vitA4Date = null; vitA4By = null;
-      vitABGiven = null; vitABDate = null; vitABBy = null;
-      dtGiven = null; dtDate = null; dtBy = null;
-      _remarks.clear(); _birthWeight.clear(); _birthHeight.clear(); diarrhea = null; breastfeeding = null;
-      familyMembers = [];
+      _registrationNumber.clear();
+      _familyCodeController.clear();
+      _nameController.clear();
+      _motherName.clear();
+      _remarksController.clear();
+      _birthWeight.clear();
+      _birthHeight.clear();
+      selectedFamilyCode = null;
+      selectedMemberName = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
+      dob = null;
+      selectEntryScreen = null;
+      interviewersName = null;
+      hasDiarrhea = null;
+      isBreastfeeding = null;
+      familyMemberNames = [];
       _existingRecords = [];
-      _editDocId = null;
+      vaccines.forEach((k, v) {
+        v['given'] = '(0) No';
+        v['date'] = null;
+        v['by'] = '(0) RHC';
+      });
     });
   }
 
@@ -368,419 +252,411 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
 
     try {
       final data = {
-        'Family_Code': selectedFamilyCode,
-        'Name': _isEditMode ? selectedName : _nameController.text,
+        'Registration_Number': _registrationNumber.text,
+        'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Mother_Name': _motherName.text,
+        'Age': int.tryParse(_age.text),
+        'DOB': dob != null ? Timestamp.fromDate(dob!) : null,
+        'Entry_Screen': selectEntryScreen,
         'Select_Entry_Screen': selectEntryScreen,
-        'Date_of_Birth': dob != null ? Timestamp.fromDate(dob!) : null,
-        'Registration_Number': _regNo.text,
-
-        'BCG_Given_Y_N': bcgGiven,
-        'BCG_Dt': bcgDate != null ? Timestamp.fromDate(bcgDate!) : null,
-        'BCG_Given_By': bcgGivenBy,
-
-        'DPT1_Given_Y_N': dpt1Given,
-        'DPT1_Dt3': dpt1Date != null ? Timestamp.fromDate(dpt1Date!) : null,
-        'DPT1_Given_Y_N1': dpt1By,
-        'DPT2_Given_Y_N2': dpt2Given,
-        'DPT2_Dt': dpt2Date != null ? Timestamp.fromDate(dpt2Date!) : null,
-        'DPT2_Given_By': dpt2By,
-        'DPT3_Given_Y_N3': dpt3Given,
-        'DPT3_Dt': dpt3Date != null ? Timestamp.fromDate(dpt3Date!) : null,
-        'DPT3_Given_By': dpt3By,
-        'DPTB_Given_Y_N': dptBGiven,
-        'DPT_B_Dt': dptBDate != null ? Timestamp.fromDate(dptBDate!) : null,
-        'DPTB_Given_Y_N1': dptBBy,
-
-        'OPVO_Given_Y_N': opv0Given,
-        'OPV0_Dt': opv0Date != null ? Timestamp.fromDate(opv0Date!) : null,
-        'OPVO_Given_By': opv0By,
-        'OPVO_Given_By1': opv1Given,
-        'OPV_1_Dt': opv1Date != null ? Timestamp.fromDate(opv1Date!) : null,
-        'OPV1_Given_By': opv1By,
-        'OPV2_Given_yes_no': opv2Given,
-        'OPV2_Dt': opv2Date != null ? Timestamp.fromDate(opv2Date!) : null,
-        'Drop_OPV2_Given_By': opv2By,
-        'OPV3_Given_by_Y_N': opv3Given,
-        'OPV3_Dt': opv3Date != null ? Timestamp.fromDate(opv3Date!) : null,
-        'OPV2_Given_By2': opv3By,
-        'OPV_B_Given_Y_N': opvBGiven,
-        'OPV_B_Dt': opvBDate != null ? Timestamp.fromDate(opvBDate!) : null,
-        'OPV2_Given_By1': opvBBy,
-
-        'Measles1': measlesGiven,
-        'Measles_Dt': measlesDate != null ? Timestamp.fromDate(measlesDate!) : null,
-        'Measles_Given_Y_N': measlesBy,
-
-        'HepB1_Given_Y_N': hepB1Given,
-        'HepB1_Dt': hepB1Date != null ? Timestamp.fromDate(hepB1Date!) : null,
-        'HepB1_Given_By': hepB1By,
-        'HepB2_Given_Y_N': hepB2Given,
-        'HepB2_Dt': hepB2Date != null ? Timestamp.fromDate(hepB2Date!) : null,
-        'HepB2': hepB2By,
-        'HepB3_Given_Y_N': hepB3Given,
-        'HepB3_Dt': hepB3Date != null ? Timestamp.fromDate(hepB3Date!) : null,
-        'HepB3_Given_By': hepB3By,
-
-        'VitA1_Given_Y_N': vitA1Given,
-        'VitA1_Dt': vitA1Date != null ? Timestamp.fromDate(vitA1Date!) : null,
-        'VitA1_Given_By': vitA1By,
-        'VitA2_Given_Y_N': vitA2Given,
-        'VitA2_Dt': vitA2Date != null ? Timestamp.fromDate(vitA2Date!) : null,
-        'VitA2_Given_By': vitA2By,
-        'VitA3_Given_Y_N1': vitA3Given,
-        'VitA3_Dt': vitA3Date != null ? Timestamp.fromDate(vitA3Date!) : null,
-        'V': vitA3By,
-        'Vita4_Given_Y_N': vitA4Given,
-        'VitA4_Dt': vitA4Date != null ? Timestamp.fromDate(vitA4Date!) : null,
-        'VitA4_Given_By': vitA4By,
-        'VitAB_Given_Y_N': vitABGiven,
-        'VitAB_Dt1': vitABDate != null ? Timestamp.fromDate(vitABDate!) : null,
-        'VitAB_Given_By': vitABBy,
-
-        'DT_Given_Y_N': dtGiven,
-        'DT_Dt': dtDate != null ? Timestamp.fromDate(dtDate!) : null,
-        'DT_Given_By': dtBy,
-
-        'Remarks1': _remarks.text,
+        'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
+        'Interviewer_s_Name': interviewersName,
+        'Remarks1': _remarksController.text,
         'Birth_Weight': double.tryParse(_birthWeight.text),
         'Birth_Height': _birthHeight.text,
-        'Diarrhea': diarrhea,
-        'Breastfeeding': breastfeeding,
+        'Diarrhea': hasDiarrhea,
+        'Breastfeeding': isBreastfeeding,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('child_immunization').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('child_immunization').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('child_immunization').add(data);
-      }
+      // BCG
+      data['BCG_Given_Y_N'] = vaccines['BCG']!['given'];
+      data['BCG_Dt'] = vaccines['BCG']!['date'] != null ? Timestamp.fromDate(vaccines['BCG']!['date']) : null;
+      data['BCG_Given_By'] = vaccines['BCG']!['by'];
+
+      // DPT
+      data['DPT1_Given_Y_N'] = vaccines['DPT1']!['given'];
+      data['DPT1_Dt3'] = vaccines['DPT1']!['date'] != null ? Timestamp.fromDate(vaccines['DPT1']!['date']) : null;
+      data['DPT1_Given_Y_N1'] = vaccines['DPT1']!['by'];
+      data['DPT2_Given_Y_N2'] = vaccines['DPT2']!['given'];
+      data['DPT2_Dt'] = vaccines['DPT2']!['date'] != null ? Timestamp.fromDate(vaccines['DPT2']!['date']) : null;
+      data['DPT2_Given_By'] = vaccines['DPT2']!['by'];
+      data['DPT3_Given_Y_N3'] = vaccines['DPT3']!['given'];
+      data['DPT3_Dt'] = vaccines['DPT3']!['date'] != null ? Timestamp.fromDate(vaccines['DPT3']!['date']) : null;
+      data['DPT3_Given_By'] = vaccines['DPT3']!['by'];
+      data['DPTB_Given_Y_N'] = vaccines['DPTB']!['given'];
+      data['DPT_B_Dt'] = vaccines['DPTB']!['date'] != null ? Timestamp.fromDate(vaccines['DPTB']!['date']) : null;
+      data['DPTB_Given_Y_N1'] = vaccines['DPTB']!['by'];
+
+      // OPV
+      data['OPVO_Given_Y_N'] = vaccines['OPV0']!['given'];
+      data['OPV0_Dt'] = vaccines['OPV0']!['date'] != null ? Timestamp.fromDate(vaccines['OPV0']!['date']) : null;
+      data['OPVO_Given_By'] = vaccines['OPV0']!['by'];
+      data['OPVO_Given_By1'] = vaccines['OPV1']!['given'];
+      data['OPV_1_Dt'] = vaccines['OPV1']!['date'] != null ? Timestamp.fromDate(vaccines['OPV1']!['date']) : null;
+      data['OPV1_Given_By'] = vaccines['OPV1']!['by'];
+      data['OPV2_Given_yes_no'] = vaccines['OPV2']!['given'];
+      data['OPV2_Dt'] = vaccines['OPV2']!['date'] != null ? Timestamp.fromDate(vaccines['OPV2']!['date']) : null;
+      data['Drop_OPV2_Given_By'] = vaccines['OPV2']!['by'];
+      data['OPV3_Given_by_Y_N'] = vaccines['OPV3']!['given'];
+      data['OPV3_Dt'] = vaccines['OPV3']!['date'] != null ? Timestamp.fromDate(vaccines['OPV3']!['date']) : null;
+      data['OPV2_Given_By2'] = vaccines['OPV3']!['by'];
+      data['OPV_B_Given_Y_N'] = vaccines['OPVB']!['given'];
+      data['OPV_B_Dt'] = vaccines['OPVB']!['date'] != null ? Timestamp.fromDate(vaccines['OPVB']!['date']) : null;
+      data['OPV2_Given_By1'] = vaccines['OPVB']!['by'];
+
+      // Measles
+      data['Measles1'] = vaccines['Measles']!['given'];
+      data['Measles_Dt'] = vaccines['Measles']!['date'] != null ? Timestamp.fromDate(vaccines['Measles']!['date']) : null;
+      data['Measles_Given_Y_N'] = vaccines['Measles']!['by'];
+
+      // HepB
+      data['HepB1_Given_Y_N'] = vaccines['HepB1']!['given'];
+      data['HepB1_Dt'] = vaccines['HepB1']!['date'] != null ? Timestamp.fromDate(vaccines['HepB1']!['date']) : null;
+      data['HepB1_Given_By'] = vaccines['HepB1']!['by'];
+      data['HepB2_Given_Y_N'] = vaccines['HepB2']!['given'];
+      data['HepB2_Dt'] = vaccines['HepB2']!['date'] != null ? Timestamp.fromDate(vaccines['HepB2']!['date']) : null;
+      data['HepB2'] = vaccines['HepB2']!['by'];
+      data['HepB3_Given_Y_N'] = vaccines['HepB3']!['given'];
+      data['HepB3_Dt'] = vaccines['HepB3']!['date'] != null ? Timestamp.fromDate(vaccines['HepB3']!['date']) : null;
+      data['HepB3_Given_By'] = vaccines['HepB3']!['by'];
+
+      // VitA
+      data['VitA1_Given_Y_N'] = vaccines['VitA1']!['given'];
+      data['VitA1_Dt'] = vaccines['VitA1']!['date'] != null ? Timestamp.fromDate(vaccines['VitA1']!['date']) : null;
+      data['VitA1_Given_By'] = vaccines['VitA1']!['by'];
+      data['VitA2_Given_Y_N'] = vaccines['VitA2']!['given'];
+      data['VitA2_Dt'] = vaccines['VitA2']!['date'] != null ? Timestamp.fromDate(vaccines['VitA2']!['date']) : null;
+      data['VitA2_Given_By'] = vaccines['VitA2']!['by'];
+      data['VitA3_Given_Y_N1'] = vaccines['VitA3']!['given'];
+      data['VitA3_Dt'] = vaccines['VitA3']!['date'] != null ? Timestamp.fromDate(vaccines['VitA3']!['date']) : null;
+      data['V'] = vaccines['VitA3']!['by'];
+      data['Vita4_Given_Y_N'] = vaccines['VitA4']!['given'];
+      data['VitA4_Dt'] = vaccines['VitA4']!['date'] != null ? Timestamp.fromDate(vaccines['VitA4']!['date']) : null;
+      data['VitA4_Given_By'] = vaccines['VitA4']!['by'];
+      data['VitAB_Given_Y_N'] = vaccines['VitAB']!['given'];
+      data['VitAB_Dt1'] = vaccines['VitAB']!['date'] != null ? Timestamp.fromDate(vaccines['VitAB']!['date']) : null;
+      data['VitAB_Given_By'] = vaccines['VitAB']!['by'];
+
+      // DT
+      data['DT_Given_Y_N'] = vaccines['DT']!['given'];
+      data['DT_Dt'] = vaccines['DT']!['date'] != null ? Timestamp.fromDate(vaccines['DT']!['date']) : null;
+      data['DT_Given_By'] = vaccines['DT']!['by'];
+
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('child_immunization', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Immunization record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Immunization updated! Syncing...' : 'Immunization saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performImmunizationSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(context: context, initialDate: value ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-        if (picked != null) onPicked(picked);
-      },
-      child: InputDecorator(
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.calendar_today)),
-        child: Text(value == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(value)),
-      ),
+  void _performImmunizationSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('child_immunization').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('child_immunization').add(data);
+      }
+    } catch (e) {
+      debugPrint('Immunization Background Sync Error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Child Immunization'), elevation: 0),
+      body: _isSaving
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () { setState(() { _isEditMode = false; _resetForm(); }); },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code, entryScreen: selectEntryScreen);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Immunization Details',
+                      icon: Icons.vaccines_outlined,
+                      children: [
+                        formSearchableDropdown(context, 'Select Entry Screen', ['BCG', 'DPT', 'OPV', 'Measles', 'HepB', 'Vitamin A', 'DT', 'Remarks'], selectEntryScreen, (v) {
+                          setState(() { selectEntryScreen = v; });
+                          if (selectedFamilyCode != null) _fetchExistingRecords(selectedFamilyCode!, entryScreen: v);
+                        }),
+                        const SizedBox(height: 16),
+                        _buildDatePicker('DOB', dob, (v) => setState(() => dob = v)),
+                        const SizedBox(height: 16),
+                        _buildVaccineSections(),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
-  Widget _buildGivenRow({
-    required String label,
-    required String? given,
-    required DateTime? date,
-    required String? by,
-    required Function(String?) onGiven,
-    required Function(DateTime) onDate,
-    required Function(String?) onBy,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
+  Widget _buildVaccineSections() {
+    if (selectEntryScreen == null) return const SizedBox.shrink();
+
+    switch (selectEntryScreen) {
+      case 'BCG':
+        return _buildVaccineGroup('BCG', ['BCG']);
+      case 'DPT':
+        return _buildVaccineGroup('DPT', ['DPT1', 'DPT2', 'DPT3', 'DPTB']);
+      case 'OPV':
+        return _buildVaccineGroup('OPV', ['OPV0', 'OPV1', 'OPV2', 'OPV3', 'OPVB']);
+      case 'Measles':
+        return _buildVaccineGroup('Measles', ['Measles']);
+      case 'HepB':
+        return _buildVaccineGroup('HepB', ['HepB1', 'HepB2', 'HepB3']);
+      case 'Vitamin A':
+        return _buildVaccineGroup('Vitamin A', ['VitA1', 'VitA2', 'VitA3', 'VitA4', 'VitAB']);
+      case 'DT':
+        return _buildVaccineGroup('DT', ['DT']);
+      case 'Remarks':
+        return Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: formTextField('Birth Weight (kg)', _birthWeight, keyboardType: TextInputType.number)),
+                const SizedBox(width: 12),
+                Expanded(child: formTextField('Birth Height (cm)', _birthHeight)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(child: formSearchableDropdown(context, 'Diarrhea', ['Yes', 'No'], hasDiarrhea, (v) => setState(() => hasDiarrhea = v))),
+                const SizedBox(width: 12),
+                Expanded(child: formSearchableDropdown(context, 'Breastfeeding', ['Yes', 'No'], isBreastfeeding, (v) => setState(() => isBreastfeeding = v))),
+              ],
+            ),
+            const SizedBox(height: 16),
+            formTextField('Remarks', _remarksController, maxLines: 3),
+          ],
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildVaccineGroup(String title, List<String> doses) {
+    return buildSectionCard(
+      context: context,
+      title: title,
+      icon: Icons.vaccines_outlined,
+      children: [
+        ...doses.map((dose) => _buildVaccineDoseRow(dose)),
+      ],
+    );
+  }
+
+  Widget _buildVaccineDoseRow(String doseLabel) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
-          const SizedBox(height: 8),
+          Text(doseLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)),
+          const Divider(height: 20),
           Row(
             children: [
               Expanded(
-                child: DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Given Y/N', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-                  value: given,
-                  items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                  onChanged: onGiven,
+                child: formSearchableDropdown(
+                  context,
+                  'Given?',
+                  ['(1) Yes', '(0) No'],
+                  vaccines[doseLabel]!['given'],
+                  (v) => setState(() => vaccines[doseLabel]!['given'] = v),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(child: _buildDatePicker(label: 'Date', value: date, onPicked: onDate)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildDatePicker(
+                  'Date',
+                  vaccines[doseLabel]!['date'],
+                  (v) => setState(() => vaccines[doseLabel]!['date'] = v),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Given By', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-            value: by,
-            items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-            onChanged: onBy,
+          const SizedBox(height: 12),
+          formSearchableDropdown(
+            context,
+            'Given By',
+            ['(0) RHC', '(1) PVT', '(2) GOVT'],
+            vaccines[doseLabel]!['by'],
+            (v) => setState(() => vaccines[doseLabel]!['by'] = v),
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Child Immunization', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.orange.shade800, Colors.orange.shade500],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.black87)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey.shade400),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Colors.blue, width: 2),
+              ),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+              fillColor: Colors.white,
+              filled: true,
+            ),
+            child: Text(
+              selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate),
+              style: const TextStyle(fontSize: 14),
             ),
           ),
         ),
-      ),
-      drawer: const AppDrawer(),
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Child Immunization',
-                    subtitle: 'Manage childhood vaccines and health records',
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Basic Information',
-                    icon: Icons.baby_changing_station_outlined,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
-                        value: selectedFamilyCode,
-                        items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                         onChanged: (v) {
-                           setState(() { selectedFamilyCode = v; selectedName = null; });
-                           if (v != null) {
-                             if (_isEditMode) {
-                               _fetchExistingRecords(v, entryScreen: selectEntryScreen);
-                             } else {
-                               _fetchMembersByFamily(v, entryScreen: selectEntryScreen);
-                             }
-                           }
-                         },
-                      ),
-                      const SizedBox(height: 16),
-                        if (_isEditMode)
-                          DropdownButtonFormField<String>(
-                            isExpanded: true,
-                            decoration: InputDecoration(
-                              labelText: 'Select Name to Edit',
-                              border: const OutlineInputBorder(),
-                              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                            ),
-                            value: selectedName,
-                            items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
-                            onChanged: _onNameSelected,
-                          )
-                        else
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextFormField(
-                                controller: _nameController,
-                                decoration: const InputDecoration(labelText: 'Name (Child)', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
-                              ),
-                              if (familyMembers.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  decoration: InputDecoration(
-                                    labelText: 'Pick from Family Members',
-                                    border: const OutlineInputBorder(),
-                                    suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                  ),
-                                  value: null,
-                                  items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                                  onChanged: _onNameSelected,
-                                  hint: const Text('--Select Member--'),
-                                ),
-                              ],
-                            ],
-                          ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _motherName, decoration: const InputDecoration(labelText: 'Mother Name', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      _buildDatePicker(label: 'Date of Birth', value: dob, onPicked: (v) => setState(() => dob = v)),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Select Entry Screen', border: OutlineInputBorder()),
-                        value: selectEntryScreen,
-                        items: ['BCG', 'DPT', 'OPV', 'Measles', 'HepB', 'Vitamin A', 'DT', 'Remarks'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                         onChanged: (v) {
-                           setState(() {
-                             selectEntryScreen = v;
-                             selectedName = null;
-                           });
-                           if (selectedFamilyCode != null) {
-                             if (_isEditMode) {
-                               _fetchExistingRecords(selectedFamilyCode!, entryScreen: v);
-                             } else {
-                               _fetchMembersByFamily(selectedFamilyCode!, entryScreen: v);
-                             }
-                           }
-                         },
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _regNo, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
-                    ],
-                  ),
+      ],
+    );
+  }
 
-                  if (selectEntryScreen == 'BCG')
-                  buildSectionCard(
-                    context: context,
-                    title: 'BCG',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'BCG', given: bcgGiven, date: bcgDate, by: bcgGivenBy, onGiven: (v) => setState(() => bcgGiven = v), onDate: (v) => setState(() => bcgDate = v), onBy: (v) => setState(() => bcgGivenBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'DPT')
-                  buildSectionCard(
-                    context: context,
-                    title: 'DPT',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'DPT 1', given: dpt1Given, date: dpt1Date, by: dpt1By, onGiven: (v) => setState(() => dpt1Given = v), onDate: (v) => setState(() => dpt1Date = v), onBy: (v) => setState(() => dpt1By = v)),
-                      _buildGivenRow(label: 'DPT 2', given: dpt2Given, date: dpt2Date, by: dpt2By, onGiven: (v) => setState(() => dpt2Given = v), onDate: (v) => setState(() => dpt2Date = v), onBy: (v) => setState(() => dpt2By = v)),
-                      _buildGivenRow(label: 'DPT 3', given: dpt3Given, date: dpt3Date, by: dpt3By, onGiven: (v) => setState(() => dpt3Given = v), onDate: (v) => setState(() => dpt3Date = v), onBy: (v) => setState(() => dpt3By = v)),
-                      _buildGivenRow(label: 'DPT Booster', given: dptBGiven, date: dptBDate, by: dptBBy, onGiven: (v) => setState(() => dptBGiven = v), onDate: (v) => setState(() => dptBDate = v), onBy: (v) => setState(() => dptBBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'OPV')
-                  buildSectionCard(
-                    context: context,
-                    title: 'OPV',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'OPV 0', given: opv0Given, date: opv0Date, by: opv0By, onGiven: (v) => setState(() => opv0Given = v), onDate: (v) => setState(() => opv0Date = v), onBy: (v) => setState(() => opv0By = v)),
-                      _buildGivenRow(label: 'OPV 1', given: opv1Given, date: opv1Date, by: opv1By, onGiven: (v) => setState(() => opv1Given = v), onDate: (v) => setState(() => opv1Date = v), onBy: (v) => setState(() => opv1By = v)),
-                      _buildGivenRow(label: 'OPV 2', given: opv2Given, date: opv2Date, by: opv2By, onGiven: (v) => setState(() => opv2Given = v), onDate: (v) => setState(() => opv2Date = v), onBy: (v) => setState(() => opv2By = v)),
-                      _buildGivenRow(label: 'OPV 3', given: opv3Given, date: opv3Date, by: opv3By, onGiven: (v) => setState(() => opv3Given = v), onDate: (v) => setState(() => opv3Date = v), onBy: (v) => setState(() => opv3By = v)),
-                      _buildGivenRow(label: 'OPV Booster', given: opvBGiven, date: opvBDate, by: opvBBy, onGiven: (v) => setState(() => opvBGiven = v), onDate: (v) => setState(() => opvBDate = v), onBy: (v) => setState(() => opvBBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'Measles')
-                  buildSectionCard(
-                    context: context,
-                    title: 'Measles',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'Measles', given: measlesGiven, date: measlesDate, by: measlesBy, onGiven: (v) => setState(() => measlesGiven = v), onDate: (v) => setState(() => measlesDate = v), onBy: (v) => setState(() => measlesBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'HepB')
-                  buildSectionCard(
-                    context: context,
-                    title: 'HepB',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'HepB 1', given: hepB1Given, date: hepB1Date, by: hepB1By, onGiven: (v) => setState(() => hepB1Given = v), onDate: (v) => setState(() => hepB1Date = v), onBy: (v) => setState(() => hepB1By = v)),
-                      _buildGivenRow(label: 'HepB 2', given: hepB2Given, date: hepB2Date, by: hepB2By, onGiven: (v) => setState(() => hepB2Given = v), onDate: (v) => setState(() => hepB2Date = v), onBy: (v) => setState(() => hepB2By = v)),
-                      _buildGivenRow(label: 'HepB 3', given: hepB3Given, date: hepB3Date, by: hepB3By, onGiven: (v) => setState(() => hepB3Given = v), onDate: (v) => setState(() => hepB3Date = v), onBy: (v) => setState(() => hepB3By = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'Vitamin A')
-                  buildSectionCard(
-                    context: context,
-                    title: 'Vitamin A',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'VitA 1', given: vitA1Given, date: vitA1Date, by: vitA1By, onGiven: (v) => setState(() => vitA1Given = v), onDate: (v) => setState(() => vitA1Date = v), onBy: (v) => setState(() => vitA1By = v)),
-                      _buildGivenRow(label: 'VitA 2', given: vitA2Given, date: vitA2Date, by: vitA2By, onGiven: (v) => setState(() => vitA2Given = v), onDate: (v) => setState(() => vitA2Date = v), onBy: (v) => setState(() => vitA2By = v)),
-                      _buildGivenRow(label: 'VitA 3', given: vitA3Given, date: vitA3Date, by: vitA3By, onGiven: (v) => setState(() => vitA3Given = v), onDate: (v) => setState(() => vitA3Date = v), onBy: (v) => setState(() => vitA3By = v)),
-                      _buildGivenRow(label: 'VitA 4', given: vitA4Given, date: vitA4Date, by: vitA4By, onGiven: (v) => setState(() => vitA4Given = v), onDate: (v) => setState(() => vitA4Date = v), onBy: (v) => setState(() => vitA4By = v)),
-                      _buildGivenRow(label: 'VitA Booster', given: vitABGiven, date: vitABDate, by: vitABBy, onGiven: (v) => setState(() => vitABGiven = v), onDate: (v) => setState(() => vitABDate = v), onBy: (v) => setState(() => vitABBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'DT')
-                  buildSectionCard(
-                    context: context,
-                    title: 'DT',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      _buildGivenRow(label: 'DT', given: dtGiven, date: dtDate, by: dtBy, onGiven: (v) => setState(() => dtGiven = v), onDate: (v) => setState(() => dtDate = v), onBy: (v) => setState(() => dtBy = v)),
-                    ],
-                  ),
-
-                  if (selectEntryScreen == 'Remarks')
-                  buildSectionCard(
-                    context: context,
-                    title: 'Other Information',
-                    icon: Icons.notes_outlined,
-                    children: [
-                      TextFormField(controller: _birthWeight, decoration: const InputDecoration(labelText: 'Birth Weight (kg)'), keyboardType: TextInputType.number),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _birthHeight, decoration: const InputDecoration(labelText: 'Birth Height')),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Diarrhea'),
-                        value: diarrhea,
-                        items: ['Yes', 'No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => diarrhea = v),
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Breastfeeding'),
-                        value: breastfeeding,
-                        items: ['Yes', 'No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => breastfeeding = v),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks'), maxLines: 3),
-                    ],
-                  ),
- 
-                  const SizedBox(height: 16),
-                  if (selectEntryScreen != null)
-                  ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: Text(_isEditMode ? 'Update Immunization Record' : 'Save Immunization Record', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Member Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField(
+          'Registration Number',
+          _registrationNumber,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text, entryScreen: selectEntryScreen);
+            }
+          },
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formTextField('Mother Name', _motherName),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField(
+              'Age',
+              _age,
+              keyboardType: TextInputType.number,
+              validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+            )),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 
+          'Interviewer Name',
+          interviewerList,
+          interviewersName,
+          (v) => setState(() => interviewersName = v),
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+      ],
     );
   }
 }

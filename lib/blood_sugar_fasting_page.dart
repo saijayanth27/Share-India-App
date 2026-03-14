@@ -25,6 +25,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
   final _familyCodeController = TextEditingController();
+  final _nameController = TextEditingController();
   String? selectedFamilyCode;
   String? selectedName;
   String? selectedGender;
@@ -39,7 +40,6 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
 
   String? _notDoneReason;
 
-  List<String> allFamilyCodes = [];
   List<String> familyMembers = []; // List of names
   Map<String, Map<String, dynamic>> _allMembersData = {}; // Full details
   bool _isLoadingMembers = false;
@@ -54,7 +54,6 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
@@ -71,6 +70,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     selectedFamilyCode = d['Family_code'] ?? d['Family_Code_Creation'] ?? d['Family_Code'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedName = d['Name'];
+    _nameController.text = selectedName ?? '';
     selectedGender = d['Gender'];
     _age.text = d['Age']?.toString() ?? '';
     if (d['Date_of_Interview'] != null) {
@@ -94,51 +94,33 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
         familyMembers = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -149,20 +131,20 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
           .collection('blood_sugar_fasting')
           .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _onNameSelected(String? name) async {
+  void _onNameSelected(String? name) {
     setState(() {
       selectedName = name;
+      _nameController.text = name ?? '';
       if (name != null) {
         if (_isEditMode) {
           final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
@@ -180,41 +162,67 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     });
   }
 
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      _registrationNumber.clear();
+      _familyCodeController.clear();
+      _nameController.clear();
+      selectedFamilyCode = null;
+      selectedName = null;
+      selectedGender = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
+      interviewersName = null;
+      _otherReasonController.clear();
+      _lastMealDateController.clear();
+      _lastMealTimeController.clear();
+      _fbsResultController.clear();
+      _notDoneReason = null;
+      familyMembers = [];
+      _existingRecords = [];
+    });
+  }
+
   Future<void> _saveForm() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
-    
-    final formData = {
-      'Registration_Number': _registrationNumber.text,
-      'Family_code': selectedFamilyCode,
-      'Name': selectedName,
-      'Gender': selectedGender,
-      'Age': _age.text,
-      'Date_of_Interview': dateOfInterview != null ? DateFormat('dd-MMM-yyyy').format(dateOfInterview!) : '',
-      'Interviewer_s_Name': interviewersName,
-      'If_not_done_reason': _notDoneReason,
-      'reason': _otherReasonController.text,
-      'Date_of_Last_Meal': _lastMealDateController.text,
-      'Time_of_Last_Meal': _lastMealTimeController.text,
-      'FBS_Test_Result': _fbsResultController.text,
-      'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
-      'needs_zoho_sync': true,
-    };
-
     try {
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(_editDocId).update(formData);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(widget.docId).update(formData);
-      } else {
-        await FirebaseFirestore.instance.collection('blood_sugar_fasting').add(formData);
-      }
+      final data = {
+        'Registration_Number': _registrationNumber.text,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
+        'Name': _isEditMode ? selectedName : _nameController.text,
+        'Gender': selectedGender,
+        'Age': int.tryParse(_age.text),
+        'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
+        'Interviewer_s_Name': interviewersName,
+        'If_not_done_reason': _notDoneReason,
+        'reason': _otherReasonController.text,
+        'Date_of_Last_Meal': _lastMealDateController.text,
+        'Time_of_Last_Meal': _lastMealTimeController.text,
+        'FBS_Test_Result': double.tryParse(_fbsResultController.text),
+        'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
+        'needs_zoho_sync': true,
+      };
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST
+      await DataCacheService().saveOfflineSubmission('blood_sugar_fasting', data);
+
+      // 2. Background Sync (Non-blocking)
+      _performFastingSync(data);
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Form saved successfully!')));
-        if (widget.docId != null || _isEditMode) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Blood Sugar updated! Syncing...' : 'Blood Sugar saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
+        if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
@@ -225,224 +233,180 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
     }
   }
 
-  void _resetForm() {
-    _formKey.currentState?.reset();
-    setState(() {
-      if (!_isEditMode) {
-        _familyCodeController.clear();
-        selectedFamilyCode = null;
+  void _performFastingSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('blood_sugar_fasting').add(data);
       }
-      _registrationNumber.clear();
-      selectedName = null;
-      selectedGender = null;
-      _age.clear();
-      dateOfInterview = DateTime.now();
-      _notDoneReason = null;
-      _otherReasonController.clear();
-      _lastMealDateController.clear();
-      _lastMealTimeController.clear();
-      _fbsResultController.clear();
-      familyMembers = [];
-      _existingRecords = [];
-    });
+    } catch (e) {
+      debugPrint('Fasting Blood Sugar Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Blood Sugar Form', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
+        title: const Text('Blood Sugar Form(After Eating)'),
         elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.red.shade700, Colors.red.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
       ),
       drawer: const AppDrawer(),
-      body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              buildHeader(
-                context: context,
-                title: 'Blood Sugar Monitoring',
-                subtitle: 'Track blood glucose levels after meals',
-              ),
-              _buildIdentitySection(),
-              buildSectionCard(
-                context: context,
-                title: 'Screening Status',
-                icon: Icons.assignment_turned_in_outlined,
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            key: const PageStorageKey('blood_sugar_fasting_scroll'),
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
+              key: _formKey,
+              child: Column(
                 children: [
-                   _buildRadioGroup('If not done, reason', ['(1) Not available', '(2) Refused for current visit', '(3) Door Locked', '(4) Other'], _notDoneReason, (val) => setState(() => _notDoneReason = val)),
-                   if (_notDoneReason == '(4) Other') ...[
-                     const SizedBox(height: 12),
-                     _buildTextField('If Others Please Mention', _otherReasonController),
-                   ],
-                ],
-              ),
-              buildSectionCard(
-                context: context,
-                title: 'Test Results',
-                icon: Icons.biotech_outlined,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildDatePicker('Date of Last Meal', _lastMealDateController.text.isEmpty ? null : DateFormat('dd-MMM-yyyy').parse(_lastMealDateController.text), (v) => setState(() => _lastMealDateController.text = DateFormat('dd-MMM-yyyy').format(v)))),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildTimePicker('Time of Last Meal', _lastMealTimeController)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('(Note: Use 24-hour format)', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                  const SizedBox(height: 16),
-                  _buildTextField('FBS Test Result (mg/dL)', _fbsResultController, keyboardType: TextInputType.number),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveForm,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blue.shade700,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(_isEditMode ? 'Update' : 'Submit', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                  formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _saveForm,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isLoading,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Blood Sugar Screening',
+                      icon: Icons.bloodtype_outlined,
+                      children: [
+                        formSearchableDropdown(context, 
+                          'If FBS not done, give reason',
+                          _reasonList,
+                          _notDoneReason,
+                          (v) => setState(() => _notDoneReason = v),
+                        ),
+                        if (_notDoneReason == "(4) Other") ...[
+                          const SizedBox(height: 12),
+                          formTextField('If Others Please Mention', _otherReasonController),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: formTextField('Date of Last Meal', _lastMealDateController, hint: 'dd-MMM-yyyy')),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildTimePicker('Time of Last Meal', _lastMealTimeController)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text('(Note: Use 24-hour format)', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                        const SizedBox(height: 16),
+                        formTextField('FBS Test Result (mg/dL)', _fbsResultController, keyboardType: TextInputType.number),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                  ],
                 ),
               ),
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
+            ),
+          if (_isLoading) // Assuming _isSaving refers to _isLoading
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildIdentitySection() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return buildSectionCard(
+      context: context,
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField('Registration Number', _registrationNumber),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMembers, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
           children: [
-            Row(
-              children: [
-                Icon(Icons.person_outline, color: Theme.of(context).primaryColor, size: 20),
-                const SizedBox(width: 8),
-                Text('Patient Identity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-              ],
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('(1) Male'),
+                value: '(1) Male',
+                groupValue: selectedGender,
+                onChanged: (v) => setState(() => selectedGender = v),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
             ),
-            const Divider(height: 24),
-            _buildTextField('Registration Number', _registrationNumber),
-            const SizedBox(height: 12),
-            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
-              setState(() {
-                selectedFamilyCode = v;
-                selectedName = null;
-                familyMembers = [];
-              });
-              if (v != null && v.isNotEmpty) {
-                if (_isEditMode) {
-                  _fetchExistingRecords(v);
-                } else {
-                  _fetchMembersByFamily(v);
-                }
-              }
-            }),
-            const SizedBox(height: 12),
-            if (_isEditMode)
-              _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedName, (v) {
-                final record = _existingRecords.firstWhere((r) => r['Name'] == v);
-                setState(() {
-                  selectedName = v;
-                  _editDocId = record['id'];
-                  _populateForm(record);
-                });
-              }, isLoading: _isLoadingMembers)
-            else
-              _buildDropdown('Name', familyMembers, selectedName, _onNameSelected, isLoading: _isLoadingMembers),
-            const SizedBox(height: 12),
-            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
-            Row(
-              children: [
-                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildTextField('Age', _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
-                const SizedBox(width: 12),
-                Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildDropdown(
-              'Interviewer’s Name',
-              ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
-              interviewersName,
-              (v) => setState(() => interviewersName = v),
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('(0) Female'),
+                value: '(0) Female',
+                groupValue: selectedGender,
+                onChanged: (v) => setState(() => selectedGender = v),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, int maxLines = 1, String? hint, Function(String)? onChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            hintText: hint,
-          ),
-          keyboardType: keyboardType,
-          maxLines: maxLines,
-          onChanged: onChanged,
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
         ),
-      ],
-    );
-  }
-
-  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false, String? hint = '-Select-'}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          value: selectedValue,
-          isExpanded: true,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-          ),
-          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
-          onChanged: onChanged,
-          hint: hint != null ? Text(hint) : null,
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Interviewer’s Name',
+          ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
+          interviewersName,
+          (v) => setState(() => interviewersName = v),
         ),
       ],
     );
@@ -453,7 +417,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         InkWell(
           onTap: () async {
             final picked = await showDatePicker(
@@ -465,32 +429,15 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
             if (picked != null) onPicked(picked);
           },
           child: InputDecorator(
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
             child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildRadioGroup(String title, List<String> options, String? currentValue, Function(String) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        const SizedBox(height: 8),
-        ...options.map((opt) => RadioListTile<String>(
-          title: Text(opt, style: const TextStyle(fontSize: 13)),
-          value: opt,
-          groupValue: currentValue,
-          onChanged: (val) => val != null ? onChanged(val) : null,
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        )),
       ],
     );
   }
@@ -500,7 +447,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         InkWell(
           onTap: () async {
             final picked = await showTimePicker(context: context, initialTime: TimeOfDay.now());
@@ -510,10 +457,11 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
             }
           },
           child: InputDecorator(
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              suffixIcon: Icon(Icons.access_time, size: 18),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.access_time, size: 18),
             ),
             child: Text(controller.text.isEmpty ? 'HH:mm' : controller.text),
           ),

@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,124 +21,133 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoadingMembers = false;
 
-  // --- Identity Fields ---
-  String? selectedFamilyCode;
+  // --- Controllers & State Variables ---
+  final _registrationNumber = TextEditingController();
+  final _familyCodeController = TextEditingController();
   final _nameController = TextEditingController();
-  String? selectedName;
   final _husbandName = TextEditingController();
-  DateTime? lmpDate;
-  String? selectEntryScreen;
-  final _uniqRegNo = TextEditingController();
-  final _regNo = TextEditingController();
+  final _age = TextEditingController();
 
-  // --- TT Dose Fields ---
-  String? tt1Given;
-  String? tt1GivenBy;
-  DateTime? tt1Date;
-  String? tt2Given;
-  String? tt2GivenBy;
-  DateTime? tt2Date;
+  // --- TT Dose Controllers ---
+  DateTime? stDt;
+  DateTime? ndDt;
+  String? stGivenYN;
+  String? stGivenBy;
+  String? ndGivenYN;
+  String? ndGivenBy;
 
-  // --- IFA Fields ---
-  String? ifa1Given;
-  DateTime? ifa1Date;
-  String? ifa1GivenBy;
-  String? ifa2Given;
-  DateTime? ifa2Date;
-  String? ifa2GivenBy;
-  String? ifa3Given;
-  DateTime? ifa3Date;
-  String? ifa3GivenBy;
-  String? ifa4Given;
-  DateTime? ifa4Date;
-  String? ifa4GivenBy;
+  // --- IFA Controllers ---
+  DateTime? stDt1;
+  DateTime? ndDt1;
+  DateTime? rdDt;
+  DateTime? thDt;
+  String? stGivenYN1;
+  String? stGivenBy1;
+  String? ndGivenYN1;
+  String? ndGivenBy1;
+  String? rdGivenYN;
+  String? rdGivenYN1; // 3rd Given By
+  String? THGivenYN;
+  String? THGivenYN1; // 4th Given By
 
-  // --- Delivery Fields ---
+  // --- Delivery Controllers ---
+  DateTime? deliveryDt;
   String? deliveryType;
-  DateTime? deliveryDate;
   String? deliveryPlace;
   final _deliveryPlaceDetails = TextEditingController();
   String? deliveryOutcome;
+  final _noOfBirths = TextEditingController();
+  final _noOfBirthOfFemale = TextEditingController();
   final _totalLiveBirths = TextEditingController();
 
-  // --- Remarks & Extra ---
-  final _remarks = TextEditingController();
-  final _noOfBirths = TextEditingController();
-  final _noOfBirthsFemale = TextEditingController();
-  String? gender;
-  List<String> selectedGenders = [];
-  List<String> deliveryGenders = [];
+  // --- Remarks & Screen Selection ---
+  final _remarks2 = TextEditingController();
+  String? selectEntryScreen;
 
-  // Lookups
-  List<String> allFamilyCodes = [];
-  List<String> femaleMembers = [];
-  bool _isLoadingMembers = false;
+  String? selectedFamilyCode;
+  String? selectedMemberName;
+  DateTime? dateOfInterview = DateTime.now();
+  String? interviewersName;
+  DateTime? lmpDate;
+  DateTime? eddDate;
+
+  List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+  String? _baseRegistrationNumber;
+
+  final List<String> interviewerList = ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'];
+  final List<String> screenChoices = ['TT Dose', 'IFA', 'Delivery', 'Remarks'];
+  final List<String> yesNoChoices = ['(1) Yes', '(0) No'];
+  final List<String> givenByChoices = ['(0) RHC', '(1) PVT', '(2) GOVT'];
+  final List<String> deliveryTypeChoices = ['(0) Normal', '(1) Caesarian', '(2) Abortion'];
+  final List<String> deliveryPlaceChoices = ['(0) RHC', '(1) PVT', '(2) GOVT', '(3) HOME'];
+  final List<String> deliveryOutcomeChoices = ['(0) Live Birth', '(1) Still Birth', '(2) Premature'];
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
-  Future<void> _fetchFemalesByFamily(String familyCode) async {
+  Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
+      // 1. Fetch Permanent Family Planning members to exclude them
+      final fpSnapshot = await FirebaseFirestore.instance
+          .collection('family_planning')
+          .where('Family_Code', isEqualTo: familyCode)
+          .where('Select_Entry_Screen', isEqualTo: '(1) Permanent')
+          .get();
+      final excludedNames = fpSnapshot.docs
+          .map((doc) => doc.data()['Name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toSet();
+
+      // 2. Fetch Personal Details
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge and Filter logic
+      
       final Map<String, Map<String, dynamic>> memberMap = {};
-      final List<String> females = [];
+      final Set<String> allNames = {};
       
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
-        if (name.isEmpty) return;
-        memberMap[name] = data;
-
         final gender = data['Gender']?.toString() ?? '';
         final maritalStatus = data['Marital_Status']?.toString() ?? '';
+        final avStatus = data['A_v_Status']?.toString() ?? '';
+
+        if (name.isEmpty) return;
         
-        bool isFemale = gender.contains('(0) Female');
-        bool isMarriedOrWidow = maritalStatus.contains('(1) Married') || maritalStatus.contains('(3) Widow');
+        // Filter: (0) Female AND ((1) Married OR (3) Widow) AND (1) Active AND Not in excludedNames
+        bool isEligibleFemale = gender == '(0) Female' && 
+                               (maritalStatus == '(1) Married' || maritalStatus == '(3) Widow') &&
+                               avStatus == '(1) Active';
         
-        if (isFemale && isMarriedOrWidow) {
-          females.add(name);
+        if (isEligibleFemale && !excludedNames.contains(name)) {
+          memberMap[name] = data;
+          allNames.add(name);
         }
       }
 
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var member in localMembers) {
-        processMember(member);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
+      
       setState(() {
         _allMembersData = memberMap;
-        femaleMembers = females..sort();
-        _isLoadingMembers = false;
+        familyMemberNames = allNames.toList()..sort();
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -153,131 +163,157 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _onNameSelected(String? womanName) {
+  void _onNameSelected(String? name) async {
     setState(() {
-      selectedName = womanName;
-      _nameController.text = womanName ?? '';
-      if (womanName != null) {
-        // Auto-populate Uniq Reg No
-        final womanData = _allMembersData[womanName];
-        if (womanData != null) {
-          _uniqRegNo.text = womanData['uniq_Registration_Number']?.toString() ?? '';
-          _regNo.text = womanData['Registration_Number1']?.toString() ?? '';
-        }
-
-        // Find a male member where Name2 is the woman's name (Husband lookup)
-        String? husband;
-        _allMembersData.forEach((name, data) {
-          final gender = data['Gender']?.toString() ?? '';
-          final spouseName = data['Name2']?.toString() ?? '';
-          if (spouseName == womanName && gender.contains('(0) Male')) {
-            husband = name;
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
           }
-        });
-
-        if (husband != null) {
-          _husbandName.text = husband!;
+        } else if (_allMembersData.containsKey(name)) {
+          final data = _allMembersData[name]!;
+          _baseRegistrationNumber = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? '').toString();
+          _husbandName.text = (data['Name2'] ?? data['Name1'] ?? '').toString();
+          _age.text = data['Age']?.toString() ?? '';
+          _updateRegistrationNumber();
         }
       }
     });
   }
 
-  void _loadExistingData([Map<String, dynamic>? data]) {
-    final d = data ?? widget.existingData!;
+  void _updateRegistrationNumber() {
+    if (_baseRegistrationNumber != null && _baseRegistrationNumber!.isNotEmpty) {
+      String newRegNo = _baseRegistrationNumber!;
+      if (lmpDate != null) {
+        newRegNo += DateFormat('ddMMyy').format(lmpDate!);
+      }
+      _registrationNumber.text = newRegNo;
+    }
+  }
+
+  void _loadExistingData() {
     setState(() {
-      selectedFamilyCode = d['Family_Code'];
-      if (selectedFamilyCode != null && !_isEditMode) _fetchFemalesByFamily(selectedFamilyCode!);
-      selectedName = d['Female'];
-      _nameController.text = selectedName ?? '';
-      _husbandName.text = d['Husband_Name'] ?? '';
-      if (d['LMP_Date'] != null) {
-        lmpDate = d['LMP_Date'] is Timestamp ? (d['LMP_Date'] as Timestamp).toDate() : DateTime.tryParse(d['LMP_Date'].toString());
-      }
-      selectEntryScreen = d['Select_Entry_Screen'];
-      _uniqRegNo.text = d['uniq_Registration_Number'] ?? '';
-      _regNo.text = d['Registration_Number'] ?? '';
-
-      tt1Given = d['st_Given_Y_N'];
-      tt1GivenBy = d['st_Given_By'];
-      if (d['st_Dt'] != null) {
-        tt1Date = d['st_Dt'] is Timestamp ? (d['st_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['st_Dt'].toString());
-      }
-      tt2Given = d['nd_Given_Y_N'];
-      tt2GivenBy = d['nd_Given_By'];
-      if (d['nd_Dt'] != null) {
-        tt2Date = d['nd_Dt'] is Timestamp ? (d['nd_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['nd_Dt'].toString());
-      }
-
-      ifa1Given = d['st_Given_Y_N1'];
-      if (d['st_Dt1'] != null) {
-        ifa1Date = d['st_Dt1'] is Timestamp ? (d['st_Dt1'] as Timestamp).toDate() : DateTime.tryParse(d['st_Dt1'].toString());
-      }
-      ifa1GivenBy = d['st_Given_By1'];
-      ifa2Given = d['nd_Given_Y_N1'];
-      if (d['nd_Dt1'] != null) {
-        ifa2Date = d['nd_Dt1'] is Timestamp ? (d['nd_Dt1'] as Timestamp).toDate() : DateTime.tryParse(d['nd_Dt1'].toString());
-      }
-      ifa2GivenBy = d['nd_Given_By1'];
-      ifa3Given = d['rd_Given_Y_N'];
-      if (d['rd_Dt'] != null) {
-        ifa3Date = d['rd_Dt'] is Timestamp ? (d['rd_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['rd_Dt'].toString());
-      }
-      ifa3GivenBy = d['rd_Given_Y_N1'];
-      ifa4Given = d['TH_Given_Y_N'];
-      if (d['th_Dt'] != null) {
-        ifa4Date = d['th_Dt'] is Timestamp ? (d['th_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['th_Dt'].toString());
-      }
-      ifa4GivenBy = d['TH_Given_Y_N1'];
-
-      deliveryType = d['Delivery_Type'];
-      if (d['Delivery_Dt'] != null) {
-        deliveryDate = d['Delivery_Dt'] is Timestamp ? (d['Delivery_Dt'] as Timestamp).toDate() : DateTime.tryParse(d['Delivery_Dt'].toString());
-      }
-      deliveryPlace = d['Delivery_Place'];
-      _deliveryPlaceDetails.text = d['Delivery_Place_Details'] ?? '';
-      deliveryOutcome = d['Delivery'];
-      _totalLiveBirths.text = d['Total_Live_Births'] ?? '';
-
-      _remarks.text = d['Remarks2'] ?? '';
-      selectedGenders = (d['Gender'] as String?)?.split(', ').where((s) => s.isNotEmpty).toList() ?? [];
-      deliveryGenders = (d['Delivery_Gender'] as String?)?.split(', ').where((s) => s.isNotEmpty).toList() ?? [];
-      _editDocId = d['id'];
+      _populateForm(widget.existingData!);
     });
+  }
+
+  void _populateForm(Map<String, dynamic> d) {
+    _registrationNumber.text = d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'] ?? d['Family_ID'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
+    _husbandName.text = d['Husband_Name'] ?? '';
+    _age.text = d['Age']?.toString() ?? '';
+    selectEntryScreen = d['Select_Entry_Screen'];
+    
+    // --- Helper for Date parsing ---
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is Timestamp) return val.toDate();
+      if (val is String && val.isNotEmpty) {
+        try {
+          return DateFormat('dd-MMM-yyyy').parse(val);
+        } catch (_) {
+          try {
+            return DateTime.parse(val);
+          } catch (_) {}
+        }
+      }
+      return null;
+    }
+
+    dateOfInterview = parseDate(d['Date_of_Interview']) ?? DateTime.now();
+    lmpDate = parseDate(d['LMP_Date']);
+    eddDate = parseDate(d['EDD_Date']);
+    interviewersName = d['Interviewer_s_Name'];
+
+    // --- TT Dose ---
+    stGivenYN = d['st_Given_Y_N'];
+    stGivenBy = d['st_Given_By'];
+    stDt = parseDate(d['st_Dt']);
+    ndGivenYN = d['nd_Given_Y_N'];
+    ndGivenBy = d['nd_Given_By'];
+    ndDt = parseDate(d['nd_Dt']);
+
+    // --- IFA ---
+    stGivenYN1 = d['st_Given_Y_N1'];
+    stGivenBy1 = d['st_Given_By1'];
+    stDt1 = parseDate(d['st_Dt1']);
+    ndGivenYN1 = d['nd_Given_Y_N1'];
+    ndGivenBy1 = d['nd_Given_By1'];
+    ndDt1 = parseDate(d['nd_Dt1']);
+    rdGivenYN = d['rd_Given_Y_N'];
+    rdGivenYN1 = d['rd_Given_Y_N1'];
+    rdDt = parseDate(d['rd_Dt']);
+    THGivenYN = d['TH_Given_Y_N'];
+    THGivenYN1 = d['TH_Given_Y_N1'];
+    thDt = parseDate(d['th_Dt']);
+
+    // --- Delivery ---
+    deliveryType = d['Delivery_Type'];
+    deliveryDt = parseDate(d['Delivery_Dt']);
+    deliveryPlace = d['Delivery_Place'];
+    _deliveryPlaceDetails.text = d['Delivery_Place_Details'] ?? '';
+    deliveryOutcome = d['Delivery'];
+    _noOfBirths.text = d['No_of_Births']?.toString() ?? '';
+    _noOfBirthOfFemale.text = d['No_of_Birth_of_Female1']?.toString() ?? '';
+    _totalLiveBirths.text = d['Total_Live_Births']?.toString() ?? '';
+
+    // --- Remarks ---
+    _remarks2.text = d['Remarks2'] ?? '';
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
   }
 
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
-      if (!_isEditMode) {
-        selectedFamilyCode = null;
-      }
-      _editDocId = null;
-      selectedName = null;
+      _registrationNumber.clear();
+      _familyCodeController.clear();
       _nameController.clear();
       _husbandName.clear();
+      selectedFamilyCode = null;
+      selectedMemberName = null;
+      _age.clear();
+      dateOfInterview = DateTime.now();
       lmpDate = null;
-      selectEntryScreen = null;
-      _uniqRegNo.clear();
-      _regNo.clear();
-      tt1Given = null; tt1GivenBy = null; tt1Date = null;
-      tt2Given = null; tt2GivenBy = null; tt2Date = null;
-      ifa1Given = null; ifa1Date = null; ifa1GivenBy = null;
-      ifa2Given = null; ifa2Date = null; ifa2GivenBy = null;
-      ifa3Given = null; ifa3Date = null; ifa3GivenBy = null;
-      ifa4Given = null; ifa4Date = null; ifa4GivenBy = null;
-      deliveryType = null; deliveryDate = null; deliveryPlace = null;
+      eddDate = null;
+      interviewersName = null;
+      _baseRegistrationNumber = null;
+
+      // Reset TT Dose
+      stDt = ndDt = null;
+      stGivenYN = stGivenBy = ndGivenYN = ndGivenBy = null;
+
+      // Reset IFA
+      stDt1 = ndDt1 = rdDt = thDt = null;
+      stGivenYN1 = stGivenBy1 = ndGivenYN1 = ndGivenBy1 = rdGivenYN = rdGivenYN1 = THGivenYN = THGivenYN1 = null;
+
+      // Reset Delivery
+      deliveryDt = null;
+      deliveryType = deliveryPlace = deliveryOutcome = null;
       _deliveryPlaceDetails.clear();
-      deliveryOutcome = null;
+      _noOfBirths.clear();
+      _noOfBirthOfFemale.clear();
       _totalLiveBirths.clear();
-      _remarks.clear();
-      selectedGenders = [];
-      deliveryGenders = [];
-      femaleMembers = [];
+
+      // Reset Remarks & Selection
+      _remarks2.clear();
+      selectEntryScreen = null;
+
+      familyMemberNames = [];
       _existingRecords = [];
     });
   }
@@ -287,566 +323,365 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
     setState(() => _isSaving = true);
 
     try {
-      // --- VALIDATIONS ---
-      
-      // 1. Abortion check (> 150 days)
-      if (deliveryType == '(2) Abortion' && lmpDate != null && deliveryDate != null) {
-        final diffDays = deliveryDate!.difference(lmpDate!).inDays;
-        if (diffDays > 150) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The abortion date is greater than 150 days'), backgroundColor: Colors.orange));
-          setState(() => _isSaving = false);
-          return;
-        }
-      }
-
-      // 2. Normal Delivery check (< 7 months)
-      if (deliveryType == '(0) Normal' && lmpDate != null && deliveryDate != null) {
-        int months = (deliveryDate!.year - lmpDate!.year) * 12 + deliveryDate!.month - lmpDate!.month;
-        if (deliveryDate!.day < lmpDate!.day) months--;
-        if (months < 7) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The delivery date and LMP date difference should be larger than 7 months'), backgroundColor: Colors.orange));
-          setState(() => _isSaving = false);
-          return;
-        }
-      }
-
-      // 3. Open ANC Check
-      if ((selectEntryScreen == 'Delivery' || selectEntryScreen == null) && deliveryDate == null) {
-        final nameValue = _isEditMode ? selectedName : _nameController.text;
-        final existingANC = await FirebaseFirestore.instance
-            .collection('ante_natal_care')
-            .where('Family_Code', isEqualTo: selectedFamilyCode)
-            .where('Female', isEqualTo: nameValue)
-            .get();
-        
-        bool hasOpenANC = false;
-        for (var doc in existingANC.docs) {
-          if (doc.data()['Delivery_Dt'] == null && doc.id != widget.docId) {
-            hasOpenANC = true;
-            break;
-          }
-        }
-
-        if (hasOpenANC) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter the delivery_date for the previous ANC record'), backgroundColor: Colors.orange));
-          setState(() => _isSaving = false);
-          return;
-        }
-      }
       final data = {
-        'Family_Code': selectedFamilyCode,
-        'Female': _isEditMode ? selectedName : _nameController.text,
+        'Registration_Number': _registrationNumber.text,
+        'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Husband_Name': _husbandName.text,
+        'Age': int.tryParse(_age.text),
+        'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
         'LMP_Date': lmpDate != null ? Timestamp.fromDate(lmpDate!) : null,
+        'EDD_Date': eddDate != null ? Timestamp.fromDate(eddDate!) : null,
+        'Interviewer_s_Name': interviewersName,
         'Select_Entry_Screen': selectEntryScreen,
-        'uniq_Registration_Number': _uniqRegNo.text,
-        'Registration_Number': _regNo.text,
-        'st_Given_Y_N': tt1Given,
-        'st_Given_By': tt1GivenBy,
-        'st_Dt': tt1Date != null ? Timestamp.fromDate(tt1Date!) : null,
-        'nd_Given_Y_N': tt2Given,
-        'nd_Given_By': tt2GivenBy,
-        'nd_Dt': tt2Date != null ? Timestamp.fromDate(tt2Date!) : null,
-        'st_Given_Y_N1': ifa1Given,
-        'st_Dt1': ifa1Date != null ? Timestamp.fromDate(ifa1Date!) : null,
-        'st_Given_By1': ifa1GivenBy,
-        'nd_Given_Y_N1': ifa2Given,
-        'nd_Dt1': ifa2Date != null ? Timestamp.fromDate(ifa2Date!) : null,
-        'nd_Given_By1': ifa2GivenBy,
-        'rd_Given_Y_N': ifa3Given,
-        'rd_Dt': ifa3Date != null ? Timestamp.fromDate(ifa3Date!) : null,
-        'rd_Given_Y_N1': ifa3GivenBy,
-        'TH_Given_Y_N': ifa4Given,
-        'th_Dt': ifa4Date != null ? Timestamp.fromDate(ifa4Date!) : null,
-        'TH_Given_Y_N1': ifa4GivenBy,
+
+        // --- TT Dose ---
+        'st_Given_Y_N': stGivenYN,
+        'st_Given_By': stGivenBy,
+        'st_Dt': stDt != null ? Timestamp.fromDate(stDt!) : null,
+        'nd_Given_Y_N': ndGivenYN,
+        'nd_Given_By': ndGivenBy,
+        'nd_Dt': ndDt != null ? Timestamp.fromDate(ndDt!) : null,
+
+        // --- IFA ---
+        'st_Given_Y_N1': stGivenYN1,
+        'st_Given_By1': stGivenBy1,
+        'st_Dt1': stDt1 != null ? Timestamp.fromDate(stDt1!) : null,
+        'nd_Given_Y_N1': ndGivenYN1,
+        'nd_Given_By1': ndGivenBy1,
+        'nd_Dt1': ndDt1 != null ? Timestamp.fromDate(ndDt1!) : null,
+        'rd_Given_Y_N': rdGivenYN,
+        'rd_Given_Y_N1': rdGivenYN1,
+        'rd_Dt': rdDt != null ? Timestamp.fromDate(rdDt!) : null,
+        'TH_Given_Y_N': THGivenYN,
+        'TH_Given_Y_N1': THGivenYN1,
+        'th_Dt': thDt != null ? Timestamp.fromDate(thDt!) : null,
+
+        // --- Delivery ---
         'Delivery_Type': deliveryType,
-        'Delivery_Dt': deliveryDate != null ? Timestamp.fromDate(deliveryDate!) : null,
+        'Delivery_Dt': deliveryDt != null ? Timestamp.fromDate(deliveryDt!) : null,
         'Delivery_Place': deliveryPlace,
         'Delivery_Place_Details': _deliveryPlaceDetails.text,
         'Delivery': deliveryOutcome,
+        'No_of_Births': int.tryParse(_noOfBirths.text),
+        'No_of_Birth_of_Female1': int.tryParse(_noOfBirthOfFemale.text),
         'Total_Live_Births': _totalLiveBirths.text,
-        'Remarks2': _remarks.text,
-        'Gender': selectedGenders.join(', '),
-        'Delivery_Gender': deliveryGenders.join(', '),
+
+        'Remarks2': _remarks2.text,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('ante_natal_care').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('ante_natal_care').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('ante_natal_care').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
 
-      // 4. Create child records if necessary
-      if (deliveryOutcome == '(0) Live Birth') {
-        await _createChildRecords();
-      }
+      // 1. Save locally FIRST (Fast)
+      final bool wasEditing = _isEditMode;
+      await DataCacheService().saveOfflineSubmission('ante_natal_care', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ANC record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'ANC updated! Syncing...' : 'ANC saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performAnteNatalCareSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Future<void> _createChildRecords() async {
-    final familyCode = selectedFamilyCode;
-    if (familyCode == null) return;
-
-    // Male births
-    final maleCount = int.tryParse(_noOfBirths.text) ?? 0;
-    if (maleCount > 1) {
-      for (int i = 0; i < (maleCount - 1); i++) {
-        await FirebaseFirestore.instance.collection('personal_details').add({
-          'Family_Code': familyCode,
-          'Name': 'Boy',
-          'Gender': '(1) Male',
-          'A_v_Status': '(1) Active', // Defaulting to Active
-          'Marital_Status': '(0) Unmarried', // Defaulting to Unmarried
-          'Added_User': 'AppUser', // Fallback or retrieve actual user
-          'clientCreatedAt': DateTime.now().millisecondsSinceEpoch,
-          'needs_zoho_sync': true,
-        });
+  void _performAnteNatalCareSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('ante_natal_care').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('ante_natal_care').add(data);
       }
+    } catch (e) {
+      debugPrint('ANC Background Sync Error: $e');
     }
-
-    // Female births
-    final femaleCount = int.tryParse(_noOfBirthsFemale.text) ?? 0;
-    if (femaleCount > 1) {
-      for (int i = 0; i < (femaleCount - 1); i++) {
-        await FirebaseFirestore.instance.collection('personal_details').add({
-          'Family_Code': familyCode,
-          'Name': 'Girl',
-          'Gender': '(0) Female',
-          'A_v_Status': '(1) Active',
-          'Marital_Status': '(0) Unmarried',
-          'Added_User': 'AppUser',
-          'clientCreatedAt': DateTime.now().millisecondsSinceEpoch,
-          'needs_zoho_sync': true,
-        });
-      }
-    }
-  }
-
-
-
-  Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(context: context, initialDate: value ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-        if (picked != null) onPicked(picked);
-      },
-      child: InputDecorator(
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.calendar_today)),
-        child: Text(value == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(value)),
-      ),
-    );
-  }
-  
-  Widget _buildMultiSelectCheckboxes({required String label, required List<String> options, required List<String> selectedItems, required Function(List<String>) onSelectionChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 16,
-          children: options.map((option) {
-            final isSelected = selectedItems.contains(option);
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Checkbox(
-                  value: isSelected,
-                  onChanged: (checked) {
-                    final newSelection = List<String>.from(selectedItems);
-                    if (checked == true) {
-                      newSelection.add(option);
-                    } else {
-                      newSelection.remove(option);
-                    }
-                    onSelectionChanged(newSelection);
-                  },
-                ),
-                Text(option),
-              ],
-            );
-          }).toList(),
-        ),
-      ],
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Ante Natal Care', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.pink.shade700, Colors.pink.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Ante Natal Care'), elevation: 0),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            key: const PageStorageKey('anc_scroll'),
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(20),
+              child: Column(
                 children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Ante Natal Care',
-                    subtitle: 'Track maternity and prenatal health records',
-                  ),
-
-                  buildSectionCard(
-                    context: context,
-                    title: 'Basic Information',
-                    icon: Icons.person_outline,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
-                        value: selectedFamilyCode,
-                        items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                        onChanged: (v) {
-                          setState(() { selectedFamilyCode = v; selectedName = null; });
-                          if (v != null) {
-                            if (_isEditMode) {
-                              _fetchExistingRecords(v);
-                            } else {
-                              _fetchFemalesByFamily(v);
-                            }
+                  formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () { setState(() { _isEditMode = false; _resetForm(); }); },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
                           }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      if (_isEditMode)
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            labelText: 'Select Record to Edit',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                          ),
-                          value: selectedName,
-                          items: _existingRecords.map((e) => DropdownMenuItem<String>(value: e['Female']?.toString(), child: Text(e['Female']?.toString() ?? ''))).toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              final record = _existingRecords.firstWhere((e) => e['Female'] == v);
-                              _loadExistingData(record);
-                            }
-                          },
-                        )
-                      else
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: const InputDecoration(labelText: 'Name (Female)', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
-                            ),
-                            if (femaleMembers.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Pick from Family Members',
-                                  border: const OutlineInputBorder(),
-                                  suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                ),
-                                value: null,
-                                items: femaleMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                                onChanged: _onNameSelected,
-                                hint: const Text('--Select Member--'),
-                              ),
-                            ],
-                          ],
-                        ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _husbandName, decoration: const InputDecoration(labelText: 'Husband Name', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                       _buildDatePicker(
-                        label: 'LMP Date',
-                        value: lmpDate,
-                        onPicked: (v) {
-                          setState(() {
-                            lmpDate = v;
-                            // Format: ddMMyy
-                            final dateStr = DateFormat('ddMMyy').format(v);
-                            final currentReg = _regNo.text;
-                            // Append if not already there
-                            if (!currentReg.endsWith(dateStr)) {
-                              _regNo.text = currentReg + dateStr;
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Select Entry Screen', border: OutlineInputBorder()),
-                        value: selectEntryScreen,
-                        items: ['TT Dose', 'IFA', 'Delivery', 'Remarks'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => selectEntryScreen = v),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(child: TextFormField(controller: _regNo, decoration: const InputDecoration(labelText: 'Reg No.', border: OutlineInputBorder()))),
-                          const SizedBox(width: 16),
-                          Expanded(child: TextFormField(controller: _uniqRegNo, decoration: const InputDecoration(labelText: 'Uniq Reg No.', border: OutlineInputBorder()))),
-                        ],
-                      ),
-                    ],
-                  ),
-                  if (selectEntryScreen == 'TT Dose')
-                  buildSectionCard(
-                    context: context,
-                    title: 'TT Dose',
-                    icon: Icons.vaccines_outlined,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _buildDatePicker(label: 'TT1 Date', value: tt1Date, onPicked: (v) => setState(() => tt1Date = v))),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(labelText: '1st Given Y/N', border: OutlineInputBorder()),
-                              value: tt1Given,
-                              items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => tt1Given = v),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: '1st Given By', border: OutlineInputBorder()),
-                        value: tt1GivenBy,
-                        items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => tt1GivenBy = v),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(child: _buildDatePicker(label: 'TT2 Date', value: tt2Date, onPicked: (v) => setState(() => tt2Date = v))),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(labelText: '2nd Given Y/N', border: OutlineInputBorder()),
-                              value: tt2Given,
-                              items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => tt2Given = v),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: '2nd Given By', border: OutlineInputBorder()),
-                        value: tt2GivenBy,
-                        items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => tt2GivenBy = v),
-                      ),
-                    ],
-                  ),
-                  if (selectEntryScreen == 'IFA')
-                  buildSectionCard(
-                    context: context,
-                    title: 'IFA (Iron Folic Acid)',
-                    icon: Icons.medication_outlined,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _buildDatePicker(label: 'IFA1 Date', value: ifa1Date, onPicked: (v) => setState(() => ifa1Date = v))),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(labelText: '1st Given Y/N', border: OutlineInputBorder()),
-                              value: ifa1Given,
-                              items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => ifa1Given = v),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: '1st Given By', border: OutlineInputBorder()),
-                        value: ifa1GivenBy,
-                        items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => ifa1GivenBy = v),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildIFARow('2nd', ifa2Given, ifa2Date, ifa2GivenBy, (g) => ifa2Given = g, (d) => ifa2Date = d, (b) => ifa2GivenBy = b),
-                      const SizedBox(height: 16),
-                      _buildIFARow('3rd', ifa3Given, ifa3Date, ifa3GivenBy, (g) => ifa3Given = g, (d) => ifa3Date = d, (b) => ifa3GivenBy = b),
-                      const SizedBox(height: 16),
-                      _buildIFARow('4th', ifa4Given, ifa4Date, ifa4GivenBy, (g) => ifa4Given = g, (d) => ifa4Date = d, (b) => ifa4GivenBy = b),
-                    ],
-                  ),
-                  if (selectEntryScreen == 'Delivery')
-                  buildSectionCard(
-                    context: context,
-                    title: 'Delivery Details',
-                    icon: Icons.child_friendly_outlined,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Delivery Type'),
-                        value: deliveryType,
-                        items: ['(0) Normal', '(1) Caesarian', '(2) Abortion'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => deliveryType = v),
-                      ),
-                      if (deliveryType != '(2) Abortion') ...[
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Maternity Details',
+                      icon: Icons.pregnant_woman_outlined,
+                      children: [
+                        _buildDatePicker('LMP Date', lmpDate, (v) => setState(() {
+                          lmpDate = v;
+                          eddDate = v.add(const Duration(days: 280));
+                          _updateRegistrationNumber();
+                        })),
                         const SizedBox(height: 16),
-                        _buildDatePicker(label: 'Delivery Dt.', value: deliveryDate, onPicked: (v) => setState(() => deliveryDate = v)),
+                        _buildDatePicker('EDD Date', eddDate, (v) => setState(() => eddDate = v)),
                         const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Delivery Place', border: OutlineInputBorder()),
-                          value: deliveryPlace,
-                          items: ['(0) RHC', '(1) PVT', '(2) GOVT', '(3) HOME'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                          onChanged: (v) => setState(() => deliveryPlace = v),
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(controller: _deliveryPlaceDetails, decoration: const InputDecoration(labelText: 'Place Details', border: OutlineInputBorder())),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Outcome', border: OutlineInputBorder()),
-                          value: deliveryOutcome,
-                          items: ['(0) Live Birth', '(1) Still Birth', '(2) Premature'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                          onChanged: (v) => setState(() => deliveryOutcome = v),
-                        ),
+                        formSearchableDropdown(context, 'Select Entry Screen', screenChoices, selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
                       ],
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _totalLiveBirths, decoration: const InputDecoration(labelText: 'Total Live Births', border: OutlineInputBorder()), keyboardType: TextInputType.number),
-                      if (deliveryOutcome == '(0) Live Birth') ...[
-                        const SizedBox(height: 16),
-                        _buildMultiSelectCheckboxes(
-                          label: 'Gender',
-                          options: ['Male', 'Female'],
-                          selectedItems: deliveryGenders,
-                          onSelectionChanged: (v) => setState(() => deliveryGenders = v),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (selectEntryScreen == 'Remarks')
-                  buildSectionCard(
-                    context: context,
-                    title: 'Extra Info & Remarks',
-                    icon: Icons.notes_outlined,
-                    children: [
-                      _buildMultiSelectCheckboxes(
-                        label: 'Gender',
-                        options: ['Male', 'Female'],
-                        selectedItems: selectedGenders,
-                        onSelectionChanged: (v) => setState(() => selectedGenders = v),
-                      ),
-                      const SizedBox(height: 16),
-                      if (deliveryOutcome == '(0) Live Birth') ...[
-                        Row(
-                          children: [
-                            Expanded(
-                             child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
-                                value: ['(1) Male', '(0) Female'].contains(gender) ? gender : null,
-                                items: ['(1) Male', '(0) Female'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                                onChanged: (v) => setState(() => gender = v),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            if (gender == '(1) Male')
-                              Expanded(child: TextFormField(controller: _noOfBirths, decoration: const InputDecoration(labelText: 'No. of Births', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-                            if (gender == '(0) Female')
-                              Expanded(child: TextFormField(controller: _noOfBirthsFemale, decoration: const InputDecoration(labelText: 'No. of Female Births', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      TextFormField(controller: _remarks, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 3),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (selectEntryScreen != null)
-                  ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: Text(_isEditMode ? 'Update ANC Record' : 'Save ANC Record', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (selectEntryScreen == 'TT Dose') _buildTTDoseSection(),
+                    if (selectEntryScreen == 'IFA') _buildIFASection(),
+                    if (selectEntryScreen == 'Delivery') _buildDeliverySection(),
+                    if (selectEntryScreen == 'Remarks') _buildRemarksSection(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+          if (_isSaving)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
     );
   }
 
-  Widget _buildIFARow(String step, String? given, DateTime? date, String? by, Function(String?) onGiven, Function(DateTime) onDate, Function(String?) onBy) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Member Identity',
+      icon: Icons.person_outline,
       children: [
-        Text(step, style: const TextStyle(fontWeight: FontWeight.bold)),
+        formTextField('Registration Number', _registrationNumber),
+        const SizedBox(height: 12),
+        formSearchField('Family Code', _familyCodeController, onSearch: () {
+          if (_familyCodeController.text.isNotEmpty) {
+            _fetchMembersByFamily(_familyCodeController.text);
+            _fetchExistingRecords(_familyCodeController.text);
+          }
+        }, isLoading: _isLoadingMembers),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+        ),
+        const SizedBox(height: 12),
+        formTextField('Husband Name', _husbandName),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+      ],
+    );
+  }
+
+  Widget _buildTTDoseSection() {
+    return buildSectionCard(
+      context: context,
+      title: 'TT Dose',
+      icon: Icons.vaccines_outlined,
+      children: [
+        const Text('1st TT Dose', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Given Y/N', border: OutlineInputBorder()),
-                value: given,
-                items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                onChanged: onGiven,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: _buildDatePicker(label: 'IFA Dt.', value: date, onPicked: onDate)),
+            Expanded(child: formSearchableDropdown(context, '1st Given Y/N', yesNoChoices, stGivenYN, (v) => setState(() => stGivenYN = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '1st Given By', givenByChoices, stGivenBy, (v) => setState(() => stGivenBy = v))),
           ],
         ),
+        const SizedBox(height: 12),
+        _buildDatePicker('1st TT Dt.', stDt, (v) => setState(() => stDt = v)),
+        const Divider(height: 32),
+        const Text('2nd TT Dose', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Given By', border: OutlineInputBorder()),
-          value: by,
-          items: ['(0) RHC', '(1) PVT', '(2) GOVT'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-          onChanged: onBy,
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, '2nd Given Y/N', yesNoChoices, ndGivenYN, (v) => setState(() => ndGivenYN = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '2nd Given By', givenByChoices, ndGivenBy, (v) => setState(() => ndGivenBy = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDatePicker('2nd TT Dt.', ndDt, (v) => setState(() => ndDt = v)),
+      ],
+    );
+  }
+
+  Widget _buildIFASection() {
+    return buildSectionCard(
+      context: context,
+      title: 'IFA',
+      icon: Icons.medication_outlined,
+      children: [
+        const Text('1st IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, '1st Given Y/N', yesNoChoices, stGivenYN1, (v) => setState(() => stGivenYN1 = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '1st Given By', givenByChoices, stGivenBy1, (v) => setState(() => stGivenBy1 = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDatePicker('1st IFA Dt.', stDt1, (v) => setState(() => stDt1 = v)),
+        const Divider(height: 32),
+        const Text('2nd IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, '2nd Given Y/N', yesNoChoices, ndGivenYN1, (v) => setState(() => ndGivenYN1 = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '2nd Given By', givenByChoices, ndGivenBy1, (v) => setState(() => ndGivenBy1 = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDatePicker('2nd IFA Dt.', ndDt1, (v) => setState(() => ndDt1 = v)),
+        const Divider(height: 32),
+        const Text('3rd IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, '3rd Given Y/N', yesNoChoices, rdGivenYN, (v) => setState(() => rdGivenYN = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '3rd Given By', givenByChoices, rdGivenYN1, (v) => setState(() => rdGivenYN1 = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDatePicker('3rd IFA Dt.', rdDt, (v) => setState(() => rdDt = v)),
+        const Divider(height: 32),
+        const Text('4th IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, '4TH Given Y/N', yesNoChoices, THGivenYN, (v) => setState(() => THGivenYN = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, '4th Given By', givenByChoices, THGivenYN1, (v) => setState(() => THGivenYN1 = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildDatePicker('4th IFA Dt.', thDt, (v) => setState(() => thDt = v)),
+      ],
+    );
+  }
+
+  Widget _buildDeliverySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Delivery',
+      icon: Icons.child_friendly_outlined,
+      children: [
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, 'Delivery Type', deliveryTypeChoices, deliveryType, (v) => setState(() => deliveryType = v))),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Delivery Dt.', deliveryDt, (v) => setState(() => deliveryDt = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, 'Delivery Place', deliveryPlaceChoices, deliveryPlace, (v) => setState(() => deliveryPlace = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, 'Delivery Outcome', deliveryOutcomeChoices, deliveryOutcome, (v) => setState(() => deliveryOutcome = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formTextField('Delivery Place Details', _deliveryPlaceDetails),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('No.of Births', _noOfBirths, keyboardType: TextInputType.number)),
+            const SizedBox(width: 12),
+            Expanded(child: formTextField('No.of Birth of Female', _noOfBirthOfFemale, keyboardType: TextInputType.number)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formTextField('Total Live Births', _totalLiveBirths, keyboardType: TextInputType.number),
+      ],
+    );
+  }
+
+  Widget _buildRemarksSection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Remarks',
+      icon: Icons.note_alt_outlined,
+      children: [
+        formTextField('Remarks', _remarks2, maxLines: 5),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(context: context, initialDate: selectedDate ?? DateTime.now(), firstDate: DateTime(1900), lastDate: DateTime.now().add(const Duration(days: 365)));
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), suffixIcon: const Icon(Icons.calendar_today, size: 18)),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
         ),
       ],
     );

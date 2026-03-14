@@ -15,6 +15,7 @@ import 'home_page.dart';
 import 'widget.dart';
 import 'app_drawer.dart';
 import 'personal_details_page.dart';
+import 'sync_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +28,10 @@ Future<void> main() async {
   );
 
   await dotenv.load(fileName: ".env");
+
+  // Start the background sync service to auto-sync offline records when network is available
+  SyncService().initialize();
+
   runApp(const MyApp());
 }
 
@@ -561,7 +566,12 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           FirebaseFirestore.instance.collection('Family Code Creation').doc(oldId).delete();
         }
 
-        // Fire and forget local write for immediate feedback
+        data['firestoreDocId'] = finalId;
+        
+        // 1. Save locally for SyncService to track
+        await DataCacheService().saveOfflineSubmission('Family Code Creation', data);
+
+        // 2. Direct Firestore call (Fire and forget)
         FirebaseFirestore.instance
             .collection('Family Code Creation')
             .doc(finalId)
@@ -658,16 +668,20 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           finalId = 'Off-$prefix-$nextSuf-$timestamp';
         }
 
-        final finalData = Map<String, dynamic>.from(data);
-        finalData['family_id'] = finalId;
-        finalData['is_temporary'] = true;
-        finalData['village_prefix'] = prefix; // Store prefix for background sync
+        data['firestoreDocId'] = finalId;
+        data['family_id'] = finalId;
+        data['is_temporary'] = true;
+        data['village_prefix'] = prefix; // Store prefix for background sync
+
+        // Save locally for SyncService
+        await DataCacheService().saveOfflineSubmission('Family Code Creation', data);
 
         FirebaseFirestore.instance
             .collection('Family Code Creation')
             .doc(finalId)
-            .set(finalData);
+            .set(data);
         debugPrint('SAVE: Local save queued for ID $finalId');
+        saveHandled = true; // Mark as handled since we saved to SQLite
       }
 
       if (mounted) {
@@ -1155,7 +1169,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         lastDoc = snapshot.docs.last;
         count += snapshot.docs.length;
 
-        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => {
+          ...(d.data() as Map<String, dynamic>),
+          'firestoreDocId': d.id
+        }).toList();
         await dbService.saveFamilyDetails(records, clearFirst: (resume == false && count == snapshot.docs.length));
 
         if (mounted) {
@@ -1483,6 +1500,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        menuMaxHeight: 300,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Type of House',
@@ -1521,6 +1539,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
+                  menuMaxHeight: 300,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Type of Roof',
@@ -1537,6 +1556,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
+                  menuMaxHeight: 300,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Type of Wall',
@@ -1553,6 +1573,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
+                  menuMaxHeight: 300,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Type of Floor',
@@ -1614,6 +1635,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               title: 'Energy & Utilities',
               children: [
                 DropdownButtonFormField<String>(
+                  menuMaxHeight: 300,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Primary Cooking Fuel',
@@ -2164,6 +2186,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<String>(
+                        menuMaxHeight: 300,
                         isExpanded: true,
                         value: (agricultureLandUnit == 'Acres' || agricultureLandUnit == 'Guntas') 
                             ? agricultureLandUnit : null,
@@ -2217,6 +2240,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<String>(
+                        menuMaxHeight: 300,
                         isExpanded: true,
                         value: (irrigatedLandUnit == 'Acres' || irrigatedLandUnit == 'Guntas') 
                             ? irrigatedLandUnit : null,
@@ -2674,6 +2698,7 @@ class _RecordsPageState extends State<RecordsPage> {
                 const Text('Select a District and Mandal to sync for offline work.'),
                 const SizedBox(height: 16),
                 DropdownButton<String>(
+                  menuMaxHeight: 300,
                   hint: const Text('Select District'),
                   value: selectedDist,
                   isExpanded: true,
@@ -2682,6 +2707,7 @@ class _RecordsPageState extends State<RecordsPage> {
                 ),
                 if (selectedDist != null)
                   DropdownButton<String>(
+                    menuMaxHeight: 300,
                     hint: const Text('Select Mandal'),
                     value: selectedMand,
                     isExpanded: true,
@@ -2785,7 +2811,10 @@ class _RecordsPageState extends State<RecordsPage> {
         count += snapshot.docs.length;
 
         // --- NEW: Save to Local SQLite ---
-        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+        final List<Map<String, dynamic>> records = snapshot.docs.map((d) => {
+          ...(d.data() as Map<String, dynamic>),
+          'firestoreDocId': d.id
+        }).toList();
         await dbService.saveFamilyDetails(records, clearFirst: (resume == false && count == snapshot.docs.length));
         // ---------------------------------
 

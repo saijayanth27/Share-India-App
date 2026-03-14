@@ -128,6 +128,15 @@ class DataCacheService {
     return members;
   }
 
+  Future<void> saveOfflineSubmission(String collection, Map<String, dynamic> data) async {
+    await _db.saveOfflineSubmission(collection, data);
+    debugPrint('DataCacheService: Saved offline submission for $collection locally.');
+  }
+
+  Future<List<Map<String, dynamic>>> getOfflineSubmissions(String collection) async {
+    return await _db.getOfflineSubmissions(collection);
+  }
+
   Future<void> updateHeadOfFamily(String familyId, String headName) async {
     // 1. Update in-memory
     int index = _familyDetails.indexWhere((d) => (d['family_id'] ?? d['Family_ID']) == familyId);

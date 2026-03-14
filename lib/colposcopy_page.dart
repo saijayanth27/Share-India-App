@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,7 +21,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
-  bool _isLoading = false;
+  bool _isLoadingMembers = false;
 
   // --- Controllers & State ---
   final _nameController = TextEditingController();
@@ -34,7 +35,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   String? selectedFamilyCode;
   String? selectedMemberName;
   String? selectedGender;
-  DateTime? interviewDate;
+  DateTime? interviewDate = DateTime.now();
   String? selectedVisitNumber;
   String? selectedAdequacy;
   String? selectedSCJ;
@@ -46,10 +47,8 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   List<String> procedurePerformed = [];
 
   // Dropdowns
-  List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
-  bool _isLoadingMembers = false;
 
   final List<String> visitChoices = ["Choice 1", "Choice 2", "Choice 3"];
   final List<String> scjChoices = [
@@ -76,59 +75,38 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
-    } else {
-      interviewDate = DateTime.now();
     }
-  }
-
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -136,16 +114,15 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('colposcopy')
-          .where('Family_Code_Creation', isEqualTo: familyCode)
+          .collection('colposcopy_screening')
+          .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
@@ -163,7 +140,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
           }
         } else if (_allMembersData.containsKey(name)) {
           final data = _allMembersData[name]!;
-          _regNoController.text = data['Registration_Number']?.toString() ?? '';
+          _regNoController.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
           selectedGender = data['Gender']?.toString();
         }
       }
@@ -178,7 +155,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
 
   void _populateForm(Map<String, dynamic> d) {
     _regNoController.text = d['Registration_Number'] ?? '';
-    selectedFamilyCode = d['Family_Code_Creation'] ?? d['Family_code'] ?? d['Family_Code'];
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
     _nameController.text = selectedMemberName ?? '';
@@ -195,21 +172,17 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     }
     
     selectedVisitNumber = d['Visit_Number'];
-    selectedAdequacy = d['Colposcopy_adequacy1'];
-    selectedSCJ = d['Level_of_new_squamo_columnar_junction_SCJ1'];
+    selectedAdequacy = d['Colposcopy_adequacy'];
+    selectedSCJ = d['SCJ_level'];
     selectedImpression = d['Colposcopic_impression'];
-    
-    if (d['Procedure_recommended'] != null) {
-      procedureRecommended = List<String>.from(d['Procedure_recommended']);
-    }
-    if (d['Procedure_performed1'] != null) {
-      procedurePerformed = List<String>.from(d['Procedure_performed1']);
-    }
-    
-    _otherRecommendedController.text = d['If_Others_Please_Mention'] ?? '';
-    _otherPerformedController.text = d['If_Others_Please_Mention1'] ?? '';
-    _commentsController.text = d['a_Comments'] ?? '';
-    _detailsController.text = d['Procedure_details_findings_and_comments'] ?? '';
+    procedureRecommended = List<String>.from(d['Procedure_recommended'] ?? []);
+    _otherRecommendedController.text = d['Other_recommended'] ?? '';
+    procedurePerformed = List<String>.from(d['Procedure_performed'] ?? []);
+    _otherPerformedController.text = d['Other_performed'] ?? '';
+    selectedBiopsiesCount = d['Biopsies_count']?.toString();
+    selectedImagesCount = d['Images_count']?.toString();
+    _commentsController.text = d['Comments'] ?? '';
+    _detailsController.text = d['Procedure_details'] ?? '';
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
@@ -220,6 +193,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     _formKey.currentState?.reset();
     setState(() {
       _regNoController.clear();
+      _familyCodeController.clear();
       _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
@@ -237,8 +211,8 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
       selectedImagesCount = null;
       _commentsController.clear();
       _detailsController.clear();
+      familyMemberNames = [];
       _existingRecords = [];
-      _editDocId = null;
     });
   }
 
@@ -249,308 +223,300 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     try {
       final data = {
         'Registration_Number': _regNoController.text,
-        'Family_Code_Creation': selectedFamilyCode,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Interview_Date': interviewDate != null ? Timestamp.fromDate(interviewDate!) : null,
         'Visit_Number': selectedVisitNumber,
-        'Colposcopy_adequacy1': selectedAdequacy,
-        'Level_of_new_squamo_columnar_junction_SCJ1': selectedSCJ,
+        'Colposcopy_adequacy': selectedAdequacy,
+        'SCJ_level': selectedSCJ,
         'Colposcopic_impression': selectedImpression,
         'Procedure_recommended': procedureRecommended,
-        'If_Others_Please_Mention': _otherRecommendedController.text,
-        'Procedure_performed1': procedurePerformed,
-        'If_Others_Please_Mention1': _otherPerformedController.text,
-        'Number_of_cervical_biopsies_taken': selectedBiopsiesCount,
-        'How_many_colposcopy_images_were_taken1': selectedImagesCount,
-        'a_Comments': _commentsController.text,
-        'Procedure_details_findings_and_comments': _detailsController.text,
+        'Other_recommended': _otherRecommendedController.text,
+        'Procedure_performed': procedurePerformed,
+        'Other_performed': _otherPerformedController.text,
+        'Biopsies_count': selectedBiopsiesCount,
+        'Images_count': selectedImagesCount,
+        'Comments': _commentsController.text,
+        'Procedure_details': _detailsController.text,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('colposcopy').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('colposcopy').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('colposcopy').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('colposcopy_screening', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Colposcopy record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Colposcopy updated! Syncing...' : 'Colposcopy saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performColposcopySync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required List<Widget> children,
-    IconData? icon,
-  }) {
-    return buildSectionCard(
-      context: context,
-      title: title,
-      children: children,
-      icon: icon,
-    );
-  }
-
-  Widget _buildRadioGroup(String title, List<String> options, String? groupValue, Function(String?) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 16,
-          children: options.map((opt) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Radio<String>(value: opt, groupValue: groupValue, onChanged: onChanged),
-              Text(opt),
-            ],
-          )).toList(),
-        ),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  Widget _buildVerticalRadioGroup(String title, List<String> options, String? groupValue, Function(String?) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ...options.map((opt) => RadioListTile<String>(
-          title: Text(opt),
-          value: opt,
-          groupValue: groupValue,
-          onChanged: onChanged,
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        )),
-        const SizedBox(height: 16),
-      ],
-    );
+  void _performColposcopySync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('colposcopy_screening').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('colposcopy_screening').add(data);
+      }
+    } catch (e) {
+      debugPrint('Colposcopy Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Colposcopy', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.purple.shade700, Colors.deepPurple.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Colposcopy Screening'), elevation: 0),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Colposcopy Examination',
-                    subtitle: 'Cervical visualization and assessment',
-                  ),
-                  _buildSectionCard(
-                    title: 'Identification',
-                    icon: Icons.person_outline,
-                    children: [
-                      TextFormField(controller: _regNoController, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _familyCodeController,
-                              decoration: const InputDecoration(labelText: 'Family code', border: OutlineInputBorder()),
-                              onChanged: (v) {
-                                setState(() {
-                                  selectedFamilyCode = v;
-                                  selectedMemberName = null;
-                                  familyMemberNames = [];
-                                });
-                                if (v != null && v.isNotEmpty) {
-                                  if (_isEditMode) {
-                                    _fetchExistingRecords(v);
-                                  } else {
-                                    _fetchMembersByFamily(v);
-                                  }
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _isEditMode
-                                ? DropdownButtonFormField<String>(
-                                    decoration: InputDecoration(
-                                      labelText: 'Select Name to Edit',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                    ),
-                                    value: selectedMemberName,
-                                    items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
-                                    onChanged: _onNameSelected,
-                                  )
-                                : DropdownButtonFormField<String>(
-                                    decoration: InputDecoration(
-                                      labelText: 'Name',
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                    ),
-                                    value: selectedMemberName,
-                                    items: familyMemberNames.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                                    onChanged: _onNameSelected,
-                                  ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      _buildRadioGroup('Gender', ['(1) Male', '(0) Female'], selectedGender, (v) => setState(() => selectedGender = v)),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () async {
-                                final picked = await showDatePicker(context: context, initialDate: interviewDate ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
-                                if (picked != null) setState(() => interviewDate = picked);
-                              },
-                              child: InputDecorator(
-                                decoration: const InputDecoration(labelText: 'Interview Date', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                                child: Text(interviewDate == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(interviewDate!)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: const InputDecoration(labelText: 'Visit Number', border: OutlineInputBorder()),
-                              value: selectedVisitNumber,
-                              items: visitChoices.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => selectedVisitNumber = v),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Assessment',
-                    icon: Icons.assignment_outlined,
-                    children: [
-                      _buildRadioGroup('5 Colposcopy adequacy?', ['Satisfactory', 'Unsatisfactory'], selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
-                      _buildVerticalRadioGroup('6 Level of new squamo-columnar junction (SCJ)', scjChoices, selectedSCJ, (v) => setState(() => selectedSCJ = v)),
-                      _buildVerticalRadioGroup('7 Colposcopic impression?', impressionChoices, selectedImpression, (v) => setState(() => selectedImpression = v)),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Procedure Recommended',
-                    icon: Icons.recommend_outlined,
-                    children: [
-                      const Text('8. Procedure recommended', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ...procedureChoices.map((c) => CheckboxListTile(
-                            title: Text(c),
-                            value: procedureRecommended.contains(c),
-                            onChanged: (v) => setState(() => v == true ? procedureRecommended.add(c) : procedureRecommended.remove(c)),
-                            controlAffinity: ListTileControlAffinity.leading,
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                          )),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _otherRecommendedController, decoration: const InputDecoration(labelText: 'If Others Please Mention', border: OutlineInputBorder())),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Procedure Performed',
-                    icon: Icons.medical_services_outlined,
-                    children: [
-                      const Text('9. Procedure performed', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ...procedureChoices.map((c) => CheckboxListTile(
-                            title: Text(c),
-                            value: procedurePerformed.contains(c),
-                            onChanged: (v) => setState(() => v == true ? procedurePerformed.add(c) : procedurePerformed.remove(c)),
-                            controlAffinity: ListTileControlAffinity.leading,
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                          )),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _otherPerformedController, decoration: const InputDecoration(labelText: 'If Others Please Mention', border: OutlineInputBorder())),
-                      const SizedBox(height: 24),
-                      _buildRadioGroup('10 Number of cervical biopsies taken', ['1', '2', '3', '4'], selectedBiopsiesCount, (v) => setState(() => selectedBiopsiesCount = v)),
-                      _buildRadioGroup('12. How many colposcopy images were taken?', ['0', '1', '2'], selectedImagesCount, (v) => setState(() => selectedImagesCount = v)),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _commentsController, maxLines: 3, decoration: const InputDecoration(labelText: '12a. Comments', border: OutlineInputBorder())),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Findings',
-                    icon: Icons.description_outlined,
-                    children: [
-                      TextFormField(controller: _detailsController, maxLines: 5, decoration: const InputDecoration(labelText: '13. Procedure details, findings and comments:', border: OutlineInputBorder())),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text(_isEditMode ? 'Update Colposcopy' : 'Save Colposcopy', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: _resetForm,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Assessment',
+                      icon: Icons.assignment_outlined,
+                      children: [
+                        _buildDatePicker('Interview Date', interviewDate, (v) => setState(() => interviewDate = v)),
+                        const SizedBox(height: 16),
+                        formSearchableDropdown(context, 'Visit Number', visitChoices, selectedVisitNumber, (v) => setState(() => selectedVisitNumber = v)),
+                        const SizedBox(height: 16),
+                        _buildRadioGroup('5 Colposcopy adequacy?', ['Satisfactory', 'Unsatisfactory'], selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
+                        const SizedBox(height: 16),
+                        _buildVerticalRadioGroup('6 Level of new squamo-columnar junction (SCJ)', scjChoices, selectedSCJ, (v) => setState(() => selectedSCJ = v)),
+                        const SizedBox(height: 16),
+                        _buildVerticalRadioGroup('7 Colposcopic impression?', impressionChoices, selectedImpression, (v) => setState(() => selectedImpression = v)),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Procedure Recommended',
+                      icon: Icons.recommend_outlined,
+                      children: [
+                        const Text('8. Procedure recommended', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ...procedureChoices.map((c) => CheckboxListTile(
+                              title: Text(c),
+                              value: procedureRecommended.contains(c),
+                              onChanged: (v) => setState(() => v == true ? procedureRecommended.add(c) : procedureRecommended.remove(c)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            )),
+                        if (procedureRecommended.contains("(4) Others")) formTextField('If Others Please Mention', _otherRecommendedController),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Procedure Performed',
+                      icon: Icons.task_alt_outlined,
+                      children: [
+                        const Text('9. Procedure performed', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ...procedureChoices.map((c) => CheckboxListTile(
+                              title: Text(c),
+                              value: procedurePerformed.contains(c),
+                              onChanged: (v) => setState(() => v == true ? procedurePerformed.add(c) : procedurePerformed.remove(c)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            )),
+                        if (procedurePerformed.contains("(4) Others")) formTextField('If Others Please Mention', _otherPerformedController),
+                        const SizedBox(height: 24),
+                        _buildRadioGroup('10 Number of cervical biopsies taken', ['1', '2', '3', '4'], selectedBiopsiesCount, (v) => setState(() => selectedBiopsiesCount = v)),
+                        const SizedBox(height: 16),
+                        _buildRadioGroup('12. How many colposcopy images were taken?', ['0', '1', '2'], selectedImagesCount, (v) => setState(() => selectedImagesCount = v)),
+                        const SizedBox(height: 16),
+                        formTextField('12a. Comments', _commentsController, maxLines: 3),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Findings',
+                      icon: Icons.description_outlined,
+                      children: [
+                        formTextField('13. Procedure details, findings and comments:', _detailsController, maxLines: 5),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+    );
+  }
+
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Patient Identity',
+      icon: Icons.person_outline,
+      children: [
+        formTextField(
+          'Registration Number',
+          _regNoController,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
+          children: [
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRadioGroup(String title, List<String> options, String? currentValue, Function(String) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        Row(
+          children: options.map((opt) => Expanded(
+            child: RadioListTile<String>(
+              title: Text(opt, style: const TextStyle(fontSize: 13)),
+              value: opt,
+              groupValue: currentValue,
+              onChanged: (val) => val != null ? onChanged(val) : null,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          )).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVerticalRadioGroup(String title, List<String> options, String? currentValue, Function(String) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        ...options.map((opt) => RadioListTile<String>(
+          title: Text(opt, style: const TextStyle(fontSize: 13)),
+          value: opt,
+          groupValue: currentValue,
+          onChanged: (val) => val != null ? onChanged(val) : null,
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+        )),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

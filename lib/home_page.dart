@@ -8,6 +8,20 @@ import 'aarogya_page.dart';
 import 'questionnaire_page.dart';
 import 'bpgluco.dart';
 import 'main.dart'; // For FamilyFormPage
+import 'ante_natal_care_checkup_page.dart';
+import 'blood_sugar_fasting_page.dart';
+import 'anthropometry_page.dart';
+import 'blood_sample_status_page.dart';
+import 'quarterly_survey_questionnaire_page.dart';
+import 'refused_form_page.dart';
+import 'doctor_prescriptions_page.dart';
+import 'medicines_entry_page.dart';
+import 'tb_questionnaire_page.dart';
+import 'colposcopy_page.dart';
+import 'eye_examination_page.dart';
+import 'cytology_page.dart';
+import 'lab_investigation_page.dart';
+import 'cervical_cancer_screening_questionnaire_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -92,6 +106,12 @@ class HomePage extends StatelessWidget {
                     color: Colors.deepPurple,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AarogyaPage())),
                   ),
+                  _DashboardItem(
+                    title: 'ANC Checkup',
+                    icon: Icons.medical_services,
+                    color: Colors.orange,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnteNatalCareCheckupPage())),
+                  ),
                 ],
               ),
               const SizedBox(height: 32),
@@ -112,6 +132,84 @@ class HomePage extends StatelessWidget {
                     icon: Icons.monitor_heart,
                     color: Colors.red,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HealthReadingsPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Blood Sugar',
+                    icon: Icons.bloodtype,
+                    color: Colors.deepOrange,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BloodSugarFastingPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Anthropometry',
+                    icon: Icons.straighten,
+                    color: Colors.brown,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnthropometryPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Sample Status',
+                    icon: Icons.biotech,
+                    color: Colors.blue,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BloodSampleStatusPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Quarterly Sur.',
+                    icon: Icons.assignment,
+                    color: Colors.deepPurple,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuarterlySurveyPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Refused Form',
+                    icon: Icons.cancel,
+                    color: Colors.redAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RefusedFormPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Doctor Pres.',
+                    icon: Icons.medical_information,
+                    color: Colors.lightBlue,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DoctorPrescriptionsPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Medicines',
+                    icon: Icons.medication,
+                    color: Colors.purpleAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MedicinesEntryPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'TB Quest.',
+                    icon: Icons.healing,
+                    color: Colors.red,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TBQuestionnairePage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Colposcopy',
+                    icon: Icons.camera,
+                    color: Colors.redAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ColposcopyPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Eye Exam',
+                    icon: Icons.visibility,
+                    color: Colors.blueAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EyeExaminationPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Cytology',
+                    icon: Icons.science,
+                    color: Colors.purple,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CytologyPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Lab',
+                    icon: Icons.hub,
+                    color: Colors.blue,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LabInvestigationPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Cervical Scr.',
+                    icon: Icons.description,
+                    color: Colors.deepPurpleAccent,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CervicalCancerScreeningPage())),
                   ),
                 ],
               ),

@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -20,15 +21,16 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
-  bool _isLoading = false;
+  bool _isLoadingMembers = false;
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
   final _familyCodeController = TextEditingController();
+  final _nameController = TextEditingController();
   final _age = TextEditingController();
   
   String? selectedFamilyCode;
-  String? selectedName;
+  String? selectedMemberName;
   String? selectedGender;
   DateTime? dateOfInterview = DateTime.now();
   String? interviewersName;
@@ -51,68 +53,47 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   DateTime? dateSputumTB;
   DateTime? dateVaginalSwabHPV;
   DateTime? dateUrine;
-  DateTime? entryDate = DateTime.now();
-  DateTime? modifiedDate = DateTime.now();
 
-  List<String> allFamilyCodes = [];
-  List<String> familyMembers = [];
+  List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
-  bool _isLoadingMembers = false;
+
+  final List<String> interviewerList = ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'];
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
-        familyMembers = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        familyMemberNames = allNames.toList()..sort();
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -123,20 +104,20 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
           .collection('blood_sample_status')
           .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
 
   void _onNameSelected(String? name) async {
     setState(() {
-      selectedName = name;
+      selectedMemberName = name;
+      _nameController.text = name ?? '';
       if (name != null) {
         if (_isEditMode) {
           final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
@@ -161,12 +142,14 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   }
 
   void _populateForm(Map<String, dynamic> d) {
-    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
+    _registrationNumber.text = d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
-    selectedName = d['Name'];
+    selectedMemberName = d['Name'];
+    _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     _age.text = d['Age']?.toString() ?? '';
+    
     if (d['Date_of_Interview'] != null) {
       if (d['Date_of_Interview'] is Timestamp) {
         dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
@@ -176,104 +159,43 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         } catch (_) {}
       }
     }
-    interviewersName = d['Interviewer_s_Name'];
-    notDoneReason = d['If_not_done_reason'];
-
-    collectBloodSample = d['Did_you_collect_Blood_Sample1'];
-    collectHBA1C = d['Did_you_collected_Blood_sample_for_HBA1C'];
-    collectThyroid = d['Did_you_collected_Blood_sample_for_THYROID'];
-    collectCRE = d['Did_you_collected_Blood_sample_for_CRE'];
-    collectSputumTB = d['Did_you_collected_SPUTUM_sample_for_TB_Test'];
-    collectVaginalSwabHPV = d['Did_you_collected_Vaginal_Swab_sample_for_HPV'];
-    collectUrine = d['Did_you_collected_Urine_sample'];
-
-    if (d['Date_of_Blood_sample_collection_for_CBP'] != null) dateCBP = (d['Date_of_Blood_sample_collection_for_CBP'] as Timestamp).toDate();
-    if (d['Date_of_Blood_sample_collection_for_HBA1C'] != null) dateHBA1C = (d['Date_of_Blood_sample_collection_for_HBA1C'] as Timestamp).toDate();
-    if (d['Date_of_Blood_sample_collection_for_THYROID'] != null) dateThyroid = (d['Date_of_Blood_sample_collection_for_THYROID'] as Timestamp).toDate();
-    if (d['Date_of_Blood_sample_collection_for_CRE'] != null) dateCRE = (d['Date_of_Blood_sample_collection_for_CRE'] as Timestamp).toDate();
-    if (d['Date_of_Sputum_sample_collection_for_TB_Test'] != null) dateSputumTB = (d['Date_of_Sputum_sample_collection_for_TB_Test'] as Timestamp).toDate();
-    if (d['Date_of_V_Swab_sample_collection_for_HPV'] != null) dateVaginalSwabHPV = (d['Date_of_V_Swab_sample_collection_for_HPV'] as Timestamp).toDate();
-    if (d['Date_of_Urine_sample_collection'] != null) dateUrine = (d['Date_of_Urine_sample_collection'] as Timestamp).toDate();
     
-    if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
-    if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
+    interviewersName = d['Interviewer_s_Name'];
+    notDoneReason = d['Not_Done_Reason'];
 
-    if (selectedFamilyCode != null && familyMembers.isEmpty) {
+    collectBloodSample = d['Collect_Blood_Sample'];
+    collectHBA1C = d['Collect_HBA1C'];
+    collectThyroid = d['Collect_Thyroid'];
+    collectCRE = d['Collect_CRE'];
+    collectSputumTB = d['Collect_Sputum_TB'];
+    collectVaginalSwabHPV = d['Collect_Vaginal_Swab_HPV'];
+    collectUrine = d['Collect_Urine'];
+
+    if (d['Date_CBP'] != null) dateCBP = d['Date_CBP'] is Timestamp ? (d['Date_CBP'] as Timestamp).toDate() : null;
+    if (d['Date_HBA1C'] != null) dateHBA1C = d['Date_HBA1C'] is Timestamp ? (d['Date_HBA1C'] as Timestamp).toDate() : null;
+    if (d['Date_Thyroid'] != null) dateThyroid = d['Date_Thyroid'] is Timestamp ? (d['Date_Thyroid'] as Timestamp).toDate() : null;
+    if (d['Date_CRE'] != null) dateCRE = d['Date_CRE'] is Timestamp ? (d['Date_CRE'] as Timestamp).toDate() : null;
+    if (d['Date_Sputum_TB'] != null) dateSputumTB = d['Date_Sputum_TB'] is Timestamp ? (d['Date_Sputum_TB'] as Timestamp).toDate() : null;
+    if (d['Date_Vaginal_Swab_HPV'] != null) dateVaginalSwabHPV = d['Date_Vaginal_Swab_HPV'] is Timestamp ? (d['Date_Vaginal_Swab_HPV'] as Timestamp).toDate() : null;
+    if (d['Date_Urine'] != null) dateUrine = d['Date_Urine'] is Timestamp ? (d['Date_Urine'] as Timestamp).toDate() : null;
+
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
-    }
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-
-    try {
-      final data = {
-        'Registration_Number': _registrationNumber.text,
-        'Family_code': selectedFamilyCode,
-        'Name': selectedName,
-        'Gender': selectedGender,
-        'Age': int.tryParse(_age.text),
-        'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
-        'Interviewer_s_Name': interviewersName,
-        'If_not_done_reason': notDoneReason,
-        'Did_you_collect_Blood_Sample1': collectBloodSample,
-        'Did_you_collected_Blood_sample_for_HBA1C': collectHBA1C,
-        'Did_you_collected_Blood_sample_for_THYROID': collectThyroid,
-        'Did_you_collected_Blood_sample_for_CRE': collectCRE,
-        'Did_you_collected_SPUTUM_sample_for_TB_Test': collectSputumTB,
-        'Did_you_collected_Vaginal_Swab_sample_for_HPV': collectVaginalSwabHPV,
-        'Did_you_collected_Urine_sample': collectUrine,
-        'Date_of_Blood_sample_collection_for_CBP': dateCBP != null ? Timestamp.fromDate(dateCBP!) : null,
-        'Date_of_Blood_sample_collection_for_HBA1C': dateHBA1C != null ? Timestamp.fromDate(dateHBA1C!) : null,
-        'Date_of_Blood_sample_collection_for_THYROID': dateThyroid != null ? Timestamp.fromDate(dateThyroid!) : null,
-        'Date_of_Blood_sample_collection_for_CRE': dateCRE != null ? Timestamp.fromDate(dateCRE!) : null,
-        'Date_of_Sputum_sample_collection_for_TB_Test': dateSputumTB != null ? Timestamp.fromDate(dateSputumTB!) : null,
-        'Date_of_V_Swab_sample_collection_for_HPV': dateVaginalSwabHPV != null ? Timestamp.fromDate(dateVaginalSwabHPV!) : null,
-        'Date_of_Urine_sample_collection': dateUrine != null ? Timestamp.fromDate(dateUrine!) : null,
-        'Entry_Date': entryDate != null ? Timestamp.fromDate(entryDate!) : null,
-        'Modified_Date': Timestamp.now(),
-        'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
-        'needs_zoho_sync': true,
-      };
-
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('blood_sample_status').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('blood_sample_status').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('blood_sample_status').add(data);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Blood sample status saved successfully!'), backgroundColor: Colors.green),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
-      if (!_isEditMode) {
-        _familyCodeController.clear();
-        selectedFamilyCode = null;
-      }
       _registrationNumber.clear();
-      selectedName = null;
+      _familyCodeController.clear();
+      _nameController.clear();
+      selectedFamilyCode = null;
+      selectedMemberName = null;
       selectedGender = null;
       _age.clear();
       dateOfInterview = DateTime.now();
+      interviewersName = null;
       notDoneReason = null;
       collectBloodSample = null;
       collectHBA1C = null;
@@ -289,263 +211,258 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       dateSputumTB = null;
       dateVaginalSwabHPV = null;
       dateUrine = null;
-      familyMembers = [];
+      familyMemberNames = [];
       _existingRecords = [];
     });
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+
+    try {
+      final data = {
+        'Registration_Number': _registrationNumber.text,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
+        'Name': _isEditMode ? selectedMemberName : _nameController.text,
+        'Gender': selectedGender,
+        'Age': int.tryParse(_age.text),
+        'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
+        'Interviewer_s_Name': interviewersName,
+        'Not_Done_Reason': notDoneReason,
+        'Collect_Blood_Sample': collectBloodSample,
+        'Collect_HBA1C': collectHBA1C,
+        'Collect_Thyroid': collectThyroid,
+        'Collect_CRE': collectCRE,
+        'Collect_Sputum_TB': collectSputumTB,
+        'Collect_Vaginal_Swab_HPV': collectVaginalSwabHPV,
+        'Collect_Urine': collectUrine,
+        'Date_CBP': dateCBP != null ? Timestamp.fromDate(dateCBP!) : null,
+        'Date_HBA1C': dateHBA1C != null ? Timestamp.fromDate(dateHBA1C!) : null,
+        'Date_Thyroid': dateThyroid != null ? Timestamp.fromDate(dateThyroid!) : null,
+        'Date_CRE': dateCRE != null ? Timestamp.fromDate(dateCRE!) : null,
+        'Date_Sputum_TB': dateSputumTB != null ? Timestamp.fromDate(dateSputumTB!) : null,
+        'Date_Vaginal_Swab_HPV': dateVaginalSwabHPV != null ? Timestamp.fromDate(dateVaginalSwabHPV!) : null,
+        'Date_Urine': dateUrine != null ? Timestamp.fromDate(dateUrine!) : null,
+        'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
+        'needs_zoho_sync': true,
+      };
+
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('blood_sample_status', data);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Blood Sample Status updated! Syncing...' : 'Blood Sample Status saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
+        if (widget.docId != null) {
+          Navigator.pop(context);
+        } else if (!wasEditing) {
+          _resetForm();
+        }
+      }
+
+      // 2. Background Sync (Non-blocking)
+      _performBloodSampleStatusSync(data);
+
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _performBloodSampleStatusSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('blood_sample_status').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('blood_sample_status').add(data);
+      }
+    } catch (e) {
+      debugPrint('Blood Sample Status Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Sample Status Form', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.blue.shade700, Colors.blue.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Blood Sample Status'), elevation: 0),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            key: const PageStorageKey('blood_sample_status_scroll'),
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Blood Sample Tracking',
-                    subtitle: 'Monitor collection and status of various health samples',
-                  ),
-                  _buildIdentitySection(),
-                  _buildSampleStatusSection(),
-                  _buildCollectionDatesSection(),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
                     ),
-                    child: Text(_isEditMode ? 'Update Status' : 'Save Status', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 48),
-                ],
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Sample Collection Status',
+                      icon: Icons.bloodtype_outlined,
+                      children: [
+                        _buildCollectionRow('Blood Sample (CBP/Glu)', collectBloodSample, dateCBP, (v) => setState(() => collectBloodSample = v), (d) => setState(() => dateCBP = d)),
+                        _buildCollectionRow('HbA1c', collectHBA1C, dateHBA1C, (v) => setState(() => collectHBA1C = v), (d) => setState(() => dateHBA1C = d)),
+                        _buildCollectionRow('Thyroid (T3/T4/TSH)', collectThyroid, dateThyroid, (v) => setState(() => collectThyroid = v), (d) => setState(() => dateThyroid = d)),
+                        _buildCollectionRow('Creatinine (CRE)', collectCRE, dateCRE, (v) => setState(() => collectCRE = v), (d) => setState(() => dateCRE = d)),
+                        _buildCollectionRow('Sputum (TB)', collectSputumTB, dateSputumTB, (v) => setState(() => collectSputumTB = v), (d) => setState(() => dateSputumTB = d)),
+                        _buildCollectionRow('Vaginal Swab (HPV)', collectVaginalSwabHPV, dateVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v), (d) => setState(() => dateVaginalSwabHPV = d)),
+                        _buildCollectionRow('Urine', collectUrine, dateUrine, (v) => setState(() => collectUrine = v), (d) => setState(() => dateUrine = d)),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+          if (_isSaving)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Identity & Interview',
-      icon: Icons.person_pin_outlined,
+      title: 'Member Identity',
+      icon: Icons.person_outline,
       children: [
-        TextFormField(
-          controller: _registrationNumber,
-          decoration: InputDecoration(
-            labelText: 'Registration Number',
-            border: const OutlineInputBorder(),
-            prefixIcon: Icon(Icons.badge_outlined, color: Theme.of(context).primaryColor),
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _familyCodeController,
-          decoration: InputDecoration(
-            labelText: 'Family code',
-            border: const OutlineInputBorder(),
-            prefixIcon: Icon(Icons.family_restroom, color: Theme.of(context).primaryColor),
-          ),
-          onChanged: (v) {
-            setState(() {
-              selectedFamilyCode = v;
-              selectedName = null;
-              familyMembers = [];
-            });
-            if (v.isNotEmpty) {
-              if (_isEditMode) {
-                _fetchExistingRecords(v);
-              } else {
-                _fetchMembersByFamily(v);
-              }
+        formTextField('Registration Number', _registrationNumber),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
             }
           },
+          isLoading: _isLoadingMembers,
         ),
-        const SizedBox(height: 16),
-        if (_isEditMode)
-          DropdownButtonFormField<String>(
-            decoration: InputDecoration(
-              labelText: 'Select Name to Edit',
-              border: const OutlineInputBorder(),
-              prefixIcon: Icon(Icons.edit_note, color: Theme.of(context).primaryColor),
-              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null,
-            ),
-            value: selectedName,
-            items: _existingRecords.map((r) => DropdownMenuItem(value: r['Name']?.toString() ?? 'Unknown', child: Text(r['Name']?.toString() ?? 'Unknown'))).toList(),
-            onChanged: (v) {
-               final record = _existingRecords.firstWhere((r) => r['Name'] == v);
-               setState(() {
-                 selectedName = v;
-                 _editDocId = record['id'];
-                 _populateForm(record);
-               });
-            },
-          )
-        else
-          DropdownButtonFormField<String>(
-            decoration: InputDecoration(
-              labelText: 'Name',
-              border: const OutlineInputBorder(),
-              prefixIcon: Icon(Icons.person, color: Theme.of(context).primaryColor),
-              suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : null,
-            ),
-            value: selectedName,
-            items: familyMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-            onChanged: _onNameSelected,
-          ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
-                value: selectedGender,
-                items: ['(1) Male', '(0) Female'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                onChanged: (v) => setState(() => selectedGender = v),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: TextFormField(controller: _age, decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
-        const SizedBox(height: 16),
-        InkWell(
-          onTap: () async {
-            final picked = await showDatePicker(context: context, initialDate: dateOfInterview ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime.now());
-            if (picked != null) setState(() => dateOfInterview = picked);
-          },
-          child: InputDecorator(
-            decoration: const InputDecoration(labelText: 'Date of Interview', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-            child: Text(dateOfInterview == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(dateOfInterview!)),
-          ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+          ],
         ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(labelText: 'Interviewer’s Name', border: OutlineInputBorder()),
-          value: interviewersName,
-          items: ['KIRANMAI K', 'LAVANYA KASPOJU', 'RAMADEVI Y', 'REVATHI CH'].map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-          onChanged: (v) => setState(() => interviewersName = v),
-        ),
-        const SizedBox(height: 16),
-        const Text('If not done, reason', style: TextStyle(fontWeight: FontWeight.bold)),
-        Column(
-          children: ['Not available', 'Refused for current visit', 'Door Locked'].map((r) => RadioListTile<String>(
-            title: Text(r),
-            value: r,
-            groupValue: notDoneReason,
-            onChanged: (v) => setState(() => notDoneReason = v),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          )).toList(),
-        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
       ],
     );
   }
 
-  Widget _buildSampleStatusSection() {
-    return buildSectionCard(
-      context: context,
-      title: 'Sample Collection Status',
-      icon: Icons.biotech_outlined,
+  Widget _buildCollectionRow(String label, String? value, DateTime? date, ValueChanged<String?> onChanged, Function(DateTime) onDateChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildRadioRow('Did you collect Blood Sample?', collectBloodSample, (v) => setState(() => collectBloodSample = v), ['Yes']),
-        _buildDropdownRow('HBA1C', collectHBA1C, (v) => setState(() => collectHBA1C = v)),
-        _buildDropdownRow('THYROID', collectThyroid, (v) => setState(() => collectThyroid = v)),
-        _buildDropdownRow('CRE', collectCRE, (v) => setState(() => collectCRE = v)),
-        _buildDropdownRow('TB Test (SPUTUM)', collectSputumTB, (v) => setState(() => collectSputumTB = v)),
-        _buildDropdownRow('HPV (Vaginal Swab)', collectVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v)),
-        _buildDropdownRow('Urine', collectUrine, (v) => setState(() => collectUrine = v)),
+        const SizedBox(height: 12),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        Row(
+          children: [
+            Expanded(child: formSearchableDropdown(context, 'Status', ['(1) Collected', '(0) Not Collected'], value, onChanged)),
+            if (value == '(1) Collected') ...[
+              const SizedBox(width: 12),
+              Expanded(child: _buildDatePicker('Date', date, onDateChanged)),
+            ],
+          ],
+        ),
+        const Divider(),
       ],
     );
   }
 
-  Widget _buildRadioRow(String label, String? value, Function(String?) onChanged, List<String> choices) {
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        Row(
-          children: choices.map((c) => Expanded(
-            child: RadioListTile<String>(
-              title: Text(c),
-              value: c,
-              groupValue: value,
-              onChanged: onChanged,
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
-          )).toList(),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
         ),
-        const SizedBox(height: 8),
       ],
-    );
-  }
-
-  Widget _buildDropdownRow(String sample, String? value, Function(String?) onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: DropdownButtonFormField<String>(
-        decoration: InputDecoration(labelText: 'Did you collect sample for $sample', border: const OutlineInputBorder()),
-        value: value,
-        items: ['Yes', 'No', 'Refused'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
-        onChanged: onChanged,
-      ),
-    );
-  }
-
-  Widget _buildCollectionDatesSection() {
-    return buildSectionCard(
-      context: context,
-      title: 'Collection Dates',
-      icon: Icons.calendar_month_outlined,
-      children: [
-        _buildDatePicker('Date of Blood sample collection for CBP', dateCBP, (v) => setState(() => dateCBP = v)),
-        _buildDatePicker('Date of Blood sample collection for HBA1C', dateHBA1C, (v) => setState(() => dateHBA1C = v)),
-        _buildDatePicker('Date of Blood sample collection for THYROID', dateThyroid, (v) => setState(() => dateThyroid = v)),
-        _buildDatePicker('Date of Blood sample collection for CRE', dateCRE, (v) => setState(() => dateCRE = v)),
-        _buildDatePicker('Date of Sputum sample collection for TB Test', dateSputumTB, (v) => setState(() => dateSputumTB = v)),
-        _buildDatePicker('Date of V.Swab sample collection for HPV', dateVaginalSwabHPV, (v) => setState(() => dateVaginalSwabHPV = v)),
-        _buildDatePicker('Date of Urine sample collection', dateUrine, (v) => setState(() => dateUrine = v)),
-        const Divider(),
-        _buildDatePicker('Entry Date', entryDate, (v) => setState(() => entryDate = v)),
-      ],
-    );
-  }
-
-  Widget _buildDatePicker(String label, DateTime? value, Function(DateTime?) onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: InkWell(
-        onTap: () async {
-          final picked = await showDatePicker(context: context, initialDate: value ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime.now());
-          if (picked != null) onChanged(picked);
-        },
-        child: InputDecorator(
-          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.calendar_today)),
-          child: Text(value == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(value)),
-        ),
-      ),
     );
   }
 }

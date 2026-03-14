@@ -8,8 +8,9 @@ import 'widget.dart';
 class FamilyPlanningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
   final String? docId;
+  final String? initialFamilyCode;
 
-  const FamilyPlanningPage({super.key, this.existingData, this.docId});
+  const FamilyPlanningPage({super.key, this.existingData, this.docId, this.initialFamilyCode});
 
   @override
   State<FamilyPlanningPage> createState() => _FamilyPlanningPageState();
@@ -21,140 +22,121 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
+  bool _isLoadingMembers = false;
 
   // --- Basic Information ---
   final _familyCodeController = TextEditingController();
-  final _familyCodeOldController = TextEditingController();
   final _finalFamilyCodeController = TextEditingController();
   final _nameController = TextEditingController();
-  String? selectedName;
   final _nameIdController = TextEditingController();
   final _husbandNameController = TextEditingController();
-  String? selectEntryScreen;
   final _regNoController = TextEditingController();
   final _motherRegNoController = TextEditingController();
   final _fatherRegNoController = TextEditingController();
   final _familyNoController = TextEditingController();
-  String? marriageType;
-
-  // --- Used? Section ---
-  String? used;
-  DateTime? usedDate;
-  String? usedPlace;
   final _remarksController = TextEditingController();
 
-  // --- Contraceptives Section ---
-  bool usedOralContraceptives = false;
+  // --- Contraceptives Controllers ---
   final _howLongOralController = TextEditingController();
-  DateTime? lastUseOralDate;
-  
-  bool usedCondoms = false;
-  DateTime? condomLastDate; // From image "Date?" associated with condoms
-
-  bool usedCopperT = false;
-  
-  bool usedInjectable = false;
-  final _howLongInjectableController = TextEditingController();
-  DateTime? lastUseInjectableDate;
-
-  bool usedOther = false;
   final _ifYesOtherController = TextEditingController();
+  final _howLongUseOralController = TextEditingController();
+  final _ifYesController = TextEditingController();
+
+  // --- State ---
+  String? selectedFamilyCode;
+  String? selectedName;
+  String? selectedGender;
+  String? selectEntryScreen;
+  String? marriageType;
+
+  // Permanent Fields
+  String? permanentUsed;
+  DateTime? permanentDate;
+  String? permanentPlace;
+
+  // Temporary Fields
+  String? usedOralContraceptives;
+  DateTime? lastUseOralDate;
+  String? usedCondoms;
+  String? usedCopperT;
+  String? usedInjectable;
+  String? howLongInjectable;
+  DateTime? lastUseInjectableDate;
+  DateTime? temporaryDate;
+  String? usedOther;
 
   // Lookups
-  List<String> allFamilyCodes = [];
-  List<String> femaleMembers = [];
-  bool _isLoadingMembers = false;
-  Map<String, Map<String, dynamic>> _memberDataMap = {};
+  List<String> familyMemberNames = [];
+  Map<String, Map<String, dynamic>> _allMembersData = {};
 
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
+    if (widget.initialFamilyCode != null) {
+      _familyCodeController.text = widget.initialFamilyCode!;
+      _fetchMembersByFamily(widget.initialFamilyCode!);
+      _fetchExistingRecords(widget.initialFamilyCode!);
+    }
     if (widget.existingData != null) {
       _loadExistingData();
     }
   }
 
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
-  }
-
-  Future<void> _fetchFemalesByFamily(String familyCode) async {
-    setState(() {
-      _isLoadingMembers = true;
-      femaleMembers = [];
-      _memberDataMap = {};
-    });
+  Future<void> _fetchMembersByFamily(String familyCode) async {
+    setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Personal Details)
-      final snapshot = await FirebaseFirestore.instance
-          .collection('personal_details')
-          .where('Family_Code', isEqualTo: familyCode)
-          .where('Gender', isEqualTo: '(0) Female')
-          .where('Marital_Status', isEqualTo: '(1) Married')
-          .where('A_v_Status', isEqualTo: '(1) Active')
-          .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch exclusion list: Permanent Family Planning
-      final fpExclusionSnapshot = await FirebaseFirestore.instance
-          .collection('reproductive_health')
+      // 1. Fetch members with Permanent Family Planning to exclude them
+      final fpSnapshot = await FirebaseFirestore.instance
+          .collection('family_planning')
           .where('Family_Code', isEqualTo: familyCode)
           .where('Select_Entry_Screen', isEqualTo: '(1) Permanent')
           .get();
-      final Set<String> excludedNames = fpExclusionSnapshot.docs
+      final excludedNames = fpSnapshot.docs
           .map((doc) => doc.data()['Name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
           .toSet();
 
-      // 3. Fetch exclusion list: Ante Natal Care (ANC)
-      final ancExclusionSnapshot = await FirebaseFirestore.instance
-          .collection('ante_natal_care')
+      // 2. Fetch Personal Details
+      final snapshot = await FirebaseFirestore.instance
+          .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
-      excludedNames.addAll(ancExclusionSnapshot.docs
-          .map((doc) => doc.data()['Female']?.toString() ?? '')
-          .toSet());
-
-      // 4. Fetch from Local SQLite
+          .get(const GetOptions(source: Source.serverAndCache));
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 5. Merge and Filter logic
-      final Map<String, Map<String, dynamic>> femaleMap = {};
+      
+      final Map<String, Map<String, dynamic>> memberMap = {};
+      final Set<String> names = {};
       
       void processMember(Map<String, dynamic> data) {
-        final name = data['Name'] ?? '';
-        if (name.isEmpty || excludedNames.contains(name)) return;
-
+        final name = data['Name']?.toString() ?? '';
         final gender = data['Gender']?.toString() ?? '';
         final maritalStatus = data['Marital_Status']?.toString() ?? '';
         final avStatus = data['A_v_Status']?.toString() ?? '';
+
+        if (name.isEmpty) return;
+
+        // Filter: (0) Female AND (1) Married AND (1) Active AND Not in excludedNames
+        bool isEligibleFemale = gender == '(0) Female' && 
+                               maritalStatus == '(1) Married' &&
+                               avStatus == '(1) Active';
         
-        bool isFemale = gender.contains('(0) Female');
-        bool isMarried = maritalStatus.contains('(1) Married');
-        bool isActive = avStatus.contains('(1) Active');
-        
-        if (isFemale && isMarried && isActive) {
-          femaleMap[name] = data;
+        if (isEligibleFemale && !excludedNames.contains(name)) {
+          memberMap[name] = data;
+          names.add(name);
         }
       }
 
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var member in localMembers) {
-        processMember(member);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
+      
       setState(() {
-        _memberDataMap = femaleMap;
-        femaleMembers = femaleMap.keys.toList()..sort();
-        _isLoadingMembers = false;
+        _allMembersData = memberMap;
+        familyMemberNames = names.toList()..sort();
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -162,7 +144,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('reproductive_health')
+          .collection('family_planning')
           .where('Family_Code', isEqualTo: familyCode)
           .get();
       setState(() {
@@ -170,7 +152,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
@@ -179,75 +161,116 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     setState(() {
       selectedName = name;
       _nameController.text = name ?? '';
-      if (name != null && _memberDataMap.containsKey(name)) {
-        final data = _memberDataMap[name]!;
-        _nameIdController.text = data['uniq_Registration_Number']?.toString() ?? '';
-        _husbandNameController.text = data['Name2'] ?? data['Husband_Name'] ?? '';
-        _regNoController.text = data['Registration_Number1'] ?? '';
-        _motherRegNoController.text = data['Mother_Name'] ?? ''; // or specific ID field if exists
-        _fatherRegNoController.text = data['Father_Name'] ?? '';
-        _finalFamilyCodeController.text = data['Family_Code'] ?? '';
-      } else {
-        _nameIdController.clear();
-        _husbandNameController.clear();
-        _regNoController.clear();
-        _motherRegNoController.clear();
-        _fatherRegNoController.clear();
-        _finalFamilyCodeController.clear();
+      if (name != null) {
+        if (_isEditMode) {
+          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
+          if (record.isNotEmpty) {
+            _editDocId = record['id'];
+            _populateForm(record);
+          }
+        } else if (_allMembersData.containsKey(name)) {
+          final m = _allMembersData[name]!;
+          _regNoController.text = (m['uniq_Registration_Number'] ?? m['Registration_Number'] ?? m['Registration_Number1'] ?? '').toString();
+          _husbandNameController.text = (m['Name2'] ?? m['Name1'] ?? '').toString();
+          selectedGender = m['Gender']?.toString();
+          _nameIdController.text = m['ID']?.toString() ?? '';
+        }
       }
     });
   }
 
-  void _loadExistingData([Map<String, dynamic>? data]) {
-    final d = data ?? widget.existingData!;
+  void _loadExistingData() {
     setState(() {
-      _familyCodeController.text = d['Family_Code'] ?? '';
-      _familyCodeOldController.text = d['Family_Code_Old'] ?? '';
-      _finalFamilyCodeController.text = d['Final_Family_Code'] ?? '';
-      selectedName = d['Name'];
-      _nameController.text = d['Name'] ?? '';
-      _nameIdController.text = d['Name_ID'] ?? '';
-      _husbandNameController.text = d['Husband_Name'] ?? '';
-      selectEntryScreen = d['Select_Entry_Screen'];
-      _regNoController.text = d['Registration_Number'] ?? '';
-      _motherRegNoController.text = d['Mother_Registration_Number'] ?? '';
-      _fatherRegNoController.text = d['Father_Registration_Number'] ?? '';
-      _familyNoController.text = d['Family_No'] ?? '';
-      marriageType = d['Marriage_Type'];
+      _populateForm(widget.existingData!);
+    });
+  }
 
-      used = d['Used'];
-      if (d['Used_Date'] != null) {
-        usedDate = d['Used_Date'] is Timestamp ? (d['Used_Date'] as Timestamp).toDate() : DateTime.tryParse(d['Used_Date'].toString());
-      }
-      usedPlace = d['Used_Place'];
-      _remarksController.text = d['Remarks'] ?? '';
+  void _populateForm(Map<String, dynamic> d) {
+    _regNoController.text = d['Registration_Number']?.toString() ?? '';
+    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'];
+    _familyCodeController.text = selectedFamilyCode ?? '';
+    _finalFamilyCodeController.text = d['Final_family_code']?.toString() ?? '';
+    selectedName = d['Name'];
+    _nameController.text = selectedName ?? '';
+    _nameIdController.text = d['fam_id']?.toString() ?? '';
+    _husbandNameController.text = d['Husband_Name']?.toString() ?? '';
+    selectedGender = d['Gender'];
+    selectEntryScreen = d['Select_Entry_Screen'];
+    _motherRegNoController.text = d['Mother_Registration_Number']?.toString() ?? '';
+    _fatherRegNoController.text = d['Father_Registration_Number']?.toString() ?? '';
+    _familyNoController.text = d['Family_No']?.toString() ?? '';
+    marriageType = d['Marriage_Type'];
 
-      usedOralContraceptives = d['Used_Oral_Contraceptives'] ?? false;
-      _howLongOralController.text = d['How_Long_Use_Oral'] ?? '';
-      if (d['Last_Use_Oral_Date'] != null) {
-        lastUseOralDate = d['Last_Use_Oral_Date'] is Timestamp ? (d['Last_Use_Oral_Date'] as Timestamp).toDate() : DateTime.tryParse(d['Last_Use_Oral_Date'].toString());
-      }
+    // Permanent
+    permanentUsed = d['Used'];
+    if (d['Date_field1'] != null) {
+      permanentDate = d['Date_field1'] is Timestamp ? (d['Date_field1'] as Timestamp).toDate() : DateTime.tryParse(d['Date_field1'].toString());
+    }
+    permanentPlace = d['Place'];
+    _remarksController.text = d['Remarks']?.toString() ?? '';
 
-      usedCondoms = d['Used_Condoms'] ?? false;
-      if (d['Condom_Last_Date'] != null) {
-        condomLastDate = d['Condom_Last_Date'] is Timestamp ? (d['Condom_Last_Date'] as Timestamp).toDate() : DateTime.tryParse(d['Condom_Last_Date'].toString());
-      }
+    // Temporary
+    usedOralContraceptives = d['Used_oral_contraceptives'];
+    _howLongUseOralController.text = d['How_long_use_oral1']?.toString() ?? '';
+    if (d['Last_use_oral_contraceptives'] != null) {
+      lastUseOralDate = d['Last_use_oral_contraceptives'] is Timestamp ? (d['Last_use_oral_contraceptives'] as Timestamp).toDate() : DateTime.tryParse(d['Last_use_oral_contraceptives'].toString());
+    }
+    usedCondoms = d['Used_condoms'];
+    usedCopperT = d['Used_an_Copper_T'];
+    usedInjectable = d['Used_injectable_contraceptives'];
+    howLongInjectable = d['How_long_using_injectable_contraceptives'];
+    if (d['Last_use_injectable_contraceptives'] != null) {
+      lastUseInjectableDate = d['Last_use_injectable_contraceptives'] is Timestamp ? (d['Last_use_injectable_contraceptives'] as Timestamp).toDate() : DateTime.tryParse(d['Last_use_injectable_contraceptives'].toString());
+    }
+    if (d['Date_field2'] != null) {
+      temporaryDate = d['Date_field2'] is Timestamp ? (d['Date_field2'] as Timestamp).toDate() : DateTime.tryParse(d['Date_field1'].toString());
+    }
+    usedOther = d['Used_other'];
+    _ifYesController.text = d['If_yes']?.toString() ?? '';
 
-      usedCopperT = d['Used_CopperT'] ?? false;
+    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+      _fetchMembersByFamily(selectedFamilyCode!);
+    }
+  }
 
-      usedInjectable = d['Used_Injectable'] ?? false;
-      _howLongInjectableController.text = d['How_Long_Using_Injectable'] ?? '';
-      if (d['Last_Use_Injectable_Date'] != null) {
-        lastUseInjectableDate = d['Last_Use_Injectable_Date'] is Timestamp ? (d['Last_Use_Injectable_Date'] as Timestamp).toDate() : DateTime.tryParse(d['Last_Use_Injectable_Date'].toString());
-      }
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    setState(() {
+      _regNoController.clear();
+      _familyCodeController.clear();
+      _finalFamilyCodeController.clear();
+      _nameController.clear();
+      _nameIdController.clear();
+      _husbandNameController.clear();
+      _motherRegNoController.clear();
+      _fatherRegNoController.clear();
+      _familyNoController.clear();
+      _remarksController.clear();
+      _howLongOralController.clear();
+      _ifYesOtherController.clear();
+      _howLongUseOralController.clear();
+      _ifYesController.clear();
 
-      usedOther = d['Used_Other'] ?? false;
-      _ifYesOtherController.text = d['If_Yes_Other'] ?? '';
-      
-      if (_familyCodeController.text.isNotEmpty && !_isEditMode) {
-        _fetchFemalesByFamily(_familyCodeController.text);
-      }
-      _editDocId = d['id'];
+      selectedFamilyCode = null;
+      selectedName = null;
+      selectedGender = null;
+      selectEntryScreen = null;
+      marriageType = null;
+      permanentUsed = null;
+      permanentDate = null;
+      permanentPlace = null;
+      usedOralContraceptives = null;
+      lastUseOralDate = null;
+      usedCondoms = null;
+      usedCopperT = null;
+      usedInjectable = null;
+      howLongInjectable = null;
+      lastUseInjectableDate = null;
+      temporaryDate = null;
+      usedOther = null;
+
+      familyMemberNames = [];
+      _existingRecords = [];
     });
   }
 
@@ -257,317 +280,299 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
 
     try {
       final data = {
-        'Family_Code': _familyCodeController.text,
-        'Family_Code_Old': _familyCodeOldController.text,
-        'Final_Family_Code': _finalFamilyCodeController.text,
-        'Name': _isEditMode ? selectedName : _nameController.text,
-        'Name_ID': _nameIdController.text,
-        'Husband_Name': _husbandNameController.text,
-        'Select_Entry_Screen': selectEntryScreen,
         'Registration_Number': _regNoController.text,
-        'Mother_Registration_Number': _motherRegNoController.text,
-        'Father_Registration_Number': _fatherRegNoController.text,
-        'Family_No': _familyNoController.text,
+        'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
+        'Final_family_code': _finalFamilyCodeController.text,
+        'Name': _isEditMode ? selectedName : _nameController.text,
+        'fam_id': _nameIdController.text,
+        'Husband_Name': _husbandNameController.text,
+        'Gender': selectedGender,
+        'Select_Entry_Screen': selectEntryScreen,
+        'Mother_Registration_Number': int.tryParse(_motherRegNoController.text),
+        'Father_Registration_Number': int.tryParse(_fatherRegNoController.text),
+        'Family_No': int.tryParse(_familyNoController.text),
         'Marriage_Type': marriageType,
-        'Used': used,
-        'Used_Date': usedDate != null ? Timestamp.fromDate(usedDate!) : null,
-        'Used_Place': usedPlace,
+
+        // Permanent
+        'Used': permanentUsed,
+        'Date_field1': permanentDate != null ? Timestamp.fromDate(permanentDate!) : null,
+        'Place': permanentPlace,
         'Remarks': _remarksController.text,
-        'Used_Oral_Contraceptives': usedOralContraceptives,
-        'How_Long_Use_Oral': _howLongOralController.text,
-        'Last_Use_Oral_Date': lastUseOralDate != null ? Timestamp.fromDate(lastUseOralDate!) : null,
-        'Used_Condoms': usedCondoms,
-        'Condom_Last_Date': condomLastDate != null ? Timestamp.fromDate(condomLastDate!) : null,
-        'Used_CopperT': usedCopperT,
-        'Used_Injectable': usedInjectable,
-        'How_Long_Using_Injectable': _howLongInjectableController.text,
-        'Last_Use_Injectable_Date': lastUseInjectableDate != null ? Timestamp.fromDate(lastUseInjectableDate!) : null,
-        'Used_Other': usedOther,
-        'If_Yes_Other': _ifYesOtherController.text,
+
+        // Temporary
+        'Used_oral_contraceptives': usedOralContraceptives,
+        'How_long_use_oral1': _howLongUseOralController.text,
+        'Last_use_oral_contraceptives': lastUseOralDate != null ? Timestamp.fromDate(lastUseOralDate!) : null,
+        'Used_condoms': usedCondoms,
+        'Used_an_Copper_T': usedCopperT,
+        'Used_injectable_contraceptives': usedInjectable,
+        'How_long_using_injectable_contraceptives': howLongInjectable,
+        'Last_use_injectable_contraceptives': lastUseInjectableDate != null ? Timestamp.fromDate(lastUseInjectableDate!) : null,
+        'Date_field2': temporaryDate != null ? Timestamp.fromDate(temporaryDate!) : null,
+        'Used_other': usedOther,
+        'If_yes': _ifYesController.text,
+
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('reproductive_health').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('reproductive_health').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('reproductive_health').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('family_planning', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Family Planning record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Family Planning updated! Syncing...' : 'Family Planning saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performFamilyPlanningSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  void _resetForm() {
-    _formKey.currentState?.reset();
-    setState(() {
-      if (!_isEditMode) {
-        _familyCodeController.clear();
+  void _performFamilyPlanningSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('family_planning').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('family_planning').add(data);
       }
-      _editDocId = null;
-      _familyCodeOldController.clear();
-      _finalFamilyCodeController.clear();
-      selectedName = null;
-      _nameIdController.clear();
-      _husbandNameController.clear();
-      selectEntryScreen = null;
-      _regNoController.clear();
-      _motherRegNoController.clear();
-      _fatherRegNoController.clear();
-      _familyNoController.clear();
-      _nameController.clear();
-      marriageType = null;
-      used = null;
-      usedDate = null;
-      usedPlace = null;
-      _remarksController.clear();
-      usedOralContraceptives = false;
-      _howLongOralController.clear();
-      lastUseOralDate = null;
-      usedCondoms = false;
-      condomLastDate = null;
-      usedCopperT = false;
-      usedInjectable = false;
-      _howLongInjectableController.clear();
-      lastUseInjectableDate = null;
-      usedOther = false;
-      _ifYesOtherController.clear();
-      femaleMembers = [];
-      _existingRecords = [];
-    });
-  }
-
-
-
-  Widget _buildDatePicker({required String label, required DateTime? value, required Function(DateTime) onPicked}) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(context: context, initialDate: value ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2101));
-        if (picked != null) onPicked(picked);
-      },
-      child: InputDecorator(
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), suffixIcon: const Icon(Icons.calendar_today)),
-        child: Text(value == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(value)),
-      ),
-    );
+    } catch (e) {
+      debugPrint('Family Planning Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Family Planning'), backgroundColor: Theme.of(context).colorScheme.primaryContainer),
-      drawer: const AppDrawer(),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Family Planning'), elevation: 0),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-
-                  buildSectionCard(
-                    context: context,
-                    title: 'Basic Details',
-                    children: [
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Family Code', border: OutlineInputBorder()),
-                        value: allFamilyCodes.contains(_familyCodeController.text) ? _familyCodeController.text : null,
-                        items: allFamilyCodes.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            _familyCodeController.text = v;
-                            if (_isEditMode) {
-                              _fetchExistingRecords(v);
-                            } else {
-                              _fetchFemalesByFamily(v);
-                            }
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
                           }
-                        },
-                        validator: (v) => v == null ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _familyCodeOldController, decoration: const InputDecoration(labelText: 'Family Code old', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _finalFamilyCodeController, readOnly: true, decoration: const InputDecoration(labelText: 'Final family code', border: OutlineInputBorder(), fillColor: Color(0xFFEEEEEE), filled: true)),
-                      const SizedBox(height: 16),
-                      if (_isEditMode)
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            labelText: 'Select Record to Edit',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                          ),
-                          value: selectedName,
-                          items: _existingRecords.map((e) => DropdownMenuItem<String>(value: e['Name']?.toString(), child: Text(e['Name']?.toString() ?? ''))).toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              final record = _existingRecords.firstWhere((e) => e['Name'] == v);
-                              _loadExistingData(record);
-                            }
-                          },
-                          validator: (v) => v == null ? 'Required' : null,
-                        )
-                      else
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder(), hintText: 'Type name or pick from dropdown'),
-                              validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-                            ),
-                            if (femaleMembers.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Pick from Family Members',
-                                  border: const OutlineInputBorder(),
-                                  suffixIcon: _isLoadingMembers ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-                                ),
-                                value: null,
-                                items: femaleMembers.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                                onChanged: _onNameSelected,
-                                hint: const Text('--Select Member--'),
-                              ),
-                            ],
-                          ],
-                        ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _nameIdController, readOnly: true, decoration: const InputDecoration(labelText: 'Name id', border: OutlineInputBorder(), fillColor: Color(0xFFEEEEEE), filled: true)),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _husbandNameController, readOnly: true, decoration: const InputDecoration(labelText: 'Husband Name', border: OutlineInputBorder(), fillColor: Color(0xFFEEEEEE), filled: true)),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Select Entry Screen', border: OutlineInputBorder()),
-                        value: selectEntryScreen,
-                        onChanged: (v) => setState(() => selectEntryScreen = v),
-                        items: ['Family Planning'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _regNoController, decoration: const InputDecoration(labelText: 'Registration Number', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _motherRegNoController, decoration: const InputDecoration(labelText: 'Mother Registration Number', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _fatherRegNoController, decoration: const InputDecoration(labelText: 'Father Registration Number', border: OutlineInputBorder())),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _familyNoController, decoration: const InputDecoration(labelText: 'Family No', border: OutlineInputBorder())),
-                    ],
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Marriage & Status',
-                    children: [
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Marriage Type', border: OutlineInputBorder()),
-                        value: marriageType,
-                        items: ['Type 1', 'Type 2'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => marriageType = v),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(labelText: 'Used?', border: OutlineInputBorder()),
-                              value: used,
-                              items: ['(1) Yes', '(0) No'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                              onChanged: (v) => setState(() => used = v),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildDatePicker(label: 'Date?', value: usedDate, onPicked: (v) => setState(() => usedDate = v))),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _remarksController, decoration: const InputDecoration(labelText: 'Remarks', border: OutlineInputBorder()), maxLines: 2),
-                    ],
-                  ),
-                  buildSectionCard(
-                    context: context,
-                    title: 'Contraceptive Methods',
-                    children: [
-                      CheckboxListTile(
-                        title: const Text('Used oral contraceptives?'),
-                        value: usedOralContraceptives,
-                        onChanged: (v) => setState(() => usedOralContraceptives = v ?? false),
-                      ),
-                      if (usedOralContraceptives) ...[
-                        TextFormField(controller: _howLongOralController, decoration: const InputDecoration(labelText: 'How long use oral', border: OutlineInputBorder())),
-                        const SizedBox(height: 8),
-                        _buildDatePicker(label: 'Last use oral contraceptives?', value: lastUseOralDate, onPicked: (v) => setState(() => lastUseOralDate = v)),
-                        const SizedBox(height: 16),
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Entry Selection',
+                      icon: Icons.settings_outlined,
+                      children: [
+                        formSearchableDropdown(context, 'Select Entry Screen', ['(1) Permanent', '(0) Temporary'], selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
                       ],
-                      CheckboxListTile(
-                        title: const Text('Used condoms?'),
-                        value: usedCondoms,
-                        onChanged: (v) => setState(() => usedCondoms = v ?? false),
-                      ),
-                      if (usedCondoms) ...[
-                        _buildDatePicker(label: 'Date? (Last use Condoms)', value: condomLastDate, onPicked: (v) => setState(() => condomLastDate = v)),
-                        const SizedBox(height: 16),
-                      ],
-                      CheckboxListTile(
-                        title: const Text('Used an Copper-T?'),
-                        value: usedCopperT,
-                        onChanged: (v) => setState(() => usedCopperT = v ?? false),
-                      ),
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        title: const Text('Used injectable contraceptives?'),
-                        value: usedInjectable,
-                        onChanged: (v) => setState(() => usedInjectable = v ?? false),
-                      ),
-                      if (usedInjectable) ...[
-                        TextFormField(controller: _howLongInjectableController, decoration: const InputDecoration(labelText: 'How long using injectable contraceptives?', border: OutlineInputBorder())),
-                        const SizedBox(height: 8),
-                        _buildDatePicker(label: 'Last use injectable contraceptives?', value: lastUseInjectableDate, onPicked: (v) => setState(() => lastUseInjectableDate = v)),
-                        const SizedBox(height: 16),
-                      ],
-                      CheckboxListTile(
-                        title: const Text('Used other?'),
-                        value: usedOther,
-                        onChanged: (v) => setState(() => usedOther = v ?? false),
-                      ),
-                      if (usedOther)
-                        TextFormField(controller: _ifYesOtherController, decoration: const InputDecoration(labelText: 'If yes', border: OutlineInputBorder())),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: _save,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: Text(_isEditMode ? 'Update Record' : 'Save Record', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 48),
-                ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (selectEntryScreen == '(1) Permanent') _buildPermanentSection(),
+                    if (selectEntryScreen == '(0) Temporary') _buildTemporarySection(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
+    );
+  }
+
+  Widget _buildIdentitySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Member Identity',
+      icon: Icons.person_outline,
+      children: [
+        Row(
+          children: [
+            Expanded(child: formTextField('Registration Number', _regNoController, validator: (v) => (v == null || v.isEmpty) ? 'Required' : null)),
+            const SizedBox(width: 8),
+            Expanded(child: formTextField('Family No', _familyNoController, keyboardType: TextInputType.number)),
+          ],
+        ),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        formTextField('Final Family Code', _finalFamilyCodeController),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: formSearchableDropdown(
+                context,
+                'Name',
+                (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+                    .where((n) => n.isNotEmpty)
+                    .toList()
+                  ..sort()),
+                selectedName,
+                _onNameSelected,
+                isLoading: _isLoadingMembers,
+                validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: formTextField('Name ID', _nameIdController, readOnly: true)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formTextField('Husband Name', _husbandNameController),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Mother Reg No', _motherRegNoController, keyboardType: TextInputType.number)),
+            const SizedBox(width: 8),
+            Expanded(child: formTextField('Father Reg No', _fatherRegNoController, keyboardType: TextInputType.number)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 'Marriage Type', ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
+      ],
+    );
+  }
+
+  Widget _buildPermanentSection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Permanent Method',
+      icon: Icons.verified_user_outlined,
+      children: [
+        formSearchableDropdown(context, 'Used?', ['(0) Tubectomy', '(1) Vasectomy', '(2) Hysectomy'], permanentUsed, (v) => setState(() => permanentUsed = v)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildDatePicker('Date?', permanentDate, (v) => setState(() => permanentDate = v))),
+            const SizedBox(width: 12),
+            Expanded(child: formSearchableDropdown(context, 'Place?', ['(0) RHC', '(1) PVT', '(2) GOVT'], permanentPlace, (v) => setState(() => permanentPlace = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formTextField('Remarks', _remarksController, maxLines: 3),
+      ],
+    );
+  }
+
+  Widget _buildTemporarySection() {
+    return buildSectionCard(
+      context: context,
+      title: 'Temporary Method',
+      icon: Icons.history_outlined,
+      children: [
+        _buildDropdownRow('Used oral contraceptives?', ['(1) Yes', '(0) No'], usedOralContraceptives, (v) => setState(() => usedOralContraceptives = v)),
+        if (usedOralContraceptives == '(1) Yes') ...[
+          formTextField('How long use oral', _howLongUseOralController),
+          const SizedBox(height: 12),
+          _buildDatePicker('Last use oral contraceptives?', lastUseOralDate, (v) => setState(() => lastUseOralDate = v)),
+          const SizedBox(height: 16),
+        ],
+        _buildDropdownRow('Used condoms?', ['(1) Yes', '(0) No'], usedCondoms, (v) => setState(() => usedCondoms = v)),
+        const SizedBox(height: 12),
+        _buildDropdownRow('Used an Copper-T?', ['(1) Yes', '(0) No'], usedCopperT, (v) => setState(() => usedCopperT = v)),
+        const SizedBox(height: 12),
+        _buildDropdownRow('Used injectable contraceptives?', ['(1) Yes', '(0) No'], usedInjectable, (v) => setState(() => usedInjectable = v)),
+        if (usedInjectable == '(1) Yes') ...[
+          formSearchableDropdown(context, 'How long using injectable?', ['Choice 1', 'Choice 2', 'Choice 3'], howLongInjectable, (v) => setState(() => howLongInjectable = v)),
+          const SizedBox(height: 12),
+          _buildDatePicker('Last use injectable date', lastUseInjectableDate, (v) => setState(() => lastUseInjectableDate = v)),
+          const SizedBox(height: 16),
+        ],
+        _buildDatePicker('Temporary Date?', temporaryDate, (v) => setState(() => temporaryDate = v)),
+        const SizedBox(height: 12),
+        _buildDropdownRow('Used other?', ['(1) Yes', '(0) No'], usedOther, (v) => setState(() => usedOther = v)),
+        if (usedOther == '(1) Yes') formTextField('If yes,', _ifYesController),
+      ],
+    );
+  }
+
+  Widget _buildDropdownRow(String label, List<String> choices, String? value, ValueChanged<String?> onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        formSearchableDropdown(context, '', choices, value, onChanged),
+      ],
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate ?? DateTime.now(),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) onPicked(picked);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
+            ),
+            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          ),
+        ),
+      ],
     );
   }
 }

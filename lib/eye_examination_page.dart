@@ -1,4 +1,5 @@
-import "package:flutter/material.dart";import 'package:cloud_firestore/cloud_firestore.dart';
+import "package:flutter/material.dart";
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
@@ -50,7 +51,6 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   final _othersEyeProblemsOSController = TextEditingController();
 
   // Dropdowns
-  List<String> allFamilyCodes = [];
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
   bool _isLoadingMembers = false;
@@ -64,59 +64,38 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFamilyCodes();
     if (widget.existingData != null) {
       _loadExistingData();
-    } else {
-      examinationDate = DateTime.now();
     }
-  }
-
-  Future<void> _fetchFamilyCodes() async {
-    final codes = await DataCacheService().fetchFamilyCodes();
-    setState(() {
-      allFamilyCodes = codes;
-    });
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      // 1. Fetch from Firestore (Cache favored)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: familyCode)
           .get(const GetOptions(source: Source.serverAndCache));
-
-      // 2. Fetch from Local SQLite for offline support
       final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
-
-      // 3. Merge logic
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
         memberMap[name] = data;
         allNames.add(name);
       }
-
-      for (var doc in snapshot.docs) {
-        processMember(doc.data());
-      }
-      for (var local in localMembers) {
-        processMember(local);
-      }
-
+      for (var doc in snapshot.docs) processMember(doc.data());
+      for (var local in localMembers) processMember(local);
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        _isLoadingMembers = false;
+        selectedFamilyCode = familyCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      setState(() => _isLoadingMembers = false);
+    } finally {
+      if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -125,23 +104,21 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('eye_examination')
-          .where('Family_Code', isEqualTo: familyCode)
+          .where('Family_code', isEqualTo: familyCode)
           .get();
-      
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
       });
     } catch (e) {
-      debugPrint('Error fetching existing records: $e');
+      debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
     }
   }
 
-  void _onNameSelected(String? name) async {
+  void _onNameSelected(String? name) {
     setState(() {
       selectedMemberName = name;
-      _nameController.text = name ?? '';
       _nameController.text = name ?? '';
       if (name != null) {
         if (_isEditMode) {
@@ -167,8 +144,8 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   }
 
   void _populateForm(Map<String, dynamic> d) {
-    _registrationNumber.text = d['Registration_Number']?.toString() ?? '';
-    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'];
+    _registrationNumber.text = d['Registration_Number'] ?? '';
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
     _nameController.text = selectedMemberName ?? '';
@@ -185,21 +162,20 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       }
     }
     
-    selectedInterviewer = d['Interviewer_s_Name_ID'];
+    selectedInterviewer = d['Interviewer_s_Name'];
+    selectedFailedDistanceOD = d['Failed_OD_Reflectancy_Vision_Distance'];
+    selectedFailedPinholeOD = d['Failed_OD_Reflectancy_Vision_Pinhole'];
+    selectedSymptomsOD = d['Signs_and_symptoms_OD'];
+    _othersSymptomsODController.text = d['Any_Others_symptoms_OD'] ?? '';
+    selectedEyeProblemsOD = d['Eye_Problems_suspected_OD'];
+    _othersEyeProblemsODController.text = d['Any_Others_eye_problems_OD'] ?? '';
     
-    selectedFailedDistanceOD = d['Did_you_fail_the_distance_visual_acuity_test_Right_Eye_OD'];
-    selectedFailedPinholeOD = d['Did_you_fail_the_Pinhole_test_Right_Eye_OD'];
-    selectedSymptomsOD = d['Symptoms_observed_during_the_Right_Eye_OD_Examination'];
-    _othersSymptomsODController.text = d['Other_Symptoms_encountered_Right_Eye_OD'] ?? '';
-    selectedEyeProblemsOD = d['Current_Eye_Problems_Right_Eye_OD'];
-    _othersEyeProblemsODController.text = d['Other_Eye_Problems_encountered_Right_Eye_OD'] ?? '';
-
-    selectedFailedDistanceOS = d['Did_you_fail_the_distance_visual_acuity_test_Left_Eye_OS'];
-    selectedFailedPinholeOS = d['Did_you_fail_the_Pinhole_test_Left_Eye_OS'];
-    selectedSymptomsOS = d['Symptoms_observed_during_the_Left_Eye_OS_Examination'];
-    _othersSymptomsOSController.text = d['Other_Symptoms_encountered_Left_Eye_OS'] ?? '';
-    selectedEyeProblemsOS = d['Current_Eye_Problems_Left_Eye_OS'];
-    _othersEyeProblemsOSController.text = d['Other_Eye_Problems_encountered_Left_Eye_OS'] ?? '';
+    selectedFailedDistanceOS = d['Failed_OS_Reflectancy_Vision_Distance'];
+    selectedFailedPinholeOS = d['Failed_OS_Reflectancy_Vision_Pinhole'];
+    selectedSymptomsOS = d['Signs_and_symptoms_OS'];
+    _othersSymptomsOSController.text = d['Any_Others_symptoms_OS'] ?? '';
+    selectedEyeProblemsOS = d['Eye_Problems_suspected_OS'];
+    _othersEyeProblemsOSController.text = d['Any_Others_eye_problems_OS'] ?? '';
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
@@ -210,6 +186,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     _formKey.currentState?.reset();
     setState(() {
       _registrationNumber.clear();
+      _familyCodeController.clear();
       _nameController.clear();
       selectedFamilyCode = null;
       selectedMemberName = null;
@@ -217,24 +194,20 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       _ageController.clear();
       examinationDate = DateTime.now();
       selectedInterviewer = null;
-
       selectedFailedDistanceOD = null;
       selectedFailedPinholeOD = null;
       selectedSymptomsOD = null;
       _othersSymptomsODController.clear();
       selectedEyeProblemsOD = null;
       _othersEyeProblemsODController.clear();
-
       selectedFailedDistanceOS = null;
       selectedFailedPinholeOS = null;
       selectedSymptomsOS = null;
       _othersSymptomsOSController.clear();
       selectedEyeProblemsOS = null;
       _othersEyeProblemsOSController.clear();
-      
       familyMemberNames = [];
       _existingRecords = [];
-      _editDocId = null;
     });
   }
 
@@ -245,301 +218,241 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     try {
       final data = {
         'Registration_Number': _registrationNumber.text,
-        'Family_Code': selectedFamilyCode,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
         'Examination_Date': examinationDate != null ? Timestamp.fromDate(examinationDate!) : null,
         'Interviewer_s_Name': selectedInterviewer,
-
-        // OD
-        'Failed_Distance': selectedFailedDistanceOD,
-        'Failed_Pinhole': selectedFailedPinholeOD,
-        'Signs_and_symptoms': selectedSymptomsOD,
-        'Any_Others': _othersSymptomsODController.text,
-        'Eye_Problems_suspected_by_Field_workers_Self_reported': selectedEyeProblemsOD,
-        'Any_Others1': _othersEyeProblemsODController.text,
-
-        // OS
-        'Failed_Distance1': selectedFailedDistanceOS,
-        'Failed_Pinhole1': selectedFailedPinholeOS,
-        'Signs_and_symptoms2': selectedSymptomsOS,
-        'Any_Others2': _othersSymptomsOSController.text,
-        'Eye_Problems_suspected_by_Field_workers_Self_reported1': selectedEyeProblemsOS,
-        'Any_Others3': _othersEyeProblemsOSController.text,
-
+        'Failed_OD_Reflectancy_Vision_Distance': selectedFailedDistanceOD,
+        'Failed_OD_Reflectancy_Vision_Pinhole': selectedFailedPinholeOD,
+        'Signs_and_symptoms_OD': selectedSymptomsOD,
+        'Any_Others_symptoms_OD': _othersSymptomsODController.text,
+        'Eye_Problems_suspected_OD': selectedEyeProblemsOD,
+        'Any_Others_eye_problems_OD': _othersEyeProblemsODController.text,
+        'Failed_OS_Reflectancy_Vision_Distance': selectedFailedDistanceOS,
+        'Failed_OS_Reflectancy_Vision_Pinhole': selectedFailedPinholeOS,
+        'Signs_and_symptoms_OS': selectedSymptomsOS,
+        'Any_Others_symptoms_OS': _othersSymptomsOSController.text,
+        'Eye_Problems_suspected_OS': selectedEyeProblemsOS,
+        'Any_Others_eye_problems_OS': _othersEyeProblemsOSController.text,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      if (_isEditMode && _editDocId != null) {
-        await FirebaseFirestore.instance.collection('eye_examination').doc(_editDocId).update(data);
-      } else if (widget.docId != null) {
-        await FirebaseFirestore.instance.collection('eye_examination').doc(widget.docId).update(data);
-      } else {
-        await FirebaseFirestore.instance.collection('eye_examination').add(data);
-      }
+      // Embed the Firestore doc ID so SyncService can route add vs update
+      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
+      final bool wasEditing = _isEditMode;
+
+      // 1. Save locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('eye_examination', data);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Eye examination record saved successfully!'), backgroundColor: Colors.green),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(wasEditing ? 'Eye Examination updated! Syncing...' : 'Eye Examination saved! Syncing...'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ));
         if (widget.docId != null) {
           Navigator.pop(context);
-        } else {
+        } else if (!wasEditing) {
           _resetForm();
         }
       }
+
+      // 2. Background Sync (Non-blocking)
+      _performEyeExaminationSync(data);
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required List<Widget> children,
-    IconData? icon,
-  }) {
-    return buildSectionCard(
-      context: context,
-      title: title,
-      children: children,
-      icon: icon,
-    );
+  void _performEyeExaminationSync(Map<String, dynamic> data) async {
+    try {
+      final String? docId = data['firestoreDocId'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('eye_examination').doc(docId).set(data, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance.collection('eye_examination').add(data);
+      }
+    } catch (e) {
+      debugPrint('Eye Examination Background Sync Error: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Eye Examination', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.cyan.shade700, Colors.teal.shade400],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      drawer: const AppDrawer(),
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(title: const Text('Eye Examination'), elevation: 0),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            key: const PageStorageKey('eye_examination_scroll'),
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  buildHeader(
-                    context: context,
-                    title: 'Vision Screening',
-                    subtitle: 'Eye Health Assessment and Examination',
-                  ),
-                  _buildIdentitySection(),
-                  _buildSectionCard(
-                    title: 'Right EYE (OD)',
-                    icon: Icons.visibility_outlined,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Failed Distance', distanceChoices, selectedFailedDistanceOD, (v) => setState(() => selectedFailedDistanceOD = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildDropdown('Failed Pinhole', pinholeChoices, selectedFailedPinholeOD, (v) => setState(() => selectedFailedPinholeOD = v))),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Signs and symptoms', symptomsChoices, selectedSymptomsOD, (v) => setState(() => selectedSymptomsOD = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Any Others', _othersSymptomsODController)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOD, (v) => setState(() => selectedEyeProblemsOD = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Any Others', _othersEyeProblemsODController)),
-                        ],
-                      ),
-                    ],
-                  ),
-                  _buildSectionCard(
-                    title: 'Left EYE (OS)',
-                    icon: Icons.visibility_outlined,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Failed Distance', distanceChoices, selectedFailedDistanceOS, (v) => setState(() => selectedFailedDistanceOS = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildDropdown('Failed Pinhole', pinholeChoices, selectedFailedPinholeOS, (v) => setState(() => selectedFailedPinholeOS = v))),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Signs and symptoms', symptomsChoices, selectedSymptomsOS, (v) => setState(() => selectedSymptomsOS = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Any Others', _othersSymptomsOSController)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: _buildDropdown('Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOS, (v) => setState(() => selectedEyeProblemsOS = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Any Others', _othersEyeProblemsOSController)),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.cyan.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text(_isEditMode ? 'Update Examination' : 'Save Examination', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  formActionButtons(
+                      context: context,
+                      isEditMode: _isEditMode,
+                      onNew: () {
+                        setState(() {
+                          _isEditMode = false;
+                          _resetForm();
+                        });
+                      },
+                      onSave: _save,
+                      onEdit: () {
+                        setState(() {
+                          _isEditMode = true;
+                          final code = _familyCodeController.text.trim();
+                          if (code.isNotEmpty) {
+                            _fetchMembersByFamily(code);
+                            _fetchExistingRecords(code);
+                          }
+                        });
+                      },
+                      onCancel: _resetForm,
+                      onExit: () => Navigator.pop(context),
+                      isSaving: _isSaving,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: _resetForm,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text('Reset Form', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 16),
+                    _buildIdentitySection(),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Right EYE (OD)',
+                      icon: Icons.remove_red_eye_outlined,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Distance', distanceChoices, selectedFailedDistanceOD, (v) => setState(() => selectedFailedDistanceOD = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formSearchableDropdown(context, 'Pinhole', pinholeChoices, selectedFailedPinholeOD, (v) => setState(() => selectedFailedPinholeOD = v))),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Signs and symptoms', symptomsChoices, selectedSymptomsOD, (v) => setState(() => selectedSymptomsOD = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Any Others', _othersSymptomsODController)),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOD, (v) => setState(() => selectedEyeProblemsOD = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Any Others', _othersEyeProblemsODController)),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: 'Left EYE (OS)',
+                      icon: Icons.remove_red_eye,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Distance', distanceChoices, selectedFailedDistanceOS, (v) => setState(() => selectedFailedDistanceOS = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formSearchableDropdown(context, 'Pinhole', pinholeChoices, selectedFailedPinholeOS, (v) => setState(() => selectedFailedPinholeOS = v))),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Signs and symptoms', symptomsChoices, selectedSymptomsOS, (v) => setState(() => selectedSymptomsOS = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Any Others', _othersSymptomsOSController)),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: formSearchableDropdown(context, 'Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOS, (v) => setState(() => selectedEyeProblemsOS = v))),
+                            const SizedBox(width: 12),
+                            Expanded(child: formTextField('Any Others', _othersEyeProblemsOSController)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
+          if (_isSaving)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildIdentitySection() {
-    return _buildSectionCard(
+    return buildSectionCard(
+      context: context,
       title: 'Patient Identity',
       icon: Icons.person_outline,
       children: [
-            _buildTextField('Registration Number', _registrationNumber),
-            const SizedBox(height: 12),
-
-            _buildTextField('Family Code', _familyCodeController, onChanged: (v) {
-              setState(() {
-                selectedFamilyCode = v;
-                selectedMemberName = null;
-                familyMemberNames = [];
-              });
-              if (v.isNotEmpty) {
-                 if (_isEditMode) {
-                   _fetchExistingRecords(v);
-                 } else {
-                   _fetchMembersByFamily(v);
-                 }
-              }
-            }),
-            const SizedBox(height: 12),
-            _isEditMode
-                ? _buildDropdown('Select Name to Edit', _existingRecords.map((r) => r['Name']?.toString() ?? 'Unknown').toList(), selectedMemberName, _onNameSelected, isLoading: _isLoadingMembers)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTextField('Name', _nameController),
-                      if (familyMemberNames.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        _buildDropdown('Pick from Family Members', familyMemberNames, null, _onNameSelected, isLoading: _isLoadingMembers),
-                      ],
-                    ],
-                  ),
-            const SizedBox(height: 12),
-            const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
-            Row(
-              children: [
-                Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-                Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildTextField('Age', _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
-                const SizedBox(width: 12),
-                Expanded(child: _buildDatePicker('Examination Date', examinationDate, (v) => setState(() => examinationDate = v))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildDropdown(
-              'Interviewer’s Name',
-              ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
-              selectedInterviewer,
-              (v) => setState(() => selectedInterviewer = v),
-            ),
-      ],
-    );
-  }
-
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? hint, String? helper, int maxLines = 1, Function(String)? onChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            hintText: hint,
-            helperText: helper,
-          ),
-          keyboardType: keyboardType,
-          maxLines: maxLines,
-          onChanged: onChanged,
+        formTextField('Registration Number', _registrationNumber),
+        const SizedBox(height: 12),
+        formSearchField(
+          'Family Code',
+          _familyCodeController,
+          onSearch: () {
+            if (_familyCodeController.text.isNotEmpty) {
+              _fetchMembersByFamily(_familyCodeController.text);
+              _fetchExistingRecords(_familyCodeController.text);
+            }
+          },
+          isLoading: _isLoadingMembers,
         ),
-      ],
-    );
-  }
-
-  Widget _buildDropdown(String label, List<String> items, String? selectedValue, Function(String?) onChanged, {bool isLoading = false, String? hint = '-Select-'}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          value: selectedValue,
-          isExpanded: true,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            suffixIcon: isLoading ? const SizedBox(width: 20, height: 20, child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(strokeWidth: 2))) : null,
-          ),
-          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, overflow: TextOverflow.ellipsis))).toList(),
-          onChanged: onChanged,
-          hint: hint != null ? Text(hint) : null,
+        const SizedBox(height: 12),
+        formSearchableDropdown(
+          context,
+          'Name',
+          (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
+              .where((n) => n.isNotEmpty)
+              .toList()
+            ..sort()),
+          selectedMemberName,
+          _onNameSelected,
+          isLoading: _isLoadingMembers,
+          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 12),
+        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Row(
+          children: [
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+            const SizedBox(width: 12),
+            Expanded(child: _buildDatePicker('Examination Date', examinationDate, (v) => setState(() => examinationDate = v))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        formSearchableDropdown(context, 
+          'Interviewer’s Name',
+          ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
+          selectedInterviewer,
+          (v) => setState(() => selectedInterviewer = v),
         ),
       ],
     );
@@ -550,7 +463,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         InkWell(
           onTap: () async {
             final picked = await showDatePicker(
@@ -562,10 +475,11 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
             if (picked != null) onPicked(picked);
           },
           child: InputDecorator(
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              suffixIcon: Icon(Icons.calendar_today, size: 18),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
             child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
           ),
