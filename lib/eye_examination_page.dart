@@ -116,25 +116,49 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('eye_examination')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching eye exam record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -152,13 +176,18 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Examination_Date'] != null) {
-      if (d['Examination_Date'] is Timestamp) {
-        examinationDate = (d['Examination_Date'] as Timestamp).toDate();
+    final rawDate = d['Examination_Date'] ?? d['Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        examinationDate = rawDate.toDate();
       } else {
         try {
-          examinationDate = DateFormat('dd-MMM-yyyy').parse(d['Examination_Date'].toString());
-        } catch (_) {}
+          examinationDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            examinationDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

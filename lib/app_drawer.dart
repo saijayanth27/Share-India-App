@@ -13,7 +13,6 @@ import 'ante_natal_care_checkup_report_page.dart';
 import 'aarogya_page.dart';
 import 'aarogya_report_page.dart';
 import 'questionnaire_page.dart';
-import 'questionnaire_report_page.dart';
 import 'anthropometry_page.dart';
 import 'anthropometry_report_page.dart';
 import 'blood_sample_status_page.dart';
@@ -297,7 +296,7 @@ class AppDrawer extends StatelessWidget {
                 title: const Text('All Questionnaires'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const QuestionnaireReportPage()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const RecordsPage()));
                 },
               ),
               const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:collection/collection.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
@@ -135,25 +136,49 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _regNoController.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyIdController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('quarterly_survey')
+            .where('Family_Code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching survey record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -163,26 +188,32 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
   }
 
   void _populateForm(Map<String, dynamic> d) {
-    _regNoController.text = d['Registration_Number']?.toString() ?? '';
-    selectedFamilyId = d['Family_Code'] ?? d['Family_code'];
+    _regNoController.text = _extractValue(d['Registration_Number'] ?? d['Registration_No']) ?? '';
+    selectedFamilyId = _extractValue(d['Family_Code'] ?? d['Family_code'] ?? d['Family_ID'] ?? d['Family_ID1']);
     _familyIdController.text = selectedFamilyId ?? '';
     selectedName = d['Name'];
     _nameController.text = selectedName ?? '';
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Interview_Date'] != null) {
-      if (d['Interview_Date'] is Timestamp) {
-        interviewDate = (d['Interview_Date'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        interviewDate = rawDate.toDate();
       } else {
         try {
-          interviewDate = DateFormat('dd-MMM-yyyy').parse(d['Interview_Date'].toString());
-        } catch (_) {}
+          interviewDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            interviewDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
-    selectedInterviewer = d['Interviewer_s_Name'];
-    visitedFacility = d['Past_3_months_are_you_visited_health_care_facility1'];
+    
+    selectedInterviewer = _matchInterviewer(_extractValue(d['Interviewer_s_Name'] ?? d['Interviewer_Name'] ?? d['Interviewer_s_Name1']));
+    visitedFacility = _mapChoice(d['Past_3_months_are_you_visited_health_care_facility1']);
 
     final reasons = d['If_yes_specify_reason'];
     if (reasons is List) {
@@ -198,23 +229,23 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
     }
     _visitOthersController.text = d['VISIT_OTHERS'] ?? '';
 
-    takingDmMed = d['Are_you_currently_taking_medicines_for_Diabetes'];
-    dmMedSource = d['Where_did_you_received_medicines'];
-    _dmMedOthersController.text = d['specify_others'] ?? '';
-    _dmMedNamesController.text = d['Medicnes_Names_Diabetes'] ?? '';
-    dmForget = d['Did_you_ever_forget_to_take_medicines'];
-    dmNeglected = d['Do_You_ever_neglected_taking_medicines'];
-    dmStoppedBetter = d['Have_you_ever_stopped_taking_medicines_on_feeling_better'];
-    dmStoppedWorse = d['Have_you_ever_stopped_taking_medicines_on_feeling_more_worsening_of_your_health'];
+    takingDmMed = _mapChoice(d['Are_you_currently_taking_medicines_for_Diabetes']);
+    dmMedSource = _extractValue(d['Where_did_you_received_medicines']);
+    _dmMedOthersController.text = _extractValue(d['specify_others']) ?? '';
+    _dmMedNamesController.text = _extractValue(d['Medicnes_Names_Diabetes']) ?? '';
+    dmForget = _mapChoice(d['Did_you_ever_forget_to_take_medicines']);
+    dmNeglected = _mapChoice(d['Do_You_ever_neglected_taking_medicines']);
+    dmStoppedBetter = _mapChoice(d['Have_you_ever_stopped_taking_medicines_on_feeling_better']);
+    dmStoppedWorse = _mapChoice(d['Have_you_ever_stopped_taking_medicines_on_feeling_more_worsening_of_your_health']);
 
-    takingHtnMed = d['Are_you_currently_taking_medicines_for_Blood_Pressure'];
-    htnMedSource = d['Where_did_you_received_medicnes1'];
-    _htnMedOthersController.text = d['specify_others1'] ?? '';
-    _htnMedNamesController.text = d['Medicnes_Names_Hypertension'] ?? '';
-    htnForget = d['Did_you_ever_forget_to_take_medicines1'];
-    htnNeglected = d['Do_You_ever_neglected_taking_medicines1'];
-    htnStoppedBetter = d['Have_you_ever_stopped_taking_medicines_on_feeling_better1'];
-    htnStoppedWorse = d['Have_you_ever_stopped_taking_medicines_on_feeling_more_worsening_of_your_health1'];
+    takingHtnMed = _mapChoice(d['Are_you_currently_taking_medicines_for_Blood_Pressure']);
+    htnMedSource = _extractValue(d['Where_did_you_received_medicnes1']);
+    _htnMedOthersController.text = _extractValue(d['specify_others1']) ?? '';
+    _htnMedNamesController.text = _extractValue(d['Medicnes_Names_Hypertension']) ?? '';
+    htnForget = _mapChoice(d['Did_you_ever_forget_to_take_medicines1']);
+    htnNeglected = _mapChoice(d['Do_You_ever_neglected_taking_medicines1']);
+    htnStoppedBetter = _mapChoice(d['Have_you_ever_stopped_taking_medicines_on_feeling_better1']);
+    htnStoppedWorse = _mapChoice(d['Have_you_ever_stopped_taking_medicines_on_feeling_more_worsening_of_your_health1']);
 
     if (selectedFamilyId != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyId!);
@@ -450,10 +481,10 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
                           const SizedBox(height: 12),
                           formTextField('Medicnes Names (Hypertension)', _htnMedNamesController, maxLines: 2),
                           const SizedBox(height: 12),
-                          formSearchableDropdown(context, '1.Did you ever forget to take medicines', yesNo10Choices, htnForget, (v) => setState(() => htnForget = v)),
-                          formSearchableDropdown(context, '2.Do You ever neglected taking medicines', yesNo10Choices, htnNeglected, (v) => setState(() => htnNeglected = v)),
-                          formSearchableDropdown(context, '3.Have you ever stopped taking medicines on feeling better', yesNo10Choices, htnStoppedBetter, (v) => setState(() => htnStoppedBetter = v)),
-                          formSearchableDropdown(context, '4.Have you ever stopped taking medicines on feeling more worsening of your health', yesNo10Choices, htnStoppedWorse, (v) => setState(() => htnStoppedWorse = v)),
+                          formSearchableDropdown(context, '1.Did you ever forget to take medicines', yesNo12Choices, htnForget, (v) => setState(() => htnForget = v)),
+                          formSearchableDropdown(context, '2.Do You ever neglected taking medicines', yesNo12Choices, htnNeglected, (v) => setState(() => htnNeglected = v)),
+                          formSearchableDropdown(context, '3.Have you ever stopped taking medicines on feeling better', yesNo12Choices, htnStoppedBetter, (v) => setState(() => htnStoppedBetter = v)),
+                          formSearchableDropdown(context, '4.Have you ever stopped taking medicines on feeling more worsening of your health', yesNo12Choices, htnStoppedWorse, (v) => setState(() => htnStoppedWorse = v)),
                         ],
                       ],
                     ),
@@ -547,5 +578,41 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
         ),
       ],
     );
+  }
+  String? _mapChoice(dynamic value) {
+    if (value == null) return null;
+    String s = _extractValue(value)?.trim() ?? '';
+    if (s.isEmpty) return null;
+    
+    // Normalize to (1) Yes / (2) No format
+    final norm = s.toLowerCase();
+    if (norm == '1' || norm == 'yes' || norm.contains('(1)') || norm.startsWith('yes')) return '(1) Yes';
+    if (norm == '0' || norm == '2' || norm == 'no' || norm.contains('(0)') || norm.contains('(2)') || norm.startsWith('no')) return '(2) No';
+    
+    return s;
+  }
+
+  String? _matchInterviewer(String? name) {
+    if (name == null || name.isEmpty) return null;
+    final trimmed = name.trim();
+    // Try exact match first
+    if (interviewerList.contains(trimmed)) return trimmed;
+    // Try case-insensitive match
+    return interviewerList.firstWhereOrNull(
+      (i) => i.toLowerCase() == trimmed.toLowerCase(),
+    );
+  }
+
+  String? _extractValue(dynamic val) {
+    if (val == null) return null;
+    if (val is String) return val.trim();
+    if (val is Map) {
+      final res = val['display_value']?.toString() ?? 
+                  val['zc_display_value']?.toString() ?? 
+                  val.values.firstOrNull?.toString();
+      return res?.trim();
+    }
+    if (val is List && val.isNotEmpty) return _extractValue(val.first);
+    return val.toString().trim();
   }
 }

@@ -196,21 +196,45 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _age.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('questionnaire')
+            .where('Family_Code_Creation', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching questionnaire record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -229,13 +253,18 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     _age.text = d['Age']?.toString() ?? '';
     _contactTel.text = d['Contact_Tel'] ?? '';
     
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        dateOfInterview = rawDate.toDate();
       } else {
         try {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        } catch (_) {}
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
@@ -479,8 +508,6 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         'needs_zoho_sync': true,
       };
 
-      // Embed the Firestore doc ID so SyncService can route add vs update
-      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
       final bool wasEditing = _isEditMode;
 
       // 1. Save locally FIRST (Fast)
@@ -500,28 +527,19 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       }
 
       // 2. Background Sync (Non-blocking)
-      _performQuestionnaireSync(data);
-
+      // Note: DataCacheService already triggers background sync via SyncService if online.
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      debugPrint('Error saving questionnaire: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to save questionnaire.'),
+          backgroundColor: Colors.red,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-
-  void _performQuestionnaireSync(Map<String, dynamic> data) async {
-    try {
-      final String? docId = data['firestoreDocId'] as String?;
-      if (docId != null && docId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('questionnaire').doc(docId).set(data, SetOptions(merge: true));
-      } else {
-        await FirebaseFirestore.instance.collection('questionnaire').add(data);
-      }
-    } catch (e) {
-      debugPrint('Questionnaire Background Sync Error: $e');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

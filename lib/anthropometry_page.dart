@@ -109,21 +109,45 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          selectedGender = data['Gender']?.toString();
-          _age.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('anthropometry')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching anthropometry record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -141,13 +165,18 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
     selectedGender = d['Gender'];
     _age.text = d['Age']?.toString() ?? '';
     
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        dateOfInterview = rawDate.toDate();
       } else {
         try {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        } catch (_) {}
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

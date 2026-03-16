@@ -153,20 +153,44 @@ class _CytologyPageState extends State<CytologyPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _regNoController.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          selectedGender = data['Gender']?.toString();
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('cytology_screening')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching cytology record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -183,23 +207,33 @@ class _CytologyPageState extends State<CytologyPage> {
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     
-    if (d['Date_received_in_lab'] != null) {
-      if (d['Date_received_in_lab'] is Timestamp) {
-        dateReceived = (d['Date_received_in_lab'] as Timestamp).toDate();
+    final rawDateReceived = d['Date_received_in_lab'];
+    if (rawDateReceived != null) {
+      if (rawDateReceived is Timestamp) {
+        dateReceived = rawDateReceived.toDate();
       } else {
         try {
-          dateReceived = DateFormat('dd-MMM-yyyy').parse(d['Date_received_in_lab'].toString());
-        } catch (_) {}
+          dateReceived = DateFormat('dd-MMM-yyyy').parse(rawDateReceived.toString());
+        } catch (_) {
+          try {
+            dateReceived = DateTime.parse(rawDateReceived.toString());
+          } catch (_) {}
+        }
       }
     }
     
-    if (d['Date_read_reported'] != null) {
-      if (d['Date_read_reported'] is Timestamp) {
-        dateRead = (d['Date_read_reported'] as Timestamp).toDate();
+    final rawDateRead = d['Date_read_reported'];
+    if (rawDateRead != null) {
+      if (rawDateRead is Timestamp) {
+        dateRead = rawDateRead.toDate();
       } else {
         try {
-          dateRead = DateFormat('dd-MMM-yyyy').parse(d['Date_read_reported'].toString());
-        } catch (_) {}
+          dateRead = DateFormat('dd-MMM-yyyy').parse(rawDateRead.toString());
+        } catch (_) {
+          try {
+            dateRead = DateTime.parse(rawDateRead.toString());
+          } catch (_) {}
+        }
       }
     }
     

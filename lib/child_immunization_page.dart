@@ -129,24 +129,48 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          _age.text = data['Age']?.toString() ?? '';
-          _motherName.text = data['Mother_Name']?.toString() ?? '';
-          if (data['Date_of_Birth'] != null) {
-            dob = data['Date_of_Birth'] is Timestamp ? (data['Date_of_Birth'] as Timestamp).toDate() : null;
-          }
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+      _motherName.text = baseData['Mother_Name']?.toString() ?? '';
+      if (baseData['Date_of_Birth'] != null) {
+        dob = baseData['Date_of_Birth'] is Timestamp ? (baseData['Date_of_Birth'] as Timestamp).toDate() : null;
+      }
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('child_immunization')
+            .where('Family_Code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching immunization record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -165,23 +189,50 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
     _age.text = d['Age']?.toString() ?? '';
     selectEntryScreen = d['Entry_Screen'] ?? d['Select_Entry_Screen'];
     
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawInterviewDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawInterviewDate != null) {
+      if (rawInterviewDate is Timestamp) {
+        dateOfInterview = rawInterviewDate.toDate();
       } else {
         try {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        } catch (_) {}
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawInterviewDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawInterviewDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
-    if (d['DOB'] != null) dob = d['DOB'] is Timestamp ? (d['DOB'] as Timestamp).toDate() : (d['Date_of_Birth'] is Timestamp ? (d['Date_of_Birth'] as Timestamp).toDate() : null);
+    final rawDob = d['DOB'] ?? d['Date_of_Birth'];
+    if (rawDob != null) {
+      if (rawDob is Timestamp) {
+        dob = rawDob.toDate();
+      } else {
+        try {
+          dob = DateFormat('dd-MMM-yyyy').parse(rawDob.toString());
+        } catch (_) {
+          dob = DateTime.tryParse(rawDob.toString());
+        }
+      }
+    }
     interviewersName = d['Interviewer_s_Name'];
 
     // Map vaccine data
     void mapVaccine(String key, String ynKey, String dtKey, String byKey) {
       vaccines[key]!['given'] = d[ynKey] ?? '(0) No';
-      if (d[dtKey] != null) vaccines[key]!['date'] = d[dtKey] is Timestamp ? (d[dtKey] as Timestamp).toDate() : DateTime.tryParse(d[dtKey].toString());
+      final val = d[dtKey];
+      if (val != null) {
+        if (val is Timestamp) {
+          vaccines[key]!['date'] = val.toDate();
+        } else {
+          try {
+            vaccines[key]!['date'] = DateFormat('dd-MMM-yyyy').parse(val.toString());
+          } catch (_) {
+            vaccines[key]!['date'] = DateTime.tryParse(val.toString());
+          }
+        }
+      }
       vaccines[key]!['by'] = d[byKey] ?? '(0) RHC';
     }
 

@@ -1850,49 +1850,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       ),
                     ),
                   ),
-                CheckboxListTile(
-                  title: const Text('Filter / Purifier'),
-                  value: waterTreatment.contains('filter'),
-                  onChanged: (v) {
-                    setState(() {
-                      if (v!) {
-                        waterTreatment.add('filter');
-                        waterTreatment.remove('(7) None');
-                        waterTreatment.remove('none');
-                      } else {
-                        waterTreatment.remove('filter');
-                      }
-                    });
-                  },
-                ),
-                CheckboxListTile(
-                  title: const Text('Bleach / Strain'),
-                  value: waterTreatment.contains('chemical'),
-                  onChanged: (v) {
-                    setState(() {
-                      if (v!) {
-                        waterTreatment.add('chemical');
-                        waterTreatment.remove('(7) None');
-                        waterTreatment.remove('none');
-                      } else {
-                        waterTreatment.remove('chemical');
-                      }
-                    });
-                  },
-                ),
-                CheckboxListTile(
-                  title: const Text('None / Don’t know'),
-                  value: waterTreatment.contains('none'),
-                  onChanged: (v) {
-                    setState(() {
-                      if (v!) {
-                        waterTreatment = ['none'];
-                      } else {
-                        waterTreatment.remove('none');
-                      }
-                    });
-                  },
-                ),
+                
                 const Divider(height: 24),
                 Text(
                   '10. Source water used for all purposes',

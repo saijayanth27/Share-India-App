@@ -102,13 +102,24 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     setState(() => _isLoadingMembers = true);
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('withdrawal_refusal_form')
-          .where('Family_Code', isEqualTo: familyCode)
+          .collection('refused_form')
+          .where('Family_code', isEqualTo: familyCode)
           .get();
-      setState(() {
-        _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
-        _isLoadingMembers = false;
-      });
+      if (snapshot.docs.isEmpty) {
+        // Fallback to old collection
+        final oldSnapshot = await FirebaseFirestore.instance
+            .collection('withdrawal_refusal_form')
+            .where('Family_Code', isEqualTo: familyCode)
+            .get();
+        setState(() {
+          _existingRecords = oldSnapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        });
+      } else {
+        setState(() {
+          _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        });
+      }
+      setState(() => _isLoadingMembers = false);
     } catch (e) {
       debugPrint('Error fetching records: $e');
       setState(() => _isLoadingMembers = false);
@@ -119,21 +130,61 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumberController.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumberController.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('refused_form')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else {
+          // Fallback to withdrawal_refusal_form
+          final oldSnapshot = await FirebaseFirestore.instance
+              .collection('withdrawal_refusal_form')
+              .where('Family_Code', isEqualTo: fCode)
+              .where('Name', isEqualTo: name)
+              .limit(1)
+              .get();
+          if (oldSnapshot.docs.isNotEmpty) {
+            final doc = oldSnapshot.docs.first;
+            setState(() {
+              _editDocId = doc.id;
+              final merged = {...?baseData, ...doc.data()};
+              _populateForm(merged);
+            });
+          } else if (baseData != null) {
+            _populateForm(baseData);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching refusal record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -144,28 +195,44 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
 
   void _populateForm(Map<String, dynamic> d) {
     _registrationNumberController.text = d['Registration_Number'] ?? '';
-    selectedFamilyCode = d['Family_Code'] ?? d['Family_code'] ?? d['Family_ID'];
+    selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
-    _ageController.text = d['Age']?.toString() ?? '';
+    _ageController.text = d['Age']?.toString() ?? d['Age1']?.toString() ?? '';
     
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawInterviewDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawInterviewDate != null) {
+      if (rawInterviewDate is Timestamp) {
+        dateOfInterview = rawInterviewDate.toDate();
       } else {
         try {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        } catch (_) {}
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawInterviewDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawInterviewDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
-    selectedInterviewer = d['Interviewer_Name'];
+    selectedInterviewer = d['Interviewer_s_Name'] ?? d['Interviewer_Name'];
     selectedRespondent = d['Respondent'];
-    selectedReason = d['Reason'];
-    if (d['Death_Date'] != null) deathDate = d['Death_Date'] is Timestamp ? (d['Death_Date'] as Timestamp).toDate() : null;
-    _specifyOtherController.text = d['Specify_Other_Reason'] ?? '';
+    selectedReason = d['Reason_for_withdrawing_from_study'] ?? d['Reason'];
+    final rawDeathDate = d['Death_Date'];
+    if (rawDeathDate != null) {
+      if (rawDeathDate is Timestamp) {
+        deathDate = rawDeathDate.toDate();
+      } else {
+        try {
+          deathDate = DateFormat('dd-MMM-yyyy').parse(rawDeathDate.toString());
+        } catch (_) {
+          deathDate = DateTime.tryParse(rawDeathDate.toString());
+        }
+      }
+    }
+    _specifyOtherController.text = d['other_reasons_specified'] ?? d['Specify_Other_Reason'] ?? '';
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
@@ -200,26 +267,24 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     try {
       final data = {
         'Registration_Number': _registrationNumberController.text,
-        'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
         'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
-        'Interviewer_Name': selectedInterviewer,
+        'Interviewer_s_Name': selectedInterviewer,
         'Respondent': selectedRespondent,
-        'Reason': selectedReason,
+        'Reason_for_withdrawing_from_study': selectedReason,
         'Death_Date': deathDate != null ? Timestamp.fromDate(deathDate!) : null,
-        'Specify_Other_Reason': _specifyOtherController.text,
+        'other_reasons_specified': _specifyOtherController.text,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
 
-      // Embed the Firestore doc ID so SyncService can route add vs update
-      data['firestoreDocId'] = (_isEditMode && _editDocId != null) ? _editDocId : widget.docId;
       final bool wasEditing = _isEditMode;
 
       // 1. Save locally FIRST (Fast)
-      await DataCacheService().saveOfflineSubmission('withdrawal_refusal_form', data);
+      await DataCacheService().saveOfflineSubmission('refused_form', data);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -235,29 +300,19 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
       }
 
       // 2. Background Sync (Non-blocking)
-      _performRefusalSync(data);
-
+      // Note: DataCacheService already triggers background sync via SyncService if online.
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      debugPrint('Error saving refusal form: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to save refusal form.'),
+          backgroundColor: Colors.red,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-
-  void _performRefusalSync(Map<String, dynamic> data) async {
-    try {
-      final String? docId = data['firestoreDocId'] as String?;
-      if (docId != null && docId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('withdrawal_refusal_form').doc(docId).set(data, SetOptions(merge: true));
-      } else {
-        await FirebaseFirestore.instance.collection('withdrawal_refusal_form').add(data);
-      }
-    } catch (e) {
-      debugPrint('Refusal Background Sync Error: $e');
-    }
-  }
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -284,8 +339,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
               padding: const EdgeInsets.all(16.0),
               child: Form(
                 key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
+                child: Column(
                   children: [
                     formActionButtons(
                       context: context,

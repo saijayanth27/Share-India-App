@@ -118,21 +118,45 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _age.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('blood_sample_status')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching sample status record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -150,13 +174,18 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     selectedGender = d['Gender'];
     _age.text = d['Age']?.toString() ?? '';
     
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        dateOfInterview = rawDate.toDate();
       } else {
         try {
-          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString());
-        } catch (_) {}
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
@@ -171,13 +200,21 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     collectVaginalSwabHPV = d['Collect_Vaginal_Swab_HPV'];
     collectUrine = d['Collect_Urine'];
 
-    if (d['Date_CBP'] != null) dateCBP = d['Date_CBP'] is Timestamp ? (d['Date_CBP'] as Timestamp).toDate() : null;
-    if (d['Date_HBA1C'] != null) dateHBA1C = d['Date_HBA1C'] is Timestamp ? (d['Date_HBA1C'] as Timestamp).toDate() : null;
-    if (d['Date_Thyroid'] != null) dateThyroid = d['Date_Thyroid'] is Timestamp ? (d['Date_Thyroid'] as Timestamp).toDate() : null;
-    if (d['Date_CRE'] != null) dateCRE = d['Date_CRE'] is Timestamp ? (d['Date_CRE'] as Timestamp).toDate() : null;
-    if (d['Date_Sputum_TB'] != null) dateSputumTB = d['Date_Sputum_TB'] is Timestamp ? (d['Date_Sputum_TB'] as Timestamp).toDate() : null;
-    if (d['Date_Vaginal_Swab_HPV'] != null) dateVaginalSwabHPV = d['Date_Vaginal_Swab_HPV'] is Timestamp ? (d['Date_Vaginal_Swab_HPV'] as Timestamp).toDate() : null;
-    if (d['Date_Urine'] != null) dateUrine = d['Date_Urine'] is Timestamp ? (d['Date_Urine'] as Timestamp).toDate() : null;
+    DateTime? _parseSampleDate(dynamic val) {
+      if (val == null) return null;
+      if (val is Timestamp) return val.toDate();
+      return DateTime.tryParse(val.toString()) ?? ((){
+        try { return DateFormat('dd-MMM-yyyy').parse(val.toString()); } catch(_) { return null; }
+      }());
+    }
+
+    if (d['Date_CBP'] != null) dateCBP = _parseSampleDate(d['Date_CBP']);
+    if (d['Date_HBA1C'] != null) dateHBA1C = _parseSampleDate(d['Date_HBA1C']);
+    if (d['Date_Thyroid'] != null) dateThyroid = _parseSampleDate(d['Date_Thyroid']);
+    if (d['Date_CRE'] != null) dateCRE = _parseSampleDate(d['Date_CRE']);
+    if (d['Date_Sputum_TB'] != null) dateSputumTB = _parseSampleDate(d['Date_Sputum_TB']);
+    if (d['Date_Vaginal_Swab_HPV'] != null) dateVaginalSwabHPV = _parseSampleDate(d['Date_Vaginal_Swab_HPV']);
+    if (d['Date_Urine'] != null) dateUrine = _parseSampleDate(d['Date_Urine']);
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);

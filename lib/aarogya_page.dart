@@ -129,26 +129,49 @@ class _AarogyaPageState extends State<AarogyaPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final m = _existingRecords.firstWhere((record) => record['Name'] == name, orElse: () => {});
-          if (m.isNotEmpty) {
-            _editDocId = m['id'];
-            _populateForm(m);
-          } else if (_allMembersData.containsKey(name)) {
-            // New record for existing member
-            _relationCode.text = m['Relation_Code'] ?? '';
-            selectedGender = m['Gender'];
-            _age.text = m['Age']?.toString() ?? '';
-            _registrationNumber.text = m['Registration_Number'] ?? '';
-          }
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('aarogya')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching aarogya record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _populateForm(Map<String, dynamic> d) {
@@ -160,13 +183,18 @@ class _AarogyaPageState extends State<AarogyaPage> {
       _nameController.text = (d['Name'] ?? '').toString();
       selectedGender = d['Gender'];
       _age.text = (d['Age'] ?? '').toString();
-      if (d['Date_of_Interview'] != null) {
-        if (d['Date_of_Interview'] is Timestamp) {
-          dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+      final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+      if (rawDate != null) {
+        if (rawDate is Timestamp) {
+          dateOfInterview = rawDate.toDate();
         } else {
           try {
-            dateOfInterview = DateTime.parse(d['Date_of_Interview'].toString());
-          } catch (_) {}
+            dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+          } catch (_) {
+            try {
+              dateOfInterview = DateTime.parse(rawDate.toString());
+            } catch (_) {}
+          }
         }
       }
       interviewersName = d['Interviewer_s_Name'];

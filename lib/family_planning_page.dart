@@ -157,26 +157,50 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final m = _allMembersData[name]!;
-          _regNoController.text = (m['uniq_Registration_Number'] ?? m['Registration_Number'] ?? m['Registration_Number1'] ?? '').toString();
-          _husbandNameController.text = (m['Name2'] ?? m['Name1'] ?? '').toString();
-          selectedGender = m['Gender']?.toString();
-          _nameIdController.text = m['ID']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      _husbandNameController.text = (baseData['Name2'] ?? baseData['Name1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+      _nameIdController.text = baseData['ID']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('family_planning')
+            .where('Family_Code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching family planning record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -203,8 +227,17 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
 
     // Permanent
     permanentUsed = d['Used'];
-    if (d['Date_field1'] != null) {
-      permanentDate = d['Date_field1'] is Timestamp ? (d['Date_field1'] as Timestamp).toDate() : DateTime.tryParse(d['Date_field1'].toString());
+    final rawDate1 = d['Date_field1'];
+    if (rawDate1 != null) {
+      if (rawDate1 is Timestamp) {
+        permanentDate = rawDate1.toDate();
+      } else {
+        try {
+          permanentDate = DateFormat('dd-MMM-yyyy').parse(rawDate1.toString());
+        } catch (_) {
+          permanentDate = DateTime.tryParse(rawDate1.toString());
+        }
+      }
     }
     permanentPlace = d['Place'];
     _remarksController.text = d['Remarks']?.toString() ?? '';
@@ -212,18 +245,45 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
     // Temporary
     usedOralContraceptives = d['Used_oral_contraceptives'];
     _howLongUseOralController.text = d['How_long_use_oral1']?.toString() ?? '';
-    if (d['Last_use_oral_contraceptives'] != null) {
-      lastUseOralDate = d['Last_use_oral_contraceptives'] is Timestamp ? (d['Last_use_oral_contraceptives'] as Timestamp).toDate() : DateTime.tryParse(d['Last_use_oral_contraceptives'].toString());
+    final rawOralDate = d['Last_use_oral_contraceptives'];
+    if (rawOralDate != null) {
+      if (rawOralDate is Timestamp) {
+        lastUseOralDate = rawOralDate.toDate();
+      } else {
+        try {
+          lastUseOralDate = DateFormat('dd-MMM-yyyy').parse(rawOralDate.toString());
+        } catch (_) {
+          lastUseOralDate = DateTime.tryParse(rawOralDate.toString());
+        }
+      }
     }
     usedCondoms = d['Used_condoms'];
     usedCopperT = d['Used_an_Copper_T'];
     usedInjectable = d['Used_injectable_contraceptives'];
     howLongInjectable = d['How_long_using_injectable_contraceptives'];
-    if (d['Last_use_injectable_contraceptives'] != null) {
-      lastUseInjectableDate = d['Last_use_injectable_contraceptives'] is Timestamp ? (d['Last_use_injectable_contraceptives'] as Timestamp).toDate() : DateTime.tryParse(d['Last_use_injectable_contraceptives'].toString());
+    final rawInjectableDate = d['Last_use_injectable_contraceptives'];
+    if (rawInjectableDate != null) {
+      if (rawInjectableDate is Timestamp) {
+        lastUseInjectableDate = rawInjectableDate.toDate();
+      } else {
+        try {
+          lastUseInjectableDate = DateFormat('dd-MMM-yyyy').parse(rawInjectableDate.toString());
+        } catch (_) {
+          lastUseInjectableDate = DateTime.tryParse(rawInjectableDate.toString());
+        }
+      }
     }
-    if (d['Date_field2'] != null) {
-      temporaryDate = d['Date_field2'] is Timestamp ? (d['Date_field2'] as Timestamp).toDate() : DateTime.tryParse(d['Date_field1'].toString());
+    final rawDate2 = d['Date_field2'];
+    if (rawDate2 != null) {
+      if (rawDate2 is Timestamp) {
+        temporaryDate = rawDate2.toDate();
+      } else {
+        try {
+          temporaryDate = DateFormat('dd-MMM-yyyy').parse(rawDate2.toString());
+        } catch (_) {
+          temporaryDate = DateTime.tryParse(rawDate2.toString());
+        }
+      }
     }
     usedOther = d['Used_other'];
     _ifYesController.text = d['If_yes']?.toString() ?? '';

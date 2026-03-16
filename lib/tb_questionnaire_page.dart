@@ -30,32 +30,33 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
   String? selectedMemberName;
   String? selectedGender;
   final _ageController = TextEditingController();
+  final _reasonIfOtherController = TextEditingController();
   DateTime? interviewDate = DateTime.now();
   String? selectedInterviewer;
   String? selectedReason;
 
   // Questions State (Yes/No)
   Map<String, String?> answers = {
-    'cough_2wks': '(2) No',
-    'fever_2wks': '(2) No',
-    'weight_loss': '(2) No',
-    'night_sweats': '(2) No',
-    'haemoptysis': '(2) No',
-    'tb_before': '(2) No',
-    'tb_exposure': '(2) No',
-    'respiratory_history': '(2) No',
-    'recent_infection': '(2) No',
-    'crowded_places': '(2) No',
-    'tb_household': '(2) No',
-    'healthcare_work': '(2) No',
-    'high_risk_env': '(2) No',
-    'smoking': '(2) No',
-    'alcohol': '(2) No',
-    'recent_tests': '(2) No',
+    'Have_you_had_a_cough_for_more_than_2_weeks': '(2) No',
+    'Have_you_had_a_fever_for_more_than_2_weeks': '(2) No',
+    'Do_you_feel_like_you_have_lost_weight': '(2) No',
+    'Are_you_experiencing_excessive_sweating_at_night_Night_sweats': '(2) No',
+    'Haemoptysis_coughing_up_blood': '(2) No',
+    'Medical_History1': '(2) No',
+    'Medical_History2': '(2) No',
+    'Respiratory_and_General_Health1': '(2) No',
+    'Respiratory_and_General_Health2': '(2) No',
+    'Social_and_Environmental_Factors1': '(2) No',
+    'Social_and_Environmental_Factors2': '(2) No',
+    'Occupational_History1': '(2) No',
+    'Occupational_History2': '(2) No',
+    'Behavioural_Risk_Factors1': '(2) No',
+    'Behavioural_Risk_Factors2': '(2) No',
+    'Diagnostic_Tests1': '(2) No',
   };
 
-  final _tbDetailsController = TextEditingController();
-  final _respiratoryDetailsController = TextEditingController();
+  final _ifYesProvideDetailsController = TextEditingController();
+  final _ifYesPleaseProvideDetailsController = TextEditingController();
 
   // Dropdown Options
   List<String> familyMemberNames = [];
@@ -134,21 +135,45 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('tb_questionnaire')
+            .where('Family_Code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching TB record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -166,30 +191,55 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Interview_Date'] != null) {
-      if (d['Interview_Date'] is Timestamp) {
-        interviewDate = (d['Interview_Date'] as Timestamp).toDate();
+    final rawDate = d['Interview_Date'] ?? d['Date_of_Interview'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        interviewDate = rawDate.toDate();
       } else {
         try {
-          interviewDate = DateFormat('dd-MMM-yyyy').parse(d['Interview_Date'].toString());
-        } catch (_) {}
+          interviewDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            interviewDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
-    selectedInterviewer = d['Interviewer_Name'];
-    selectedReason = d['Reason'];
+    selectedInterviewer = d['Interviewer_s_Name'] ?? d['Interviewer_Name'];
+    selectedReason = d['If_not_done_reason'] ?? d['Reason'];
+    _reasonIfOtherController.text = d['Single_Line'] ?? '';
     
-    final savedAnswers = d['Answers'] as Map<String, dynamic>?;
-    if (savedAnswers != null) {
-      savedAnswers.forEach((key, value) {
-        if (answers.containsKey(key)) {
-          answers[key] = value?.toString();
-        }
-      });
-    }
+    // Support both flattened and nested (legacy) data maps
+    final oldAnswers = d['Answers'] as Map<String, dynamic>?;
     
-    _tbDetailsController.text = d['TB_Details'] ?? '';
-    _respiratoryDetailsController.text = d['Respiratory_Details'] ?? '';
+    // Map of old keys to new Zoho link names
+    final keyMap = {
+      'cough_2wks': 'Have_you_had_a_cough_for_more_than_2_weeks',
+      'fever_2wks': 'Have_you_had_a_fever_for_more_than_2_weeks',
+      'weight_loss': 'Do_you_feel_like_you_have_lost_weight',
+      'night_sweats': 'Are_you_experiencing_excessive_sweating_at_night_Night_sweats',
+      'haemoptysis': 'Haemoptysis_coughing_up_blood',
+      'tb_before': 'Medical_History1',
+      'tb_exposure': 'Medical_History2',
+      'respiratory_history': 'Respiratory_and_General_Health1',
+      'recent_infection': 'Respiratory_and_General_Health2',
+      'crowded_places': 'Social_and_Environmental_Factors1',
+      'tb_household': 'Social_and_Environmental_Factors2',
+      'healthcare_work': 'Occupational_History1',
+      'high_risk_env': 'Occupational_History2',
+      'smoking': 'Behavioural_Risk_Factors1',
+      'alcohol': 'Behavioural_Risk_Factors2',
+      'recent_tests': 'Diagnostic_Tests1',
+    };
+
+    answers.forEach((key, _) {
+      // Try flat first, then nested
+      answers[key] = d[key]?.toString() ?? oldAnswers?[keyMap.entries.firstWhere((e) => e.value == key, orElse: () => const MapEntry('', '')).key]?.toString() ?? '(2) No';
+    });
+    
+    _ifYesProvideDetailsController.text = d['If_yes_provide_details'] ?? d['TB_Details'] ?? '';
+    _ifYesPleaseProvideDetailsController.text = d['If_yes_please_provide_details'] ?? d['Respiratory_Details'] ?? '';
 
     if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
@@ -209,9 +259,10 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
       interviewDate = DateTime.now();
       selectedInterviewer = null;
       selectedReason = null;
+      _reasonIfOtherController.clear();
       answers.updateAll((key, value) => '(2) No');
-      _tbDetailsController.clear();
-      _respiratoryDetailsController.clear();
+      _ifYesProvideDetailsController.clear();
+      _ifYesPleaseProvideDetailsController.clear();
       familyMemberNames = [];
       _existingRecords = [];
     });
@@ -224,16 +275,17 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
     try {
       final data = {
         'Registration_Number': _registrationNumber.text,
-        'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
+        'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
         'Age': int.tryParse(_ageController.text),
-        'Interview_Date': interviewDate != null ? Timestamp.fromDate(interviewDate!) : null,
-        'Interviewer_Name': selectedInterviewer,
-        'Reason': selectedReason,
-        'Answers': answers,
-        'TB_Details': _tbDetailsController.text,
-        'Respiratory_Details': _respiratoryDetailsController.text,
+        'Date_of_Interview': interviewDate != null ? Timestamp.fromDate(interviewDate!) : null,
+        'Interviewer_s_Name': selectedInterviewer,
+        'If_not_done_reason': selectedReason,
+        'Single_Line': _reasonIfOtherController.text,
+        ...answers,
+        'If_yes_provide_details': _ifYesProvideDetailsController.text,
+        'If_yes_please_provide_details': _ifYesPleaseProvideDetailsController.text,
         'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
         'needs_zoho_sync': true,
       };
@@ -324,44 +376,77 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Symptom Screening (In last 2 weeks)',
+                      title: '(1) Current Symptoms',
                       icon: Icons.personal_injury_outlined,
                       children: [
-                        _buildQuestionRow('Cough for more than 2 weeks?', 'cough_2wks'),
-                        _buildQuestionRow('Fever for more than 2 weeks?', 'fever_2wks'),
-                        _buildQuestionRow('Unintentional Weight Loss?', 'weight_loss'),
-                        _buildQuestionRow('Night Sweats?', 'night_sweats'),
-                        _buildQuestionRow('Haemoptysis (Coughing blood)?', 'haemoptysis'),
+                        _buildQuestionRow('Have you had a cough for more than 2 weeks?', 'Have_you_had_a_cough_for_more_than_2_weeks'),
+                        _buildQuestionRow('Have you had a fever for more than 2 weeks?', 'Have_you_had_a_fever_for_more_than_2_weeks'),
+                        _buildQuestionRow('Do you feel like you have lost weight?', 'Do_you_feel_like_you_have_lost_weight'),
+                        _buildQuestionRow('Are you experiencing excessive sweating at night (Night sweats)?', 'Are_you_experiencing_excessive_sweating_at_night_Night_sweats'),
+                        _buildQuestionRow('Haemoptysis (coughing up blood):', 'Haemoptysis_coughing_up_blood'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'TB History & Exposure',
+                      title: '(2) Medical History',
                       icon: Icons.history_outlined,
                       children: [
-                        _buildQuestionRow('History of TB before?', 'tb_before'),
-                        if (answers['tb_before'] == '(1) Yes') formTextField('Specify Details', _tbDetailsController),
-                        _buildQuestionRow('Family/Household exposure to TB?', 'tb_household'),
-                        _buildQuestionRow('Contact with TB patient?', 'tb_exposure'),
-                        _buildQuestionRow('History of respiratory illness?', 'respiratory_history'),
-                        if (answers['respiratory_history'] == '(1) Yes') formTextField('Specify Details', _respiratoryDetailsController),
+                        _buildQuestionRow('Have you been diagnosed with tuberculosis before? If yes, please provide details', 'Medical_History1'),
+                        if (answers['Medical_History1'] == '(1) Yes') formTextField('If yes , provide details', _ifYesProvideDetailsController),
+                        _buildQuestionRow('Do you have a history of exposure to someone with confirmed TB? ', 'Medical_History2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Risk Factors & Environment',
+                      title: '(3) Respiratory and General Health',
+                      icon: Icons.medical_services_outlined,
+                      children: [
+                        _buildQuestionRow('Any history of chronic respiratory conditions (e.g., asthma, chronic bronchitis)? ', 'Respiratory_and_General_Health1'),
+                        if (answers['Respiratory_and_General_Health1'] == '(1) Yes') formTextField(' If yes, please provide details.', _ifYesPleaseProvideDetailsController),
+                        _buildQuestionRow('Any recent respiratory infections or illnesses?', 'Respiratory_and_General_Health2'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: '(4) Social and Environmental Factors:',
+                      icon: Icons.people_outline,
+                      children: [
+                        _buildQuestionRow(' Are you living or working in crowded places? ', 'Social_and_Environmental_Factors1'),
+                        _buildQuestionRow('Is there a history of TB in your household or close contacts?', 'Social_and_Environmental_Factors2'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: '(5) Occupational History:',
+                      icon: Icons.work_outline,
+                      children: [
+                        _buildQuestionRow('Do you work in healthcare, correctional facilities, or others? ', 'Occupational_History1'),
+                        _buildQuestionRow('environments with an increased risk of TB exposure? ', 'Occupational_History2'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: '(6) Behavioural Risk Factors',
                       icon: Icons.warning_amber_outlined,
                       children: [
-                        _buildQuestionRow('Living in crowded places?', 'crowded_places'),
-                        _buildQuestionRow('Healthcare worker?', 'healthcare_work'),
-                        _buildQuestionRow('High risk environment exposure?', 'high_risk_env'),
-                        _buildQuestionRow('Smoking habit?', 'smoking'),
-                        _buildQuestionRow('Alcohol consumption?', 'alcohol'),
-                        _buildQuestionRow('Any recent infections?', 'recent_infection'),
-                    ],
-                  ),
+                        _buildQuestionRow('Do you smoke or have a history of smoking?', 'Behavioural_Risk_Factors1'),
+                        _buildQuestionRow(' Do you consume alcohol regularly?', 'Behavioural_Risk_Factors2'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    buildSectionCard(
+                      context: context,
+                      title: '(7) Diagnostic Tests:',
+                      icon: Icons.biotech_outlined,
+                      children: [
+                        _buildQuestionRow('Have you had any recent chest X-rays or other respiratory tests?', 'Diagnostic_Tests1'),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -433,6 +518,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
           ],
         ),
         const SizedBox(height: 12),
+        const SizedBox(height: 12),
         formSearchableDropdown(
           context,
           'Interviewer’s Name',
@@ -440,14 +526,24 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
           selectedInterviewer,
           (v) => setState(() => selectedInterviewer = v),
         ),
-        const SizedBox(height: 12),
-        formSearchableDropdown(
-          context,
-          'Reason if not available',
-          reasons,
-          selectedReason,
-          (v) => setState(() => selectedReason = v),
+        const SizedBox(height: 16),
+        const Text('If not done, reason', style: TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          children: reasons.map((r) => _buildCompactRadio(
+            label: r,
+            value: r,
+            groupValue: selectedReason,
+            onChanged: (v) => setState(() => selectedReason = v),
+          )).toList(),
         ),
+        if (selectedReason == '(4) Other') 
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: formTextField('Specify if other', _reasonIfOtherController, hint: 'Single Line'),
+          ),
       ],
     );
   }
@@ -459,9 +555,74 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
         const SizedBox(height: 12),
         Text(question, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
         const SizedBox(height: 4),
-        formSearchableDropdown(context, 'Answer', ['(1) Yes', '(0) No'], answers[key], (v) => setState(() => answers[key] = v)),
+        Wrap(
+          spacing: 20,
+          runSpacing: 8,
+          children: [
+            _buildCompactRadio(
+              label: '(1) Yes',
+              value: '(1) Yes',
+              groupValue: answers[key],
+              onChanged: (v) => setState(() => answers[key] = v),
+            ),
+            _buildCompactRadio(
+              label: '(2) No',
+              value: '(2) No',
+              groupValue: answers[key],
+              onChanged: (v) => setState(() => answers[key] = v),
+            ),
+          ],
+        ),
         const Divider(),
       ],
+    );
+  }
+
+  Widget _buildCompactRadio({
+    required String label,
+    required String value,
+    required String? groupValue,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final bool isSelected = value == groupValue;
+    return InkWell(
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? Colors.deepOrange.shade700 : Colors.grey.shade300,
+            width: 1.5,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          color: isSelected ? Colors.deepOrange.shade50 : Colors.transparent,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 24,
+              width: 24,
+              child: Radio<String>(
+                value: value,
+                groupValue: groupValue,
+                onChanged: onChanged,
+                activeColor: Colors.deepOrange.shade700,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? Colors.deepOrange.shade900 : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

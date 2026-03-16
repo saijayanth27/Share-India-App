@@ -118,23 +118,49 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          selectedGender = data['Gender']?.toString();
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    // 1. Get base data (immediate)
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      selectedGender = baseData['Gender']?.toString();
+    }
+
+    // 2. Fetch specific record in Edit mode
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('ante_natal_checkup')
+            .where('Family_ID', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching ANC Checkup: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -151,25 +177,35 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
     selectedGender = d['Gender'];
     _visitNo.text = d['Visit_No']?.toString() ?? '';
     
-    if (d['LMP_Date'] != null) {
-      if (d['LMP_Date'] is Timestamp) {
-        lmpDate = (d['LMP_Date'] as Timestamp).toDate();
+    final rawLmpDate = d['LMP_Date'];
+    if (rawLmpDate != null) {
+      if (rawLmpDate is Timestamp) {
+        lmpDate = rawLmpDate.toDate();
       } else {
         try {
-          lmpDate = DateFormat('dd-MMM-yyyy').parse(d['LMP_Date'].toString());
-        } catch (_) {}
+          lmpDate = DateFormat('dd-MMM-yyyy').parse(rawLmpDate.toString());
+        } catch (_) {
+          try {
+            lmpDate = DateTime.parse(rawLmpDate.toString());
+          } catch (_) {}
+        }
       }
     }
     
     _countOfCheckup.text = d['Count_of_Checkup']?.toString() ?? '';
     
-    if (d['Checkup_Date'] != null) {
-      if (d['Checkup_Date'] is Timestamp) {
-        checkupDt = (d['Checkup_Date'] as Timestamp).toDate();
+    final rawCheckupDate = d['Checkup_Date'];
+    if (rawCheckupDate != null) {
+      if (rawCheckupDate is Timestamp) {
+        checkupDt = rawCheckupDate.toDate();
       } else {
         try {
-          checkupDt = DateFormat('dd-MMM-yyyy').parse(d['Checkup_Date'].toString());
-        } catch (_) {}
+          checkupDt = DateFormat('dd-MMM-yyyy').parse(rawCheckupDate.toString());
+        } catch (_) {
+          try {
+            checkupDt = DateTime.parse(rawCheckupDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

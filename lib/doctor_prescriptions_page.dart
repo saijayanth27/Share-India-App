@@ -98,25 +98,49 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     }
   }
 
-  void _onNameSelected(String? name) {
+  void _onNameSelected(String? name) async {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumberController.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumberController.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('doctor_prescriptions')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching prescription record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -134,13 +158,18 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Prescription_Date'] != null) {
-      if (d['Prescription_Date'] is Timestamp) {
-        selectedPrescriptionDate = (d['Prescription_Date'] as Timestamp).toDate();
+    final rawPrescriptionDate = d['Prescription_Date'] ?? d['Date'];
+    if (rawPrescriptionDate != null) {
+      if (rawPrescriptionDate is Timestamp) {
+        selectedPrescriptionDate = rawPrescriptionDate.toDate();
       } else {
         try {
-          selectedPrescriptionDate = DateFormat('dd-MMM-yyyy').parse(d['Prescription_Date'].toString());
-        } catch (_) {}
+          selectedPrescriptionDate = DateFormat('dd-MMM-yyyy').parse(rawPrescriptionDate.toString());
+        } catch (_) {
+          try {
+            selectedPrescriptionDate = DateTime.parse(rawPrescriptionDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

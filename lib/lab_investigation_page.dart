@@ -106,20 +106,44 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _regNoController.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          selectedGender = data['Gender']?.toString();
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('lab_investigation')
+            .where('Family_ID', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching lab record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -136,13 +160,18 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     
-    if (d['Date_of_Investigation'] != null) {
-      if (d['Date_of_Investigation'] is Timestamp) {
-        investigationDate = (d['Date_of_Investigation'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Investigation'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        investigationDate = rawDate.toDate();
       } else {
         try {
-          investigationDate = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Investigation'].toString());
-        } catch (_) {}
+          investigationDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            investigationDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
 

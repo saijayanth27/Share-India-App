@@ -205,21 +205,45 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _regNoController.text = data['Registration_Number']?.toString() ?? '';
-          selectedGender = data['Gender']?.toString();
-          _ageController.text = data['Age']?.toString() ?? '';
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = baseData['Registration_Number']?.toString() ?? '';
+      selectedGender = baseData['Gender']?.toString();
+      _ageController.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('medicines_entry')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching medicines record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -237,13 +261,18 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     selectedGender = d['Gender'];
     _ageController.text = d['Age']?.toString() ?? '';
     
-    if (d['Date'] != null) {
-      if (d['Date'] is Timestamp) {
-        selectedDate = (d['Date'] as Timestamp).toDate();
+    final rawDate = d['Date'] ?? d['Interview_Date'] ?? d['Date_of_Interview'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        selectedDate = rawDate.toDate();
       } else {
         try {
-          selectedDate = DateFormat('dd-MMM-yyyy').parse(d['Date'].toString());
-        } catch (_) {}
+          selectedDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            selectedDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

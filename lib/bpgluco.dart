@@ -97,11 +97,18 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     selectedName = d['Name'];
     selectedGender = d['Gender'];
     _age.text = (d['Age'] ?? '').toString();
-    if (d['Date_of_Interview'] != null) {
-      if (d['Date_of_Interview'] is Timestamp) {
-        dateOfInterview = (d['Date_of_Interview'] as Timestamp).toDate();
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        dateOfInterview = rawDate.toDate();
       } else {
-        try { dateOfInterview = DateFormat('dd-MMM-yyyy').parse(d['Date_of_Interview'].toString()); } catch (_) {}
+        try {
+          dateOfInterview = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            dateOfInterview = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     interviewersName = d['Interviewer_s_Name'];
@@ -110,11 +117,19 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
     _d1.text = d['/d1'] ?? d['Single_Line4'] ?? '';
     _d2.text = d['/d2'] ?? d['Single_Line3'] ?? '';
     _d3.text = d['/d3'] ?? d['Single_Line1'] ?? '';
-    if (d['Date1'] != null) date1 = (d[ 'Date1'] as Timestamp).toDate();
-    if (d['Date2'] != null) date2 = (d['Date2'] as Timestamp).toDate();
-    if (d['Date3'] != null) date3 = (d['Date3'] as Timestamp).toDate();
-    if (d['Entry_Date'] != null) entryDate = (d['Entry_Date'] as Timestamp).toDate();
-    if (d['Modified_Date'] != null) modifiedDate = (d['Modified_Date'] as Timestamp).toDate();
+    DateTime? _parseHealthDate(dynamic val) {
+      if (val == null) return null;
+      if (val is Timestamp) return val.toDate();
+      return DateTime.tryParse(val.toString()) ?? ((){
+        try { return DateFormat('dd-MMM-yyyy').parse(val.toString()); } catch(_) { return null; }
+      }());
+    }
+
+    if (d['Date1'] != null) date1 = _parseHealthDate(d['Date1']);
+    if (d['Date2'] != null) date2 = _parseHealthDate(d['Date2']);
+    if (d['Date3'] != null) date3 = _parseHealthDate(d['Date3']);
+    if (d['Entry_Date'] != null) entryDate = _parseHealthDate(d['Entry_Date']);
+    if (d['Modified_Date'] != null) modifiedDate = _parseHealthDate(d['Modified_Date']);
     for (int i = 0; i < 3; i++) {
       final suffix = i == 0 ? '' : (i + 1).toString();
       _sysControllers[i].text = (d['systolic$suffix'] ?? '').toString();
@@ -160,18 +175,57 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   void _onNameSelected(String? name) async {
     setState(() {
       selectedName = name;
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) { _editDocId = record['id']; _populateForm(record); }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _registrationNumber.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          selectedGender = data['Gender']?.toString();
-          _age.text = data['Age']?.toString() ?? '';
-        }
-      }
+      _nameController.text = name ?? '';
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _registrationNumber.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        // health_readings uses "Family_code" or "Family_Code"
+        var snapshot = await FirebaseFirestore.instance
+            .collection('health_readings')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isEmpty) {
+          snapshot = await FirebaseFirestore.instance
+              .collection('health_readings')
+              .where('Family_Code', isEqualTo: fCode)
+              .where('Name', isEqualTo: name)
+              .orderBy('clientUpdatedAt', descending: true)
+              .limit(1)
+              .get();
+        }
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching health readings record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _setupConnectivityListener() {

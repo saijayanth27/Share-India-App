@@ -131,20 +131,44 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _regNoController.text = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? data['Registration_Number1'] ?? '').toString();
-          selectedGender = data['Gender']?.toString();
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _regNoController.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
+      selectedGender = baseData['Gender']?.toString();
+    }
+
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('colposcopy_screening')
+            .where('Family_code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            final merged = {...?baseData, ...doc.data()};
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching colposcopy record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _loadExistingData() {
@@ -161,13 +185,18 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     
-    if (d['Interview_Date'] != null) {
-      if (d['Interview_Date'] is Timestamp) {
-        interviewDate = (d['Interview_Date'] as Timestamp).toDate();
+    final rawDate = d['Interview_Date'] ?? d['Date_of_Interview'];
+    if (rawDate != null) {
+      if (rawDate is Timestamp) {
+        interviewDate = rawDate.toDate();
       } else {
         try {
-          interviewDate = DateFormat('dd-MMM-yyyy').parse(d['Interview_Date'].toString());
-        } catch (_) {}
+          interviewDate = DateFormat('dd-MMM-yyyy').parse(rawDate.toString());
+        } catch (_) {
+          try {
+            interviewDate = DateTime.parse(rawDate.toString());
+          } catch (_) {}
+        }
       }
     }
     

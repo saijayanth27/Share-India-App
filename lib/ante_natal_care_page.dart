@@ -172,22 +172,57 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
-      if (name != null) {
-        if (_isEditMode) {
-          final record = _existingRecords.firstWhere((r) => r['Name'] == name, orElse: () => {});
-          if (record.isNotEmpty) {
-            _editDocId = record['id'];
-            _populateForm(record);
-          }
-        } else if (_allMembersData.containsKey(name)) {
-          final data = _allMembersData[name]!;
-          _baseRegistrationNumber = (data['uniq_Registration_Number'] ?? data['Registration_Number'] ?? '').toString();
-          _husbandName.text = (data['Name2'] ?? data['Name1'] ?? '').toString();
-          _age.text = data['Age']?.toString() ?? '';
-          _updateRegistrationNumber();
-        }
-      }
     });
+    
+    if (name == null) return;
+
+    // 1. Get base data from common Personal Details (immediate)
+    final baseData = _allMembersData[name];
+    if (baseData != null && !_isEditMode) {
+      _baseRegistrationNumber = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? '').toString();
+      _husbandName.text = (baseData['Name2'] ?? baseData['Name1'] ?? '').toString();
+      _age.text = baseData['Age']?.toString() ?? '';
+      _updateRegistrationNumber();
+    }
+
+    // 2. If Edit mode, fetch the latest specific record from Firestore
+    if (_isEditMode) {
+      setState(() => _isLoadingMembers = true);
+      try {
+        final fCode = _familyCodeController.text.trim();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('ante_natal_care')
+            .where('Family_Code', isEqualTo: fCode)
+            .where('Name', isEqualTo: name)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          setState(() {
+            _editDocId = doc.id;
+            // Merge base data with specific record (record takes precedence)
+            final merged = {...?baseData, ...doc.data()};
+            
+            // Fix specific mappings if missing in clinical record
+            if (merged['Husband_Name'] == null || merged['Husband_Name'].toString().isEmpty) {
+              merged['Husband_Name'] = baseData?['Name2'] ?? baseData?['Name1'];
+            }
+            if (merged['Age'] == null) merged['Age'] = baseData?['Age'];
+            
+            _populateForm(merged);
+          });
+        } else if (baseData != null) {
+          // No specific record yet, but we have member details
+          _populateForm(baseData);
+        }
+      } catch (e) {
+        debugPrint('Error fetching ANC record: $e');
+        if (baseData != null) _populateForm(baseData);
+      } finally {
+        if (mounted) setState(() => _isLoadingMembers = false);
+      }
+    }
   }
 
   void _updateRegistrationNumber() {
@@ -232,7 +267,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
       return null;
     }
 
-    dateOfInterview = parseDate(d['Date_of_Interview']) ?? DateTime.now();
+    dateOfInterview = parseDate(d['Date_of_Interview'] ?? d['Interview_Date']) ?? DateTime.now();
     lmpDate = parseDate(d['LMP_Date']);
     eddDate = parseDate(d['EDD_Date']);
     interviewersName = d['Interviewer_s_Name'];
