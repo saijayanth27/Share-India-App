@@ -25,7 +25,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
 
   // --- Controllers & State ---
   String? selectedFamilyCode;
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   String? selectedMemberName;
   String? selectedGender;

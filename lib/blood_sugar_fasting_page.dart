@@ -24,7 +24,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
 
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   String? selectedFamilyCode;
   String? selectedName;

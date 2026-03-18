@@ -101,7 +101,7 @@ class FamilyFormPage extends StatefulWidget {
 class _FamilyFormPageState extends State<FamilyFormPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final _familyId = TextEditingController();
+  final _familyId = TextEditingController(text: 'TSRRMED');
   final _houseNo = TextEditingController();
   final _head = TextEditingController();
   Map<String, dynamic> locationData = {};
@@ -323,69 +323,116 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       separateKitchen = _matchOption(data['separate_kitchen'] ?? data['seproomk'], ['(1) Yes', '(2) No']);
       
       cookingFuelTypes = [];
-      final fuelList = ['(1) Electricity', '(2) LPG/N.GAS', '(3) Kerosene', '(4) Wood', '(5) Coal', '(6) Crop Residues', '(7) Dung Cakes', '(77) Other'];
-      if (data['typcookfuel_lpg'] == '1') cookingFuelTypes.add('(2) LPG/N.GAS');
-      // Add more manual mappings for specific fuel flags if present
+      final cookFuelRaw = data['cooking_fuel_types'] ?? data['typcookfuel'];
+      if (cookFuelRaw is List) {
+        cookingFuelTypes = List<String>.from(cookFuelRaw);
+      } else {
+        if (data['typcookfuel_lpg'] == '1') cookingFuelTypes.add('(2) LPG/N.GAS');
+        if (data['typcookfuel_ele'] == '1') cookingFuelTypes.add('(1) Electricity');
+        if (data['typcookfuel_ker'] == '1') cookingFuelTypes.add('(3) Kerosene');
+        if (data['typcookfuel_woo'] == '1') cookingFuelTypes.add('(4) Wood');
+        if (data['typcookfuel_coa'] == '1') cookingFuelTypes.add('(5) Coal');
+        if (data['typcookfuel_crp'] == '1') cookingFuelTypes.add('(6) Crop Residues');
+        if (data['typcookfuel_dun'] == '1') cookingFuelTypes.add('(7) Dung Cakes');
+        if (data['typcookfuel_oth'] == '1') cookingFuelTypes.add('(77) Other');
+      }
       
       _cookingFuelOther.text = (data['cooking_fuel_other'] ?? data['typcookfuel_spy'] ?? '').toString();
-      cookingFuelMain = _matchOption(data['cooking_fuel_main'] ?? data['typcookfuel_main'], fuelList) ?? (data['cooking_fuel_main'] ?? data['typcookfuel_main'])?.toString();
+      cookingFuelMain = _matchOption(data['cooking_fuel_main'] ?? data['typcookfuel_main'], ['(1) Electricity', '(2) LPG/N.GAS', '(3) Kerosene', '(4) Wood', '(5) Coal', '(6) Crop Residues', '(7) Dung Cakes', '(77) Other']) ?? (data['cooking_fuel_main'] ?? data['typcookfuel_main'])?.toString();
 
       // ===== LIGHTING / WATER =====
       lightingSource = _matchOption(data['lighting_source'] ?? data['source_lig'], ['(1) Electricity', '(2) Kerosene', '(3) Oil', '(4) Gas']);
       
       waterSources = [];
       final waterOptList = ['(1) Piped water', '(2) Bore Well', '(3) Dug Well', '(4) Surface water', '(5) Tanker/truck', '(6) Bottled water', '(77) Other'];
-      if (data['pipedwater'] == '1' || data['pipedwater31'] == '1') waterSources.add('(1) Piped water');
-      if (data['bottledwater'] == '1') waterSources.add('(6) Bottled water');
+      final waterSourceRaw = data['water_sources'];
+      if (waterSourceRaw is List) {
+        waterSources = List<String>.from(waterSourceRaw);
+      } else {
+        if (data['pipedwater'] == '1' || data['pipedwater31'] == '1') waterSources.add('(1) Piped water');
+        if (data['borewell'] == '1') waterSources.add('(2) Bore Well');
+        if (data['dugwell'] == '1') waterSources.add('(3) Dug Well');
+        if (data['surfacewater'] == '1') waterSources.add('(4) Surface water');
+        if (data['tankertruck'] == '1') waterSources.add('(5) Tanker/truck');
+        if (data['bottledwater'] == '1') waterSources.add('(6) Bottled water');
+        if (data['source_water_oth'] == '1') waterSources.add('(77) Other');
+      }
       
       _waterSourceOther.text = (data['water_source_other'] ?? data['source_water_spy'] ?? '').toString();
       waterMainSource = _matchOption(data['water_main_source'] ?? data['mainly_use_drink'], waterOptList) ?? (data['water_main_source'] ?? data['mainly_use_drink'])?.toString();
 
       waterTreatment = [];
-      if (data['safer_water_filter'] == '1') waterTreatment.add('(4) Use water filter');
+      final waterTreatRaw = data['water_treatment'];
+      if (waterTreatRaw is List) {
+        waterTreatment = List<String>.from(waterTreatRaw);
+      } else {
+        if (data['safer_water_boil'] == '1') waterTreatment.add('(1) Boil');
+        if (data['safer_water_bleach'] == '1') waterTreatment.add('(2) Add bleach');
+        if (data['safer_water_strain'] == '1') waterTreatment.add('(3) strain by cloth');
+        if (data['safer_water_filter'] == '1') waterTreatment.add('(4) Use water filter');
+        if (data['safer_water_purifier'] == '1') waterTreatment.add('(5) use electronic purifier');
+        if (data['safer_water_settle'] == '1') waterTreatment.add('(6) stand and settle');
+        if (data['safer_water_none'] == '1') waterTreatment.add('(7) None');
+      }
       _waterTreatmentOther.text = (data['water_treatment_other'] ?? data['safe_drink_spy'] ?? '').toString();
 
       waterAllPurposeSources = [];
+      final waterAllRaw = data['water_all_sources'];
+      if (waterAllRaw is List) {
+        waterAllPurposeSources = List<String>.from(waterAllRaw);
+      } else {
+        if (data['pipedwater_all'] == '1') waterAllPurposeSources.add('(1) Piped water');
+        if (data['borewell_all'] == '1') waterAllPurposeSources.add('(2) Bore Well');
+        if (data['dugwell_all'] == '1') waterAllPurposeSources.add('(3) Dug Well');
+        if (data['surfacewater_all'] == '1') waterAllPurposeSources.add('(4) Surface water');
+        if (data['tankertruck_all'] == '1') waterAllPurposeSources.add('(5) Tanker/truck');
+        if (data['bottledwater_all'] == '1') waterAllPurposeSources.add('(6) Bottled water');
+        if (data['source_water_all_oth'] == '1') waterAllPurposeSources.add('(77) Other');
+      }
       _waterAllPurposeOther.text = data['water_all_other']?.toString() ?? '';
       waterAllPurposeMain = _matchOption(data['water_all_main'] ?? data['mainly_use_all'], waterOptList) ?? (data['water_all_main'] ?? data['mainly_use_all'])?.toString();
 
       // ===== SANITATION / RATION =====
-      toiletFacility = _matchOption(data['toilet_facility'] ?? data['toilet'], ['(1) Flush/pour to Pit', '(2) Pit Latrine', '(3) Shared', '(4) Open field', '(77) Other']);
+      toiletFacility = _matchOption(data['toilet_facility'] ?? data['toilet'], ['(1) Flush Toilet', '(2) Toilet ST', '(3) Pit toilet', '(4) Open Field', '(77) Other']);
       _toiletOther.text = (data['toilet_facility_other'] ?? data['toilet_spy'] ?? '').toString();
-      rationCard = _matchOption(data['ration_card'] ?? data['rcard'], ['(1) Yes', '(2) No']);
-      religion = _matchOption(data['religion'], ['(1) Hindu', '(2) Muslim', '(3) Christian', '(4) Sikh', '(5) Buddhist', '(6) Jain', '(77) Other']);
-      caste = _matchOption(data['caste'], ['(1) General', '(2) OBC', '(3) SC', '(4) ST', '(77) Other']);
+      rationCard = _matchOption(data['ration_card'] ?? data['rcard'], ['(1) White card', '(2) Pink Card', '(3) No card']);
+      religion = _matchOption(data['religion'], ['(1) Hindu', '(2) Muslim', '(3) Christian', '(77) Other']);
+      caste = _matchOption(data['caste'], ['(1) SC', '(2) ST', '(3) BC', '(4) FC', '(77) Other']);
 
       // ===== ASSETS / AGRI =====
       householdAssets = [];
-      void addAsset(dynamic check, String name) {
-        if (check?.toString() == '1' || check?.toString() == '2') {
-          if (!householdAssets.contains(name)) householdAssets.add(name);
+      final assetsRaw = data['household_assets'];
+      if (assetsRaw is List) {
+        householdAssets = List<String>.from(assetsRaw);
+      } else {
+        void addAsset(dynamic check, String name) {
+          if (check?.toString() == '1' || check?.toString() == '2') {
+            if (!householdAssets.contains(name)) householdAssets.add(name);
+          }
         }
+        addAsset(data['tv'], 'Colour TV');
+        addAsset(data['bw_tv'], 'Colour TV');
+        addAsset(data['refrigerator'], 'Refrigerator');
+        addAsset(data['mobile'], 'Mobile phone');
+        addAsset(data['any_phone'], 'Any phone');
+        addAsset(data['car'], 'Car');
+        addAsset(data['bicycle'], 'Bicycle');
+        addAsset(data['ele_fan'], 'Electric Fan');
+        addAsset(data['radio'], 'Radio');
+        addAsset(data['mixer'], 'Mixer');
+        addAsset(data['pressure_cooker'] ?? data['pressur_cooker'], 'Pressure cooker');
+        addAsset(data['mattress'], 'Mattress');
+        addAsset(data['cot'], 'Cot/bed');
+        addAsset(data['sewing_mach'], 'sewing Machine');
+        addAsset(data['scooter'], 'Scooter');
+        addAsset(data['cart'], 'Animal cart');
+        addAsset(data['chair'], 'Chair');
+        addAsset(data['table1'], 'Table');
+        addAsset(data['water_pump'], 'Water pump');
+        addAsset(data['computer'], 'Computer');
+        addAsset(data['tractor'], 'Tractor');
+        addAsset(data['thresher'], 'Thresher');
       }
-
-      addAsset(data['tv'], 'Colour TV');
-      addAsset(data['bw_tv'], 'Colour TV'); // Map both to the same if only one exists
-      addAsset(data['refrigerator'], 'Refrigerator');
-      addAsset(data['mobile'], 'Mobile phone');
-      addAsset(data['any_phone'], 'Any phone');
-      addAsset(data['car'], 'Car');
-      addAsset(data['bicycle'], 'Bicycle');
-      addAsset(data['ele_fan'], 'Electric Fan');
-      addAsset(data['radio'], 'Radio');
-      addAsset(data['mixer'], 'Mixer');
-      addAsset(data['pressure_cooker'] ?? data['pressur_cooker'], 'Pressure cooker');
-      addAsset(data['mattress'], 'Mattress');
-      addAsset(data['cot'], 'Cot/bed');
-      addAsset(data['sewing_mach'], 'sewing Machine');
-      addAsset(data['scooter'], 'Scooter');
-      addAsset(data['cart'], 'Animal cart');
-      addAsset(data['chair'], 'Chair');
-      addAsset(data['table1'], 'Table');
-      addAsset(data['water_pump'], 'Water pump');
-      addAsset(data['computer'], 'Computer');
-      addAsset(data['tractor'], 'Tractor');
-      addAsset(data['thresher'], 'Thresher');
       
       final agriRaw = data['agriculture_land'] ?? data['agri_land'];
       hasAgricultureLand = _matchOption(agriRaw, ['(1) Yes', '(2) No']);
@@ -393,15 +440,36 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       agricultureLandArea = (data['agriculture_land_area'] ?? data['agri_land_spy'] ?? '').toString();
       agricultureLandUnit = _matchOption(data['agriculture_land_unit'] ?? data['agri_land_spy_ag'], ['Acres', 'Guntas']) ?? (data['agriculture_land_unit'] ?? data['agri_land_spy_ag'])?.toString();
       irrigatedNone = data['irrigated_none'] == true || data['agri_land_none'] == '1';
+      irrigatedLandArea = (data['irrigated_land_area'] ?? data['irrigated_land_spy'] ?? '').toString();
+      irrigatedLandUnit = _matchOption(data['irrigated_land_unit'] ?? data['irrigated_land_spy_ag'], ['Acres', 'Guntas']);
 
       cattleOwned = [];
-      if (data['cattle_none'] == '1') cattleOwned.add('(5) None');
+      final cattleRaw = data['cattle_owned'];
+      if (cattleRaw is List) {
+        cattleOwned = List<String>.from(cattleRaw);
+      } else {
+        if (data['cattle_none'] == '1') cattleOwned.add('(5) None');
+        if (data['cattle_cows'] == '1') cattleOwned.add('(1) Cows/Buffaloes');
+        if (data['cattle_bulls'] == '1') cattleOwned.add('(2) Bulls');
+        if (data['cattle_goats'] == '1') cattleOwned.add('(3) Goats/Sheep');
+        if (data['cattle_poultry'] == '1') cattleOwned.add('(4) Poultry');
+      }
       _cattleOther.text = (data['cattle_other'] ?? data['cattle_oth_spy'] ?? '').toString();
 
-      healthCarePlace = _matchOption(data['health_care_place'] ?? data['get_sick'] ?? data['kplace'], ['(1) Govt Hospital', '(2) Private Hospital', '(3) Private Clinic', '(4) Medical Store', '(5) Home', '(77) Other']);
+      healthCarePlace = _matchOption(data['health_care_place'] ?? data['get_sick'] ?? data['kplace'], ['(1) Govt.hospital', '(2) MediCiti hospital', '(3) private hospital', '(4) Private MBBS doctor', '(5) RMP', '(6) Medical shop', '(7) Home treatment']);
       
       govtHospitalReasons = [];
-      _govtHospitalOther.text = (data['govt_hospital_other'] ?? data['why_not_govt_spy'] ?? data['why_not_govt_1'] ?? '').toString();
+      final govtReasonsRaw = data['govt_hospital_reasons'] ?? data['why_not_govt'];
+      if (govtReasonsRaw is List) {
+        govtHospitalReasons = List<String>.from(govtReasonsRaw);
+      } else {
+        if (data['why_not_govt_1'] == '1') govtHospitalReasons.add('(1)No nearby health facility');
+        if (data['why_not_govt_2'] == '1') govtHospitalReasons.add('(2) timing not convenient');
+        if (data['why_not_govt_3'] == '1') govtHospitalReasons.add('(3) Health Personnel often absent');
+        if (data['why_not_govt_4'] == '1') govtHospitalReasons.add('(4) Waiting time too long');
+        if (data['why_not_govt_5'] == '1') govtHospitalReasons.add('(5)Poor quality of care');
+      }
+      _govtHospitalOther.text = (data['govt_hospital_other'] ?? data['why_not_govt_spy'] ?? '').toString();
 
       zohoId = data['zoho_id']?.toString();
       
@@ -768,39 +836,17 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   }
 
   Future<void> _searchAndLoadRecord([String? customId]) async {
-    String? code = customId;
-    if (code == null || code.isEmpty) {
-      code = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final controller = TextEditingController();
-          return AlertDialog(
-            title: const Text('Search by Family Code'),
-            content: TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'Enter Family Code (e.g. VIL12345)',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, controller.text.trim()),
-                child: const Text('Search'),
-              ),
-            ],
-          );
-        },
+    String? code = customId ?? _familyId.text.trim();
+    
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a Family ID to search'),
+          backgroundColor: Colors.orange,
+        ),
       );
+      return;
     }
-
-    if (code == null || code.isEmpty) return;
 
     if (mounted) setState(() => _isSaving = true);
     debugPrint('SEARCH: Starting search for ID: "$code"');
@@ -1236,23 +1282,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: 'Search & Edit by Family Code',
-            onPressed: _searchAndLoadRecord,
-          ),
-          IconButton(
-            icon: const Icon(Icons.save),
-            tooltip: 'Save Current Form',
-            onPressed: _isSaving ? null : _save,
-          ),
-          IconButton(
             icon: const Icon(Icons.list),
             tooltip: 'View Records List',
             onPressed: _openList,
           ),
           IconButton(
-            icon: const Icon(Icons.download_for_offline, color: Colors.green),
-            tooltip: 'Download All Records',
+            icon: const Icon(Icons.sync),
+            tooltip: 'Sync Records to Local Database',
             onPressed: _downloadAllForOffline,
           ),
         ],
@@ -1268,6 +1304,29 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               title: 'Family Registration',
               subtitle: 'Register and manage family unit records',
             ),
+            formActionButtons(
+              context: context,
+              isEditMode: _isEditingFromSearch,
+              onNew: () {
+                setState(() {
+                  _isEditingFromSearch = false;
+                  _resetForm();
+                });
+              },
+              onSave: _save,
+              onEdit: () {
+                _searchAndLoadRecord(_familyId.text.trim());
+              },
+              onCancel: () {
+                setState(() {
+                  _isEditingFromSearch = false;
+                  _resetForm();
+                });
+              },
+              onExit: () => Navigator.pop(context),
+              isSaving: _isSaving,
+            ),
+            const SizedBox(height: 16),
             if (_isSyncing)
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -2359,37 +2418,6 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
             ),
             const SizedBox(height: 40),
           ],
-        ),
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: ElevatedButton(
-          onPressed: _isSaving ? null : _save,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Theme.of(context).primaryColor,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: _isSaving
-              ? const CircularProgressIndicator(color: Colors.white)
-              : Text(
-                  widget.existingData == null ? 'Save Family' : 'Update Family',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
         ),
       ),
     );

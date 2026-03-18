@@ -25,7 +25,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   final _age = TextEditingController();
   

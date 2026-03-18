@@ -25,7 +25,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   List<Map<String, dynamic>> _allMembersList = [];
 
   // --- Identity & Registration Controllers ---
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _spouseNo = TextEditingController();
   final _mapNo = TextEditingController();
   final _newFamilyId = TextEditingController();
@@ -174,7 +174,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
 
       String? headNameFromFamily;
       if (familySnap.docs.isNotEmpty) {
-        headNameFromFamily = familySnap.docs.first.data()['Head_of_the_family']?.toString();
+        final data = familySnap.docs.first.data();
+        headNameFromFamily = (data['head_of_family'] ?? data['Head_of_the_family'])?.toString();
       }
 
       // 2. Fetch Members
@@ -188,6 +189,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       for (var m in localMembers) merged[m['Name'] ?? ''] = m;
       for (var doc in snapshot.docs) {
         final data = doc.data();
+        data['id'] = doc.id; // Capture Firestore document ID
         merged[data['Name'] ?? ''] = data;
       }
       
@@ -286,36 +288,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
         marriageType = 'Married In';
       }
       
-      // Auto-Relation Logic from User Requirements
-      if (spouseDoc != null) {
-        final spouseRelation = spouseDoc['Relation_with_Head']?.toString();
-        
-        if (spouseRelation == 'HEAD OF THE FAMILY') {
-          if (selectedGender == '(0) Female') {
-            relationWithHead = 'WIFE';
-          } else if (selectedGender == '(1) Male') {
-            relationWithHead = 'HUSBAND';
-          }
-        } else if (spouseRelation == 'SON') {
-          if (selectedGender == '(0) Female') {
-            relationWithHead = 'DAUGHTER-IN-LAW';
-          }
-        } else if (spouseRelation == 'BROTHER') {
-          if (selectedGender == '(0) Female') {
-            relationWithHead = 'SISTER-IN-LAW (U)'; // Mapping to matching existing string
-          }
-        } else if (spouseRelation == 'SISTER') {
-          if (selectedGender == '(1) Male') {
-            relationWithHead = 'BROTHER-IN-LAW';
-          }
-        }
-        
-        // Update generation code based on new relation
-        if (relationWithHead != null) {
-          _onRelationChanged(relationWithHead);
-        }
-      }
-      
+      _updateAutoRelation();
       _calculateNewFamilyID();
     });
   }
@@ -346,7 +319,6 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       if (spouseNameLookup == headName) {
         newRelation = (selectedGender == '(1) Male') ? 'HUSBAND' : 'WIFE';
       } else {
-        // Find spouse doc to see their relation
         final spouseDoc = _allMembersList.firstWhere((m) => m['Name'] == spouseNameLookup, orElse: () => {});
         if (spouseDoc.isNotEmpty) {
           final spouseRel = spouseDoc['Relation_with_Head']?.toString();
@@ -358,6 +330,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
             if (selectedGender == '(0) Female') newRelation = 'SISTER-IN-LAW (U)';
           } else if (spouseRel == 'SISTER') {
             if (selectedGender == '(1) Male') newRelation = 'BROTHER-IN-LAW';
+          } else if (spouseRel == 'GRAND-SON(S)') {
+            if (selectedGender == '(0) Female') newRelation = 'GRAND-DAUGHTER-IN-LAW';
           }
         }
       }
@@ -368,28 +342,26 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       if ((fatherName != null && fatherName == headName) || (motherName != null && motherName == headName)) {
         newRelation = (selectedGender == '(1) Male') ? 'SON' : 'DAUGHTER';
       } else {
-        // Check Father's relation
         if (fatherName != null) {
-          final fatherDoc = _familyMemberDocs.firstWhere((d) => d['Name'] == fatherName, orElse: () => {});
+          final fatherDoc = _allMembersList.firstWhere((d) => d['Name'] == fatherName, orElse: () => {});
           final fatherRelation = fatherDoc['Relation_with_Head']?.toString();
           
           if (fatherRelation == 'SON' || fatherRelation == 'DAUGHTER-IN-LAW') {
             newRelation = (selectedGender == '(1) Male') ? 'GRAND-SON(S)' : 'GRAND-DAUGHTER(S)';
-          } else if (fatherRelation == 'BROTHER') {
+          } else if (fatherRelation == 'BROTHER' || fatherRelation == 'SISTER-IN-LAW(BW)') {
             newRelation = (selectedGender == '(1) Male') ? 'BROTHER SON' : 'BROTHER DAUGHTER';
-          } else if (fatherRelation == 'BROTHER-IN-LAW') {
+          } else if (fatherRelation == 'BROTHER-IN-LAW' || fatherRelation == 'SISTER') {
             newRelation = (selectedGender == '(1) Male') ? 'NEPHEW' : 'NIECE';
           }
         }
         
-        // If still null, check Mother's relation
         if (newRelation == null && motherName != null) {
-          final motherDoc = _familyMemberDocs.firstWhere((d) => d['Name'] == motherName, orElse: () => {});
+          final motherDoc = _allMembersList.firstWhere((d) => d['Name'] == motherName, orElse: () => {});
           final motherRelation = motherDoc['Relation_with_Head']?.toString();
           
           if (motherRelation == 'DAUGHTER' || motherRelation == 'SON-IN-LAW') {
             newRelation = (selectedGender == '(1) Male') ? 'GRAND-SON (D)' : 'GRAND-DAUGHTER (D)';
-          } else if (motherRelation == 'DAUGHTER-IN-LAW') {
+          } else if (motherRelation == 'DAUGHTER-IN-LAW' || motherRelation == 'SON') {
             newRelation = (selectedGender == '(1) Male') ? 'GRAND-SON(S)' : 'GRAND-DAUGHTER(S)';
           }
         }
@@ -641,12 +613,63 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
           duration: Duration(seconds: 1),
         ));
         
-        // Immediate UI Transition
-        if (widget.docId != null) Navigator.pop(context); else _resetForm();
+        // Post-Save Dialog for new records
+        if (widget.docId != null || wasEditing) {
+          if (widget.docId != null) Navigator.pop(context); else _resetForm();
+        } else {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Record Saved'),
+              content: const Text('Do you want to add same members in same family code?'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _resetForm(keepFamilyContext: true);
+                  },
+                  child: const Text('Yes'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('No'),
+                ),
+              ],
+            ),
+          );
+        }
       }
 
-      // 2. Background Sync (Non-blocking) — pass captured state so reset doesn't affect it
-      _performPersonalDetailsSync(data, wasEditing: wasEditing, editDocId: capturedEditDocId, widgetDocId: capturedWidgetDocId);
+      // 3. Optional: Reciprocal Spouse Update
+      Map<String, dynamic>? spouseUpdate;
+      if (spouseNameLookup != null) {
+        final spouseRecord = _allMembersList.firstWhere((m) => m['Name'] == spouseNameLookup, orElse: () => {});
+        if (spouseRecord.isNotEmpty) {
+          spouseUpdate = {
+            'Marital_Status': '(1) Married',
+            'Spouse_Details1': true,
+            'Name2': _firstName.text, // Current member is spouse's spouse
+            'Name1': _firstName.text,
+            'firestoreDocId': spouseRecord['id'] ?? spouseRecord['firestoreDocId'],
+            'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
+            'needs_zoho_sync': true,
+          };
+          await DataCacheService().saveOfflineSubmission('personal_details', spouseUpdate);
+        }
+      }
+
+      // 2. Background Sync (Non-blocking)
+      _performPersonalDetailsSync(
+        data, 
+        wasEditing: wasEditing, 
+        editDocId: capturedEditDocId, 
+        widgetDocId: capturedWidgetDocId,
+        spouseData: spouseUpdate,
+      );
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
@@ -655,13 +678,18 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     }
   }
 
-  void _performPersonalDetailsSync(Map<String, dynamic> data, {required bool wasEditing, String? editDocId, String? widgetDocId}) async {
+  void _performPersonalDetailsSync(Map<String, dynamic> data, {required bool wasEditing, String? editDocId, String? widgetDocId, Map<String, dynamic>? spouseData}) async {
     try {
       final String? docId = data['firestoreDocId'] as String? ?? editDocId ?? widgetDocId;
       if (docId != null && docId.isNotEmpty) {
         await FirebaseFirestore.instance.collection('personal_details').doc(docId).set(data, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
       } else {
         await FirebaseFirestore.instance.collection('personal_details').add(data).timeout(const Duration(seconds: 15));
+      }
+      
+      // Sync Spouse if needed
+      if (spouseData != null && spouseData['firestoreDocId'] != null) {
+        await FirebaseFirestore.instance.collection('personal_details').doc(spouseData['firestoreDocId']).set(spouseData, SetOptions(merge: true)).timeout(const Duration(seconds: 10));
       }
       
       // Sync Head Of Family if needed
@@ -679,7 +707,10 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
           await FirebaseFirestore.instance
               .collection('Family Code Creation')
               .doc(familyQuery.docs.first.id)
-              .update({'Head_of_the_family': hName});
+              .update({
+                'head_of_family': hName,
+                'Head_of_the_family': hName, // Stay compatible with old code
+              });
         }
       }
     } catch (e) {
@@ -778,12 +809,12 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() { selectedGender = v; _updateAutoRelation(); }), contentPadding: EdgeInsets.zero, dense: true)),
                   ]),
                   const SizedBox(height: 12),
-                  formTextField(
-                    'Registration Number',
-                    _regNo,
-                    keyboardType: TextInputType.number,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Registration Number is required' : null,
-                  ),
+                    formTextField(
+                      'Registration Number',
+                      _regNo,
+                      keyboardType: TextInputType.number,
+                      enabled: false,
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -865,7 +896,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     const SizedBox(height: 12),
                     formSearchableDropdown(context, 'Select Spouse', selectedGender == '(1) Male' ? femaleMembers : maleMembers, spouseNameLookup, _onSpouseChanged, isLoading: _isLoadingFamily),
                     const SizedBox(height: 12),
-                    formSearchableDropdown(context, 'Marriage Type', ['Married In', 'Arrange Marriage', 'Love Marriage', 'Other'], marriageType, (v) => setState(() => marriageType = v)),
+                    formSearchableDropdown(context, 'Marriage Type', ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
                   ],
                 ],
               ),

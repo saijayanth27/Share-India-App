@@ -41,7 +41,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
   List<File?> _bpImages = [null, null, null];
   List<String?> _bpStoragePaths = [null, null, null];
 
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _registrationNumber = TextEditingController();
   final _nameController = TextEditingController();
   final _age = TextEditingController();

@@ -27,7 +27,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
   final _registrationNumberController = TextEditingController();
   final _nameController = TextEditingController();
   final _ageController = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _specifyOtherController = TextEditingController();
 
   // Selected Values

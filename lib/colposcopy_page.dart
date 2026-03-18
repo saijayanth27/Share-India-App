@@ -26,7 +26,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
   // --- Controllers & State ---
   final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _otherRecommendedController = TextEditingController();
   final _otherPerformedController = TextEditingController();
   final _commentsController = TextEditingController();

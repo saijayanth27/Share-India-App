@@ -24,7 +24,7 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
   bool _isLoadingMembers = false;
 
   // --- Identity Fields ---
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   final _visitNo = TextEditingController();
   final _countOfCheckup = TextEditingController();

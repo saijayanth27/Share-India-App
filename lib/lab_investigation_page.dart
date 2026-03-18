@@ -26,7 +26,7 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
   // --- Controllers ---
   final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _fastingSugarController = TextEditingController();
   final _hba1cController = TextEditingController();
   final _glycosylatedHbController = TextEditingController();

@@ -25,7 +25,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
 
   // --- Main Form Controllers & State ---
   String? selectedFamilyCode;
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
   String? selectedGender;

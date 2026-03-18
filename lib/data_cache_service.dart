@@ -143,12 +143,14 @@ class DataCacheService {
     Map<String, dynamic>? detail;
     
     if (index != -1) {
+      _familyDetails[index]['head_of_family'] = headName;
       _familyDetails[index]['Head_of_the_family'] = headName;
       detail = _familyDetails[index];
     } else {
       // 2. If not in memory, try to get from DB
       detail = await _db.getSingleFamilyDetail(familyId);
       if (detail != null) {
+        detail['head_of_family'] = headName;
         detail['Head_of_the_family'] = headName;
         _familyDetails.add(detail);
       }

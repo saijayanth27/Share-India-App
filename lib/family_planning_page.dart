@@ -25,7 +25,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
   bool _isLoadingMembers = false;
 
   // --- Basic Information ---
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _finalFamilyCodeController = TextEditingController();
   final _nameController = TextEditingController();
   final _nameIdController = TextEditingController();
@@ -486,7 +486,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
       children: [
         Row(
           children: [
-            Expanded(child: formTextField('Registration Number', _regNoController, validator: (v) => (v == null || v.isEmpty) ? 'Required' : null)),
+            Expanded(child: formTextField('Registration Number', _regNoController, enabled: false)),
             const SizedBox(width: 8),
             Expanded(child: formTextField('Family No', _familyNoController, keyboardType: TextInputType.number)),
           ],

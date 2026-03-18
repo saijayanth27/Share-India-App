@@ -26,7 +26,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
   // --- Identification State ---
   final _nameController = TextEditingController();
   final _registrationNumber = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   String? selectedFamilyCode;
   String? selectedMemberName;
   String? selectedGender;

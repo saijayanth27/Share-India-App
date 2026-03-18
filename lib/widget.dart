@@ -139,9 +139,10 @@ Widget formActionButtons({
           _buildActionButton(
             context,
             label: 'Edit',
-            icon: Icons.edit_outlined,
+            icon: isEditMode ? Icons.edit : Icons.edit_outlined,
             color: Colors.orange.shade700,
             onPressed: onEdit,
+            isHighlighted: isEditMode,
           ),
           const SizedBox(width: 8),
           _buildActionButton(
@@ -149,10 +150,7 @@ Widget formActionButtons({
             label: 'Cancel',
             icon: Icons.cancel_outlined,
             color: Colors.red.shade700,
-            onPressed: () {
-              onCancel();
-              Navigator.pop(context);
-            },
+            onPressed: onCancel,
           ),
           const SizedBox(width: 8),
           _buildActionButton(
@@ -174,18 +172,25 @@ Widget _buildActionButton(
   required IconData icon,
   required Color color,
   required VoidCallback? onPressed,
+  bool isHighlighted = false,
 }) {
   return OutlinedButton.icon(
     onPressed: onPressed,
-    icon: Icon(icon, size: 20, color: color),
-    label: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+    icon: Icon(icon, size: 20, color: isHighlighted ? Colors.white : color),
+    label: Text(
+      label,
+      style: TextStyle(
+        fontWeight: FontWeight.bold,
+        color: isHighlighted ? Colors.white : Colors.black87,
+      ),
+    ),
     style: OutlinedButton.styleFrom(
-      foregroundColor: Colors.black87,
-      side: BorderSide(color: Colors.grey.shade300),
+      foregroundColor: isHighlighted ? Colors.white : Colors.black87,
+      side: BorderSide(color: isHighlighted ? color : Colors.grey.shade300, width: isHighlighted ? 2 : 1),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      backgroundColor: Colors.white,
-      elevation: 1,
+      backgroundColor: isHighlighted ? color : Colors.white,
+      elevation: isHighlighted ? 4 : 1,
     ),
   );
 }

@@ -25,7 +25,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   final _motherName = TextEditingController();
   final _age = TextEditingController();
@@ -653,11 +653,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
       title: 'Member Identity',
       icon: Icons.person_outline,
       children: [
-        formTextField(
-          'Registration Number',
-          _registrationNumber,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-        ),
+        formTextField('Registration Number', _registrationNumber, enabled: false),
         const SizedBox(height: 12),
         formSearchField(
           'Family Code',

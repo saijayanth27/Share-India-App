@@ -25,7 +25,7 @@ class _AarogyaPageState extends State<AarogyaPage> {
 
   // --- Identity Fields ---
   final _registrationNumber = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _nameController = TextEditingController();
   final _age = TextEditingController();
   final _finalFamilyCode = TextEditingController();

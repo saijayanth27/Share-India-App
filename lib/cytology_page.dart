@@ -26,7 +26,7 @@ class _CytologyPageState extends State<CytologyPage> {
   // --- Main Form Controllers ---
   final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
-  final _familyCodeController = TextEditingController();
+  final _familyCodeController = TextEditingController(text: 'TSRRMED');
   final _otherAdequacyReasonController = TextEditingController();
   final _otherNeoplasticController = TextEditingController();
   final _otherNonNeoplasticController = TextEditingController();
