@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class AnteNatalCarePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -416,7 +417,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'ANC updated! Syncing...' : 'ANC saved! Syncing...'),
+          content: Text(wasEditing ? tr('ANC updated! Syncing...') : tr('ANC saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -431,7 +432,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
       _performAnteNatalCareSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -452,9 +453,12 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Ante Natal Care'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Ante Natal Care')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -488,18 +492,18 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Maternity Details',
+                      title: tr('Maternity Details'),
                       icon: Icons.pregnant_woman_outlined,
                       children: [
-                        _buildDatePicker('LMP Date', lmpDate, (v) => setState(() {
+                        _buildDatePicker(tr('LMP Date'), lmpDate, (v) => setState(() {
                           lmpDate = v;
                           eddDate = v.add(const Duration(days: 280));
                           _updateRegistrationNumber();
                         })),
                         const SizedBox(height: 16),
-                        _buildDatePicker('EDD Date', eddDate, (v) => setState(() => eddDate = v)),
+                        _buildDatePicker(tr('EDD Date'), eddDate, (v) => setState(() => eddDate = v)),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Select Entry Screen', screenChoices, selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
+                        formSearchableDropdown(context, tr('Select Entry Screen'), screenChoices, selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -520,17 +524,18 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
-        formSearchField('Family Code', _familyCodeController, onSearch: () {
+        formSearchField(tr('Family Code'), _familyCodeController, onSearch: () {
           if (_familyCodeController.text.isNotEmpty) {
             _fetchMembersByFamily(_familyCodeController.text);
             _fetchExistingRecords(_familyCodeController.text);
@@ -539,7 +544,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -549,17 +554,17 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
           isLoading: _isLoadingMembers,
         ),
         const SizedBox(height: 12),
-        formTextField('Husband Name', _husbandName),
+        formTextField(tr('Husband Name'), _husbandName),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _age, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+        formSearchableDropdown(context, tr('Interviewer Name'), interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
       ],
     );
   }
@@ -567,32 +572,32 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   Widget _buildTTDoseSection() {
     return buildSectionCard(
       context: context,
-      title: 'TT Dose',
+      title: tr('TT Dose'),
       icon: Icons.vaccines_outlined,
       children: [
-        const Text('1st TT Dose', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('1st TT Dose'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '1st Given Y/N', yesNoChoices, stGivenYN, (v) => setState(() => stGivenYN = v))),
+            Expanded(child: formSearchableDropdown(context, tr('1st Given Y/N'), yesNoChoices, stGivenYN, (v) => setState(() => stGivenYN = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '1st Given By', givenByChoices, stGivenBy, (v) => setState(() => stGivenBy = v))),
+            Expanded(child: formSearchableDropdown(context, tr('1st Given By'), givenByChoices, stGivenBy, (v) => setState(() => stGivenBy = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('1st TT Dt.', stDt, (v) => setState(() => stDt = v)),
+        _buildDatePicker(tr('1st TT Dt.'), stDt, (v) => setState(() => stDt = v)),
         const Divider(height: 32),
-        const Text('2nd TT Dose', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('2nd TT Dose'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '2nd Given Y/N', yesNoChoices, ndGivenYN, (v) => setState(() => ndGivenYN = v))),
+            Expanded(child: formSearchableDropdown(context, tr('2nd Given Y/N'), yesNoChoices, ndGivenYN, (v) => setState(() => ndGivenYN = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '2nd Given By', givenByChoices, ndGivenBy, (v) => setState(() => ndGivenBy = v))),
+            Expanded(child: formSearchableDropdown(context, tr('2nd Given By'), givenByChoices, ndGivenBy, (v) => setState(() => ndGivenBy = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('2nd TT Dt.', ndDt, (v) => setState(() => ndDt = v)),
+        _buildDatePicker(tr('2nd TT Dt.'), ndDt, (v) => setState(() => ndDt = v)),
       ],
     );
   }
@@ -600,56 +605,56 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   Widget _buildIFASection() {
     return buildSectionCard(
       context: context,
-      title: 'IFA',
+      title: tr('IFA'),
       icon: Icons.medication_outlined,
       children: [
-        const Text('1st IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('1st IFA'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '1st Given Y/N', yesNoChoices, stGivenYN1, (v) => setState(() => stGivenYN1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('1st Given Y/N'), yesNoChoices, stGivenYN1, (v) => setState(() => stGivenYN1 = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '1st Given By', givenByChoices, stGivenBy1, (v) => setState(() => stGivenBy1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('1st Given By'), givenByChoices, stGivenBy1, (v) => setState(() => stGivenBy1 = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('1st IFA Dt.', stDt1, (v) => setState(() => stDt1 = v)),
+        _buildDatePicker(tr('1st IFA Dt.'), stDt1, (v) => setState(() => stDt1 = v)),
         const Divider(height: 32),
-        const Text('2nd IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('2nd IFA'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '2nd Given Y/N', yesNoChoices, ndGivenYN1, (v) => setState(() => ndGivenYN1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('2nd Given Y/N'), yesNoChoices, ndGivenYN1, (v) => setState(() => ndGivenYN1 = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '2nd Given By', givenByChoices, ndGivenBy1, (v) => setState(() => ndGivenBy1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('2nd Given By'), givenByChoices, ndGivenBy1, (v) => setState(() => ndGivenBy1 = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('2nd IFA Dt.', ndDt1, (v) => setState(() => ndDt1 = v)),
+        _buildDatePicker(tr('2nd IFA Dt.'), ndDt1, (v) => setState(() => ndDt1 = v)),
         const Divider(height: 32),
-        const Text('3rd IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('3rd IFA'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '3rd Given Y/N', yesNoChoices, rdGivenYN, (v) => setState(() => rdGivenYN = v))),
+            Expanded(child: formSearchableDropdown(context, tr('3rd Given Y/N'), yesNoChoices, rdGivenYN, (v) => setState(() => rdGivenYN = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '3rd Given By', givenByChoices, rdGivenYN1, (v) => setState(() => rdGivenYN1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('3rd Given By'), givenByChoices, rdGivenYN1, (v) => setState(() => rdGivenYN1 = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('3rd IFA Dt.', rdDt, (v) => setState(() => rdDt = v)),
+        _buildDatePicker(tr('3rd IFA Dt.'), rdDt, (v) => setState(() => rdDt = v)),
         const Divider(height: 32),
-        const Text('4th IFA', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('4th IFA'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, '4TH Given Y/N', yesNoChoices, THGivenYN, (v) => setState(() => THGivenYN = v))),
+            Expanded(child: formSearchableDropdown(context, tr('4TH Given Y/N'), yesNoChoices, THGivenYN, (v) => setState(() => THGivenYN = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, '4th Given By', givenByChoices, THGivenYN1, (v) => setState(() => THGivenYN1 = v))),
+            Expanded(child: formSearchableDropdown(context, tr('4th Given By'), givenByChoices, THGivenYN1, (v) => setState(() => THGivenYN1 = v))),
           ],
         ),
         const SizedBox(height: 12),
-        _buildDatePicker('4th IFA Dt.', thDt, (v) => setState(() => thDt = v)),
+        _buildDatePicker(tr('4th IFA Dt.'), thDt, (v) => setState(() => thDt = v)),
       ],
     );
   }
@@ -657,36 +662,36 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   Widget _buildDeliverySection() {
     return buildSectionCard(
       context: context,
-      title: 'Delivery',
+      title: tr('Delivery'),
       icon: Icons.child_friendly_outlined,
       children: [
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, 'Delivery Type', deliveryTypeChoices, deliveryType, (v) => setState(() => deliveryType = v))),
+            Expanded(child: formSearchableDropdown(context, tr('Delivery Type'), deliveryTypeChoices, deliveryType, (v) => setState(() => deliveryType = v))),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Delivery Dt.', deliveryDt, (v) => setState(() => deliveryDt = v))),
+            Expanded(child: _buildDatePicker(tr('Delivery Dt.'), deliveryDt, (v) => setState(() => deliveryDt = v))),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, 'Delivery Place', deliveryPlaceChoices, deliveryPlace, (v) => setState(() => deliveryPlace = v))),
+            Expanded(child: formSearchableDropdown(context, tr('Delivery Place'), deliveryPlaceChoices, deliveryPlace, (v) => setState(() => deliveryPlace = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, 'Delivery Outcome', deliveryOutcomeChoices, deliveryOutcome, (v) => setState(() => deliveryOutcome = v))),
+            Expanded(child: formSearchableDropdown(context, tr('Delivery Outcome'), deliveryOutcomeChoices, deliveryOutcome, (v) => setState(() => deliveryOutcome = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Delivery Place Details', _deliveryPlaceDetails),
+        formTextField(tr('Delivery Place Details'), _deliveryPlaceDetails),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('No.of Births', _noOfBirths, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('No.of Births'), _noOfBirths, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('No.of Birth of Female', _noOfBirthOfFemale, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('No.of Birth of Female'), _noOfBirthOfFemale, keyboardType: TextInputType.number)),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Total Live Births', _totalLiveBirths, keyboardType: TextInputType.number),
+        formTextField(tr('Total Live Births'), _totalLiveBirths, keyboardType: TextInputType.number),
       ],
     );
   }
@@ -694,10 +699,10 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   Widget _buildRemarksSection() {
     return buildSectionCard(
       context: context,
-      title: 'Remarks',
+      title: tr('Remarks'),
       icon: Icons.note_alt_outlined,
       children: [
-        formTextField('Remarks', _remarks2, maxLines: 5),
+        formTextField(tr('Remarks'), _remarks2, maxLines: 5),
       ],
     );
   }

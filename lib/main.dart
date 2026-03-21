@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -16,6 +17,8 @@ import 'widget.dart';
 import 'app_drawer.dart';
 import 'personal_details_page.dart';
 import 'sync_service.dart';
+import 'language_provider.dart';
+import 'app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +31,7 @@ Future<void> main() async {
   );
 
   await dotenv.load(fileName: ".env");
+  await LanguageProvider.instance.init();
 
   // Start the background sync service to auto-sync offline records when network is available
   SyncService().initialize();
@@ -44,35 +48,48 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Share India',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
-          primary: Colors.indigo.shade700,
-          secondary: Colors.blue.shade600,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          margin: const EdgeInsets.only(bottom: 16),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          filled: true,
-          fillColor: Colors.white,
-          isDense: true,
-        ),
-        appBarTheme: AppBarTheme(
-          centerTitle: true,
-          backgroundColor: Colors.indigo.shade700,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-      ),
-      home: const HomePage(),
+    return ValueListenableBuilder<Locale>(
+      valueListenable: LanguageProvider.instance.localeNotifier,
+      builder: (context, locale, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: tr('Share India'),
+          locale: locale,
+          supportedLocales: LanguageProvider.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.indigo,
+              primary: Colors.indigo.shade700,
+              secondary: Colors.blue.shade600,
+            ),
+            cardTheme: CardThemeData(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              margin: const EdgeInsets.only(bottom: 16),
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.white,
+              isDense: true,
+            ),
+            appBarTheme: AppBarTheme(
+              centerTitle: true,
+              backgroundColor: Colors.indigo.shade700,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+          ),
+          home: const HomePage(),
+        );
+      },
     );
   }
 }
@@ -773,7 +790,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       debugPrint('SAVE CRITICAL ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('${tr('Error')}: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -786,8 +803,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Proceed to Personal Details?'),
-        content: Text('Family Code $familyId generated successfully. Do you want to proceed to the Personal Details form?'),
+        title: Text(tr('Proceed to Personal Details?')),
+        content: Text(
+          tr('Family Code {familyId} generated successfully. Do you want to proceed to the Personal Details form?')
+              .replaceFirst('{familyId}', familyId),
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -795,7 +815,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               if (widget.existingData == null) _resetForm();
               if (Navigator.canPop(context)) Navigator.pop(context);
             },
-            child: const Text('No'),
+            child: Text(tr('No')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -808,7 +828,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
               );
             },
-            child: const Text('Yes'),
+            child: Text(tr('Yes')),
           ),
         ],
       ),
@@ -840,8 +860,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     
     if (code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a Family ID to search'),
+        SnackBar(
+          content: Text(tr('Please enter a Family ID to search')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -868,7 +888,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Details for $code loaded INSTANTLY from local memory'),
+              content: Text(
+                tr('Details for {code} loaded instantly from local memory')
+                    .replaceFirst('{code}', code),
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -906,7 +929,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Details for $code loaded from ${isOnline ? "Server" : "Firestore Cache"}'),
+              content: Text(
+                tr('Details for {code} loaded from {source}')
+                    .replaceFirst('{code}', code)
+                    .replaceFirst('{source}', tr(isOnline ? 'Server' : 'Firestore Cache')),
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -915,7 +942,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Record $code not found on this phone. Please sync when online.'),
+              content: Text(
+                tr('Record {code} not found on this phone. Please sync when online.')
+                    .replaceFirst('{code}', code),
+              ),
               backgroundColor: Colors.orange,
             ),
           );
@@ -925,8 +955,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       if (mounted) {
         debugPrint('SEARCH ERROR: $e');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Search Error: Not found in memory. Please use the Green Download button while online.'),
+          SnackBar(
+            content: Text(tr('Search Error: Not found in memory. Please use the Green Download button while online.')),
             backgroundColor: Colors.red,
           ),
         );
@@ -1112,13 +1142,15 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           suffixIcon: const Icon(Icons.arrow_drop_down),
-        ),
-        child: Text(
-          value ?? 'Select $label',
-          style: TextStyle(
-            color: value == null ? Colors.grey.shade600 : Colors.black87,
-            fontSize: 16,
           ),
+          child: Text(
+            value == null
+                ? tr('Select {label}').replaceFirst('{label}', label)
+                : tr(value),
+            style: TextStyle(
+              color: value == null ? Colors.grey.shade600 : Colors.black87,
+              fontSize: 16,
+            ),
         ),
       ),
     );
@@ -1147,23 +1179,44 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
     final confirm = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: _isSyncResumable ? const Text('Resume Sync?') : const Text('Sync All Records'),
+        title: Text(tr(_isSyncResumable ? 'Resume Sync?' : 'Sync All Records')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Current Local Records: $localDetailsCount / 17,000+'),
+            Text(
+              tr('Current Local Records: {count} / 17,000+').replaceFirst(
+                '{count}',
+                '$localDetailsCount',
+              ),
+            ),
             const SizedBox(height: 12),
-            Text(_isSyncResumable 
-              ? 'Resume downloading from record $_lastSyncProgress. This is faster and safer for weak signals.'
-              : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.'),
+            Text(
+              tr(
+                _isSyncResumable
+                    ? 'Resume downloading from record {progress}. This is faster and safer for weak signals.'
+                    : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.',
+              ).replaceFirst('{progress}', '$_lastSyncProgress'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr('Cancel')),
+          ),
           if (_isSyncResumable)
-            TextButton(onPressed: () => Navigator.pop(context, 'new'), child: const Text('Start New', style: TextStyle(color: Colors.red))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, 'start'), child: Text(_isSyncResumable ? 'Resume' : 'Start')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'new'),
+              child: Text(
+                tr('Start New'),
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'start'),
+            child: Text(tr(_isSyncResumable ? 'Resume' : 'Start')),
+          ),
         ],
       ),
     );
@@ -1237,19 +1290,31 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('SUCCESS: $count records ready for offline use!'), backgroundColor: Colors.green),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr('SUCCESS: {count} records ready for offline use!')
+                    .replaceFirst('{count}', '$count'),
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
       }
     } catch (e) {
       debugPrint('Firestore Sync Error: $e');
       if (mounted) {
         String msg = e.toString();
         if (msg.contains('TimeoutException')) msg = "Signal lost. Paused at $_importedCountProgress. Tap again to RESUME.";
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $msg'), backgroundColor: Colors.red, duration: const Duration(seconds: 8)),
-        );
-      }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr('Failed: {msg}').replaceFirst('{msg}', msg),
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -1264,10 +1329,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Family Registration', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(tr('Family Registration'), style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -1281,6 +1349,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           ),
         ),
         actions: [
+          const LanguageToggleButton(),
           IconButton(
             icon: const Icon(Icons.list),
             tooltip: 'View Records List',
@@ -1301,8 +1370,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           children: [
             buildHeader(
               context: context,
-              title: 'Family Registration',
-              subtitle: 'Register and manage family unit records',
+              title: tr('Family Registration'),
+              subtitle: tr('Register and manage family unit records'),
             ),
             formActionButtons(
               context: context,
@@ -1341,7 +1410,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Syncing Data for Offline Use...', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          tr('Syncing Data for Offline Use...'),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         Text('$_importedCountProgress / $_totalRecordCount'),
                       ],
                     ),
@@ -1355,7 +1427,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
               ),
             _buildSectionCard(
-              title: 'Family & Location Details',
+              title: tr('Family & Location Details'),
               icon: Icons.location_on_outlined,
               children: [
                 TextFormField(
@@ -1363,20 +1435,20 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   readOnly: familyIdReadOnly,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
-                    labelText: 'Family ID',
+                    labelText: tr('Family ID'),
                     border: const OutlineInputBorder(),
-                    helperText: 'Auto-generated based on location',
+                    helperText: tr('Auto-generated based on location'),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.search, color: Colors.blue),
                       onPressed: () => _searchAndLoadRecord(_familyId.text.trim()),
                     ),
                   ),
                   onFieldSubmitted: (val) => _searchAndLoadRecord(val.trim()),
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                  validator: (v) => v == null || v.isEmpty ? tr('Required') : null,
                 ),
                 const SizedBox(height: 16),
                 fixedDropdown(
-                  label: 'State',
+                  label: tr('State'),
                   value: selectedState,
                   items: isLoadingLocations ? [] : ['Telangana'],
                   onChanged: (v) {
@@ -1390,7 +1462,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 fixedDropdown(
-                  label: 'District',
+                  label: tr('District'),
                   value: selectedDistrict,
                   items: selectedState == null || locationData['districts'] == null
                       ? []
@@ -1407,7 +1479,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 fixedDropdown(
-                  label: 'Mandal',
+                  label: tr('Mandal'),
                   value: selectedMandal,
                   items: selectedDistrict == null ||
                           locationData['districts'] == null ||
@@ -1426,7 +1498,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 fixedDropdown(
-                  label: 'Village',
+                  label: tr('Village'),
                   value: selectedVillage,
                   items: selectedMandal == null ||
                           locationData['districts'] == null ||
@@ -1452,9 +1524,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Expanded(
                       child: TextFormField(
                         controller: _houseNo,
-                        decoration: const InputDecoration(
-                          labelText: 'House No',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: tr('House No'),
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                     ),
@@ -1462,23 +1534,23 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Expanded(
                       child: TextFormField(
                         controller: _head,
-                        decoration: const InputDecoration(
-                          labelText: 'Head of Family',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: tr('Head of Family'),
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Text('Family Type', style: TextStyle(fontWeight: FontWeight.w600)),
+                Text(tr('Family Type'), style: const TextStyle(fontWeight: FontWeight.w600)),
                 Row(
                   children: [
                     Expanded(
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(1) Nuclear Family'),
+                        title: Text(tr('(1) Nuclear Family')),
                         value: '(1) Nuclear Family',
                         groupValue: familyType,
                         onChanged: (v) => setState(() => familyType = v),
@@ -1488,7 +1560,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(0) Joint Family'),
+                        title: Text(tr('(0) Joint Family')),
                         value: '(0) Joint Family',
                         groupValue: familyType,
                         onChanged: (v) => setState(() => familyType = v),
@@ -1497,14 +1569,14 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Text('Family Status', style: TextStyle(fontWeight: FontWeight.w600)),
+                Text(tr('Family Status'), style: const TextStyle(fontWeight: FontWeight.w600)),
                 Row(
                   children: [
                     Expanded(
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(1) Active'),
+                        title: Text(tr('(1) Active')),
                         value: '(1) Active',
                         groupValue: familyStatus,
                         onChanged: (v) => setState(() => familyStatus = v),
@@ -1514,7 +1586,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(0) Vacant'),
+                        title: Text(tr('(0) Vacant')),
                         value: '(0) Vacant',
                         groupValue: familyStatus,
                         onChanged: (v) => setState(() => familyStatus = v),
@@ -1525,9 +1597,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ],
             ),
             _buildSectionCard(
-              title: 'Housing Details',
+              title: tr('Housing Details'),
               children: [
-                Text('Do you own this house?',
+                Text(tr('Do you own this house?'),
                     style: TextStyle(fontWeight: FontWeight.w600)),
                 Row(
                   children: [
@@ -1535,7 +1607,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(1) Yes'),
+                        title: Text(tr('(1) Yes')),
                         value: '(1) Yes',
                         groupValue: ownHouse,
                         onChanged: (v) => setState(() => ownHouse = v),
@@ -1545,7 +1617,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(2) No'),
+                        title: Text(tr('(2) No')),
                         value: '(2) No',
                         groupValue: ownHouse,
                         onChanged: (v) => setState(() => ownHouse = v),
@@ -1561,21 +1633,27 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: DropdownButtonFormField<String>(
                         menuMaxHeight: 300,
                         isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Type of House',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
+                        decoration: InputDecoration(
+                          labelText: tr('Type of House'),
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 14),
                         ),
                         value: ['(3) KACHHA', '(2) SEMI PUCCA', '(1) PUCCA'].contains(typeofhouse) 
                             ? typeofhouse : null,
-                        items: const [
+                        items: [
                           DropdownMenuItem(
-                              value: '(3) KACHHA', child: Text('(3) KACHHA')),
+                            value: '(3) KACHHA',
+                            child: Text(tr('(3) KACHHA')),
+                          ),
                           DropdownMenuItem(
-                              value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
+                            value: '(2) SEMI PUCCA',
+                            child: Text(tr('(2) SEMI PUCCA')),
+                          ),
                           DropdownMenuItem(
-                              value: '(1) PUCCA', child: Text('(1) PUCCA')),
+                            value: '(1) PUCCA',
+                            child: Text(tr('(1) PUCCA')),
+                          ),
                         ],
                         onChanged: (v) => setState(() => typeofhouse = v),
                       ),
@@ -1585,10 +1663,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: TextFormField(
                         initialValue: noOfRooms?.toString(),
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'No. Rooms',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
+                        decoration: InputDecoration(
+                          labelText: tr('No. Rooms'),
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 14),
                         ),
                         onChanged: (v) => noOfRooms = int.tryParse(v),
@@ -1600,16 +1678,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 DropdownButtonFormField<String>(
                   menuMaxHeight: 300,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Type of Roof',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Type of Roof'),
+                    border: const OutlineInputBorder(),
                   ),
                   value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(roofType) 
                       ? roofType : null,
-                  items: const [
-                    DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
-                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
-                    DropdownMenuItem(value: '(3) KACHHA', child: Text('(3) KACHHA')),
+                  items: [
+                    DropdownMenuItem(value: '(1) PUCCA', child: Text(tr('(1) PUCCA'))),
+                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text(tr('(2) SEMI PUCCA'))),
+                    DropdownMenuItem(value: '(3) KACHHA', child: Text(tr('(3) KACHHA'))),
                   ],
                   onChanged: (v) => setState(() => roofType = v),
                 ),
@@ -1617,16 +1695,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 DropdownButtonFormField<String>(
                   menuMaxHeight: 300,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Type of Wall',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Type of Wall'),
+                    border: const OutlineInputBorder(),
                   ),
                   value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(wallType) 
                       ? wallType : null,
-                  items: const [
-                    DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
-                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
-                    DropdownMenuItem(value: '(3) KACHHA', child: Text('(3) KACHHA')),
+                  items: [
+                    DropdownMenuItem(value: '(1) PUCCA', child: Text(tr('(1) PUCCA'))),
+                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text(tr('(2) SEMI PUCCA'))),
+                    DropdownMenuItem(value: '(3) KACHHA', child: Text(tr('(3) KACHHA'))),
                   ],
                   onChanged: (v) => setState(() => wallType = v),
                 ),
@@ -1634,21 +1712,21 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 DropdownButtonFormField<String>(
                   menuMaxHeight: 300,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Type of Floor',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Type of Floor'),
+                    border: const OutlineInputBorder(),
                   ),
                   value: ['(1) PUCCA', '(2) SEMI PUCCA', '(3) KACHHA'].contains(floorType) 
                       ? floorType : null,
-                  items: const [
-                    DropdownMenuItem(value: '(1) PUCCA', child: Text('(1) PUCCA')),
-                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text('(2) SEMI PUCCA')),
-                    DropdownMenuItem(value: '(3) KACHHA', child: Text('(3) KACHHA')),
+                  items: [
+                    DropdownMenuItem(value: '(1) PUCCA', child: Text(tr('(1) PUCCA'))),
+                    DropdownMenuItem(value: '(2) SEMI PUCCA', child: Text(tr('(2) SEMI PUCCA'))),
+                    DropdownMenuItem(value: '(3) KACHHA', child: Text(tr('(3) KACHHA'))),
                   ],
                   onChanged: (v) => setState(() => floorType = v),
                 ),
                 const SizedBox(height: 16),
-                Text('Where do you cook?', style: TextStyle(fontWeight: FontWeight.w600)),
+                Text(tr('Where do you cook?'), style: TextStyle(fontWeight: FontWeight.w600)),
                 Wrap(
                   spacing: 8,
                   children: [
@@ -1662,7 +1740,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: CheckboxListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: cookingLocations.contains(val),
                         onChanged: (v) {
                           setState(() {
@@ -1682,38 +1760,38 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.only(top: 8),
                     child: TextFormField(
                       controller: _cookingLocationOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
               ],
             ),
             _buildSectionCard(
-              title: 'Energy & Utilities',
+              title: tr('Energy & Utilities'),
               children: [
                 DropdownButtonFormField<String>(
                   menuMaxHeight: 300,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Primary Cooking Fuel',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Primary Cooking Fuel'),
+                    border: const OutlineInputBorder(),
                   ),
                   value: ['firewood', 'lpg', 'electric', 'others'].contains(cookingFuel) 
                       ? cookingFuel : null,
-                  items: const [
+                  items: [
                     DropdownMenuItem(
-                        value: 'firewood', child: Text('Firewood')),
-                    DropdownMenuItem(value: 'lpg', child: Text('LPG')),
+                        value: 'firewood', child: Text(tr('Firewood'))),
+                    DropdownMenuItem(value: 'lpg', child: Text(tr('LPG'))),
                     DropdownMenuItem(
-                        value: 'electric', child: Text('Electric')),
-                    DropdownMenuItem(value: 'others', child: Text('Others')),
+                        value: 'electric', child: Text(tr('Electric'))),
+                    DropdownMenuItem(value: 'others', child: Text(tr('Others'))),
                   ],
                   onChanged: (v) => setState(() => cookingFuel = v),
                 ),
                 const SizedBox(height: 16),
-                Text('Is there a separate kitchen?',
+                Text(tr('Is there a separate kitchen?'),
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 Row(
                   children: [
@@ -1721,7 +1799,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(1) Yes'),
+                        title: Text(tr('(1) Yes')),
                         value: '(1) Yes',
                         groupValue: separateKitchen,
                         onChanged: (v) => setState(() => separateKitchen = v),
@@ -1731,7 +1809,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(2) No'),
+                        title: Text(tr('(2) No')),
                         value: '(2) No',
                         groupValue: separateKitchen,
                         onChanged: (v) => setState(() => separateKitchen = v),
@@ -1741,7 +1819,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const Divider(height: 24),
                 Text(
-                  '6. Type of fuel used for cooking?',
+                  tr('6. Type of fuel used for cooking?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1756,7 +1834,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: cookingFuelTypes.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -1770,24 +1848,24 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _cookingFuelOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
                 TextFormField(
                   initialValue: cookingFuelMain,
-                  decoration: const InputDecoration(
-                    labelText: 'Mainly used fuel',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Mainly used fuel'),
+                    border: const OutlineInputBorder(),
                   ),
                   onChanged: (v) =>
                       cookingFuelMain = v, // Note: standard var, not state
                 ),
                 const Divider(height: 24),
                 Text(
-                  '7. Main source of lighting in household?',
+                  tr('7. Main source of lighting in household?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1804,7 +1882,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: lightingSource,
                         onChanged: (v) => setState(() => lightingSource = v),
@@ -1815,11 +1893,11 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ],
             ),
             _buildSectionCard(
-              title: 'Food & Nutrition',
+              title: tr('Food & Nutrition'),
               icon: Icons.restaurant_outlined,
               children: [
                 Text(
-                  '8. Source of water (Select all that apply)',
+                  tr('8. Source of water (Select all that apply)'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1833,7 +1911,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: waterSources.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -1847,23 +1925,23 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _waterSourceOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
                 TextFormField(
                   initialValue: waterMainSource,
-                  decoration: const InputDecoration(
-                    labelText: 'Mainly used source',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Mainly used source'),
+                    border: const OutlineInputBorder(),
                   ),
                   onChanged: (v) => waterMainSource = v,
                 ),
                 const Divider(height: 24),
                 Text(
-                  '9. Do to the water to make it safer to drink',
+                  tr('9. Do to the water to make it safer to drink'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1879,7 +1957,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: waterTreatment.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -1903,16 +1981,16 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _waterTreatmentOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
                 
                 const Divider(height: 24),
                 Text(
-                  '10. Source water used for all purposes',
+                  tr('10. Source water used for all purposes'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1926,7 +2004,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: waterAllPurposeSources.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -1942,23 +2020,23 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _waterAllPurposeOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
                 TextFormField(
                   initialValue: waterAllPurposeMain,
-                  decoration: const InputDecoration(
-                    labelText: 'Mainly used source',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: tr('Mainly used source'),
+                    border: const OutlineInputBorder(),
                   ),
                   onChanged: (v) => waterAllPurposeMain = v,
                 ),
                 const Divider(height: 24),
                 Text(
-                  '11. What kind of toilet facility HH',
+                  tr('11. What kind of toilet facility HH'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -1975,7 +2053,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: toiletFacility,
                         onChanged: (v) => setState(() => toiletFacility = v),
@@ -1989,20 +2067,20 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _toiletOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
               ],
             ),
             _buildSectionCard(
-              title: 'Socio - Economic Indicators',
+              title: tr('Socio - Economic Indicators'),
               icon: Icons.monetization_on_outlined,
               children: [
                 Text(
-                  '12. Have ration card?',
+                  tr('12. Have ration card?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2018,7 +2096,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: rationCard,
                         onChanged: (v) => setState(() => rationCard = v),
@@ -2028,7 +2106,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const Divider(height: 16),
                 Text(
-                  '13. Religion',
+                  tr('13. Religion'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2044,7 +2122,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: religion,
                         onChanged: (v) => setState(() => religion = v),
@@ -2054,7 +2132,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const Divider(height: 16),
                 Text(
-                  '14. Cast of the head',
+                  tr('14. Cast of the head'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2071,7 +2149,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: caste,
                         onChanged: (v) => setState(() => caste = v),
@@ -2133,10 +2211,10 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               ],
             ),
             _buildSectionCard(
-              title: 'Agriculture & Livestock',
+              title: tr('Agriculture & Livestock'),
               children: [
                 Text(
-                  '16. Any agriculture land?',
+                  tr('16. Any agriculture land?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2146,7 +2224,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(1) Yes'),
+                        title: Text(tr('(1) Yes')),
                         value: '(1) Yes',
                         groupValue: hasAgricultureLand,
                         onChanged: (v) =>
@@ -2163,7 +2241,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('(2) No'),
+                        title: Text(tr('(2) No')),
                         value: '(2) No',
                         groupValue: hasAgricultureLand,
                         onChanged: (v) =>
@@ -2189,7 +2267,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                         enabled: hasAgricultureLand == '(1) Yes',
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: 'Number (Area)',
+                          labelText: tr('Number (Area)'),
                           border: const OutlineInputBorder(),
                           filled: hasAgricultureLand != '(1) Yes',
                           fillColor: Colors.grey[100],
@@ -2205,19 +2283,19 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: DropdownButtonFormField<String>(
                         menuMaxHeight: 300,
                         isExpanded: true,
-                        value: (agricultureLandUnit == 'Acres' || agricultureLandUnit == 'Guntas') 
+                        value: (agricultureLandUnit == 'Acres' || agricultureLandUnit == 'Guntas')
                             ? agricultureLandUnit : null,
                         decoration: InputDecoration(
-                          labelText: 'Land Unit',
+                          labelText: tr('Land Unit'),
                           border: const OutlineInputBorder(),
                           filled: hasAgricultureLand != '(1) Yes',
                           fillColor: Colors.grey[100],
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 14),
                         ),
-                        items: hasAgricultureLand == '(1) Yes' ? const [
-                          DropdownMenuItem(value: 'Acres', child: Text('Acres')),
-                          DropdownMenuItem(value: 'Guntas', child: Text('Guntas'))
+                        items: hasAgricultureLand == '(1) Yes' ? [
+                          DropdownMenuItem(value: 'Acres', child: Text(tr('Acres'))),
+                          DropdownMenuItem(value: 'Guntas', child: Text(tr('Guntas')))
                         ] : [],
                         onChanged: hasAgricultureLand == '(1) Yes' ? (v) =>
                             setState(() => agricultureLandUnit = v) : null,
@@ -2227,7 +2305,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '17. Land is irrigated?',
+                  tr('17. Land is irrigated?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2242,8 +2320,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                         enabled: !irrigatedNone,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: 'Number (Irrigated)',
-                          helperText: 'Number you Hold',
+                          labelText: tr('Number (Irrigated)'),
+                          helperText: tr('Number you Hold'),
                           border: const OutlineInputBorder(),
                           filled: irrigatedNone,
                           fillColor: Colors.grey[100],
@@ -2259,19 +2337,19 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: DropdownButtonFormField<String>(
                         menuMaxHeight: 300,
                         isExpanded: true,
-                        value: (irrigatedLandUnit == 'Acres' || irrigatedLandUnit == 'Guntas') 
+                        value: (irrigatedLandUnit == 'Acres' || irrigatedLandUnit == 'Guntas')
                             ? irrigatedLandUnit : null,
                         decoration: InputDecoration(
-                          labelText: 'Land Unit',
+                          labelText: tr('Land Unit'),
                           border: const OutlineInputBorder(),
                           filled: irrigatedNone,
                           fillColor: Colors.grey[100],
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 14),
                         ),
-                        items: !irrigatedNone ? const [
-                          DropdownMenuItem(value: 'Acres', child: Text('Acres')),
-                          DropdownMenuItem(value: 'Guntas', child: Text('Guntas')),
+                        items: !irrigatedNone ? [
+                          DropdownMenuItem(value: 'Acres', child: Text(tr('Acres'))),
+                          DropdownMenuItem(value: 'Guntas', child: Text(tr('Guntas'))),
                         ] : [],
                         onChanged: !irrigatedNone ? (v) =>
                             setState(() => irrigatedLandUnit = v) : null,
@@ -2282,7 +2360,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       flex: 1,
                       child: Column(
                         children: [
-                          const Text('None', style: TextStyle(fontSize: 12)),
+                          Text(tr('None'), style: const TextStyle(fontSize: 12)),
                           Checkbox(
                             value: irrigatedNone,
                             onChanged: (v) => setState(() {
@@ -2300,7 +2378,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const Divider(height: 24),
                 Text(
-                  '18. Own any cattle',
+                  tr('18. Own any cattle'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2313,7 +2391,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: cattleOwned.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -2336,20 +2414,20 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _cattleOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
               ],
             ),
             _buildSectionCard(
-              title: 'Health',
+              title: tr('Health'),
               icon: Icons.health_and_safety_outlined,
               children: [
                 Text(
-                  '19. get sick, where do they go?',
+                  tr('19. get sick, where do they go?'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2369,7 +2447,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                       child: RadioListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(val),
+                        title: Text(tr(val)),
                         value: val,
                         groupValue: healthCarePlace,
                         onChanged: (v) => setState(() => healthCarePlace = v),
@@ -2379,7 +2457,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                 ),
                 const Divider(height: 16),
                 Text(
-                  '20. Why they dont go to Govt. Hospital',
+                  tr('20. Why they dont go to Govt. Hospital'),
                   style: TextStyle(
                       fontWeight: FontWeight.w600, color: Colors.grey[700]),
                 ),
@@ -2392,7 +2470,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                   '(77) Other'
                 ].map((val) {
                   return CheckboxListTile(
-                    title: Text(val),
+                    title: Text(tr(val)),
                     value: govtHospitalReasons.contains(val),
                     onChanged: (v) {
                       setState(() {
@@ -2408,9 +2486,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: TextFormField(
                       controller: _govtHospitalOther,
-                      decoration: const InputDecoration(
-                        labelText: 'If others, please mention',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: tr('If others, please mention'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
@@ -2421,6 +2499,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         ),
       ),
     );
+    });
   }
 }
 
@@ -2549,12 +2628,12 @@ class _RecordsPageState extends State<RecordsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Record'),
-        content: const Text('Are you sure you want to delete this record?'),
+        title: Text(tr('Delete Record')),
+        content: Text(tr('Are you sure you want to delete this record?')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(tr('Cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -2564,7 +2643,7 @@ class _RecordsPageState extends State<RecordsPage> {
                   .delete();
               Navigator.pop(context);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text(tr('Delete'), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -2657,14 +2736,18 @@ class _RecordsPageState extends State<RecordsPage> {
   Future<void> _downloadByLocation() async {
     final connectivityResult = await Connectivity().checkConnectivity();
     if (connectivityResult == ConnectivityResult.none) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No internet connection.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('No internet connection.'))));
       return;
     }
 
     try {
       final locDoc = await FirebaseFirestore.instance.collection('locations').doc('telangana').get();
       if (!locDoc.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location data not found.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(tr('Location data not found.'))));
         return;
       }
       final locData = locDoc.data()!;
@@ -2677,15 +2760,15 @@ class _RecordsPageState extends State<RecordsPage> {
         context: context,
         builder: (context) => StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
-            title: const Text('Sync by Area'),
+            title: Text(tr('Sync by Area')),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Select a District and Mandal to sync for offline work.'),
+                Text(tr('Select a District and Mandal to sync for offline work.')),
                 const SizedBox(height: 16),
                 DropdownButton<String>(
                   menuMaxHeight: 300,
-                  hint: const Text('Select District'),
+                  hint: Text(tr('Select District')),
                   value: selectedDist,
                   isExpanded: true,
                   items: districts.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
@@ -2694,7 +2777,7 @@ class _RecordsPageState extends State<RecordsPage> {
                 if (selectedDist != null)
                   DropdownButton<String>(
                     menuMaxHeight: 300,
-                    hint: const Text('Select Mandal'),
+                    hint: Text(tr('Select Mandal')),
                     value: selectedMand,
                     isExpanded: true,
                     items: (locData[selectedDist] as List).map((v) => DropdownMenuItem(value: v.toString(), child: Text(v.toString()))).toList(),
@@ -2703,10 +2786,13 @@ class _RecordsPageState extends State<RecordsPage> {
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(tr('Cancel')),
+              ),
               ElevatedButton(
                 onPressed: selectedMand == null ? null : () => Navigator.pop(context, 'start'),
-                child: const Text('Sync Area'),
+                child: Text(tr('Sync Area')),
               ),
             ],
           ),
@@ -2728,23 +2814,44 @@ class _RecordsPageState extends State<RecordsPage> {
     final confirm = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: _isSyncResumable ? const Text('Resume Sync?') : const Text('Sync All Records'),
+        title: Text(tr(_isSyncResumable ? 'Resume Sync?' : 'Sync All Records')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Current Local Records: $localDetailsCount / 17,000+'),
+            Text(
+              tr('Current Local Records: {count} / 17,000+').replaceFirst(
+                '{count}',
+                '$localDetailsCount',
+              ),
+            ),
             const SizedBox(height: 12),
-            Text(_isSyncResumable 
-              ? 'Resume downloading from record $_lastSyncProgress. This is faster and safer for weak signals.'
-              : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.'),
+            Text(
+              tr(
+                _isSyncResumable
+                    ? 'Resume downloading from record {progress}. This is faster and safer for weak signals.'
+                    : 'This will sync all 17,000+ records to this phone. This takes time on slow internet.',
+              ).replaceFirst('{progress}', '$_lastSyncProgress'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr('Cancel')),
+          ),
           if (_isSyncResumable)
-            TextButton(onPressed: () => Navigator.pop(context, 'new'), child: const Text('Start New', style: TextStyle(color: Colors.red))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, 'start'), child: Text(_isSyncResumable ? 'Resume' : 'Start')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'new'),
+              child: Text(
+                tr('Start New'),
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'start'),
+            child: Text(tr(_isSyncResumable ? 'Resume' : 'Start')),
+          ),
         ],
       ),
     );
@@ -2820,19 +2927,31 @@ class _RecordsPageState extends State<RecordsPage> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('SUCCESS: $count records ready for offline use!'), backgroundColor: Colors.green),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr('SUCCESS: {count} records ready for offline use!')
+                    .replaceFirst('{count}', '$count'),
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
       }
     } catch (e) {
       debugPrint('Firestore Sync Error: $e');
       if (mounted) {
         String msg = e.toString();
         if (msg.contains('TimeoutException')) msg = "Signal lost. Paused at $_importedCountProgress. Tap again to RESUME.";
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $msg'), backgroundColor: Colors.red, duration: const Duration(seconds: 8)),
-        );
-      }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr('Failed: {msg}').replaceFirst('{msg}', msg),
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -2896,13 +3015,13 @@ class _RecordsPageState extends State<RecordsPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete All Records?'),
-        content: const Text('This will permanently remove all records from Firebase. This action cannot be undone.'),
+        title: Text(tr('Delete All Records?')),
+        content: Text(tr('This will permanently remove all records from Firebase. This action cannot be undone.')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('Cancel'))),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete All', style: TextStyle(color: Colors.red)),
+            child: Text(tr('Delete All'), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -2921,14 +3040,20 @@ class _RecordsPageState extends State<RecordsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All records deleted successfully.'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(tr('All records deleted successfully.')),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       debugPrint('DELETE ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('${tr('Delete failed')}: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -2947,7 +3072,7 @@ class _RecordsPageState extends State<RecordsPage> {
     if (connectivityResult == ConnectivityResult.none) {
       if (!isAuto) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No internet connection. Cannot sync.')),
+          SnackBar(content: Text(tr('No internet connection. Cannot sync.'))),
         );
       }
       return;
@@ -2971,7 +3096,7 @@ class _RecordsPageState extends State<RecordsPage> {
       if (snapshot.docs.isEmpty) {
         if (!isAuto && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No records to sync.')),
+            SnackBar(content: Text(tr('No records to sync.'))),
           );
         }
         setState(() => _isSyncing = false);
@@ -3068,7 +3193,10 @@ class _RecordsPageState extends State<RecordsPage> {
         if (syncCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Auto-synced $syncCount record(s).'),
+              content: Text(
+                tr('Auto-synced {count} record(s).')
+                    .replaceFirst('{count}', '$syncCount'),
+              ),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -3179,7 +3307,10 @@ class _RecordsPageState extends State<RecordsPage> {
         if (docs.isEmpty && _hasSearched) {
           return Scaffold(
             appBar: AppBar(
-                title: Text('All Records (${rawDocs.length})'),
+                title: Text(
+                  tr('All Records ({count})')
+                      .replaceFirst('{count}', '${rawDocs.length}'),
+                ),
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.refresh),
@@ -3244,7 +3375,8 @@ class _RecordsPageState extends State<RecordsPage> {
                             controller: _searchController,
                             autofocus: true,
                             decoration: InputDecoration(
-                              hintText: 'Search $_searchField...',
+                              hintText: tr('Search {field}...')
+                                  .replaceFirst('{field}', _searchField),
                               border: InputBorder.none,
                               hintStyle: const TextStyle(color: Colors.black54),
                               suffixIcon: IconButton(
@@ -3317,13 +3449,19 @@ class _RecordsPageState extends State<RecordsPage> {
                       await DataCacheService().fetchFamilyDetails(forceRefresh: true);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Lookups refreshed successfully!'), backgroundColor: Colors.green),
+                          SnackBar(
+                            content: Text(tr('Lookups refreshed successfully!')),
+                            backgroundColor: Colors.green,
+                          ),
                         );
                       }
                     } catch (e) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                          SnackBar(
+                            content: Text('${tr('Error')}: $e'),
+                            backgroundColor: Colors.red,
+                          ),
                         );
                       }
                     } finally {
@@ -3332,16 +3470,25 @@ class _RecordsPageState extends State<RecordsPage> {
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(value: 'refresh', child: Text('Refresh List')),
-                  const PopupMenuItem(value: 'sync_lookups', child: Text('Refresh Codes & Names')),
-                  const PopupMenuItem(value: 'delete', child: Text('Clear All Local Data', style: TextStyle(color: Colors.red))),
+                  PopupMenuItem(value: 'refresh', child: Text(tr('Refresh List'))),
+                  PopupMenuItem(
+                    value: 'sync_lookups',
+                    child: Text(tr('Refresh Codes & Names')),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(
+                      tr('Clear All Local Data'),
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
                 ],
               ),
             ],
           ),
           drawer: const AppDrawer(),
           body: !snapshot.hasData
-              ? const Center(child: Text('Loading...'))
+              ? Center(child: Text(tr('Loading...')))
               : Builder(builder: (context) {
                   return Column(
                     children: [
@@ -3354,7 +3501,7 @@ class _RecordsPageState extends State<RecordsPage> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Error: $_syncErrorMessage',
+                                  '${tr('Error')}: $_syncErrorMessage',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: Colors.red.shade900,
@@ -3380,7 +3527,7 @@ class _RecordsPageState extends State<RecordsPage> {
                             ? Colors.orange.shade100
                             : Colors.green.shade100,
                         child: Text(
-                          '${fromCache ? 'Offline mode' : syncing || _isSyncing ? 'Online – syncing...' : 'Online – synced'}  |  $loadedCount / $_totalRecordCount records',
+                          '${tr(fromCache ? 'Offline mode' : syncing || _isSyncing ? 'Online - syncing...' : 'Online - synced')}  |  $loadedCount / $_totalRecordCount ${tr('records')}',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 12,
@@ -3398,7 +3545,7 @@ class _RecordsPageState extends State<RecordsPage> {
                                 headingRowColor: MaterialStateProperty.all(
                                     Colors.grey.shade200),
                                   columns: [
-                                    const DataColumn(label: Text('Actions')),
+                                    DataColumn(label: Text(tr('Actions'))),
                                     _buildSearchColumn('Family ID'),
                                     ..._fieldMapping.keys
                                         .map((label) => _buildSearchColumn(label))
@@ -3434,7 +3581,9 @@ class _RecordsPageState extends State<RecordsPage> {
                                   child: Column(
                                     children: [
                                       Text(
-                                        'Showing $loadedCount of $_totalRecordCount records',
+                                        tr('Showing {loaded} of {total} records')
+                                            .replaceFirst('{loaded}', '$loadedCount')
+                                            .replaceFirst('{total}', '$_totalRecordCount'),
                                         style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                                       ),
                                       const SizedBox(height: 8),
@@ -3453,7 +3602,13 @@ class _RecordsPageState extends State<RecordsPage> {
                                         icon: _isLoadingMore 
                                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                                           : const Icon(Icons.add),
-                                        label: Text(_isLoadingMore ? 'Loading...' : 'Load 500 More'),
+                                        label: Text(
+                                          tr(
+                                            _isLoadingMore
+                                                ? 'Loading...'
+                                                : 'Load 500 More',
+                                          ),
+                                        ),
                                         style: ElevatedButton.styleFrom(
                                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                                         ),
@@ -3467,7 +3622,8 @@ class _RecordsPageState extends State<RecordsPage> {
                                 padding: const EdgeInsets.all(20),
                                 child: Center(
                                   child: Text(
-                                    'All $_totalRecordCount records loaded',
+                                    tr('All {total} records loaded')
+                                        .replaceFirst('{total}', '$_totalRecordCount'),
                                     style: TextStyle(color: Colors.grey.shade500, fontStyle: FontStyle.italic),
                                   ),
                                 ),
@@ -3509,18 +3665,20 @@ class _SearchableListSheetState extends State<_SearchableListSheet> {
     _filteredItems = widget.items;
   }
 
-  void _filter(String query) {
-    setState(() {
-      _searchQuery = query;
-      if (query.isEmpty) {
-        _filteredItems = widget.items;
-      } else {
-        _filteredItems = widget.items
-            .where((item) => item.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      }
-    });
-  }
+    void _filter(String query) {
+      setState(() {
+        _searchQuery = query;
+        if (query.isEmpty) {
+          _filteredItems = widget.items;
+        } else {
+          _filteredItems = widget.items
+              .where((item) =>
+                  item.toLowerCase().contains(query.toLowerCase()) ||
+                  tr(item).toLowerCase().contains(query.toLowerCase()))
+              .toList();
+        }
+      });
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -3543,7 +3701,8 @@ class _SearchableListSheetState extends State<_SearchableListSheet> {
           child: TextField(
             autofocus: true,
             decoration: InputDecoration(
-              hintText: 'Search ${widget.title}...',
+              hintText: tr('Search {title}...')
+                  .replaceFirst('{title}', widget.title),
               prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -3555,32 +3714,38 @@ class _SearchableListSheetState extends State<_SearchableListSheet> {
         ),
         const SizedBox(height: 12),
         // List
-        Expanded(
-          child: _filteredItems.isEmpty
-              ? Center(
-                  child: Text(
-                    'No results found',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                )
-              : ListView.separated(
+          Expanded(
+            child: _filteredItems.isEmpty
+                ? Center(
+                    child: Text(
+                      tr('No results found'),
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  )
+                : ListView.separated(
                   controller: widget.scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: _filteredItems.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final item = _filteredItems[index];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(item),
-                      onTap: () {
-                        Navigator.pop(context, item);
-                      },
-                    );
-                  },
+                    itemBuilder: (context, index) {
+                      final item = _filteredItems[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(tr(item)),
+                        onTap: () {
+                          Navigator.pop(context, item);
+                        },
+                      );
+                    },
                 ),
         ),
       ],
     );
   }
 }
+
+
+
+
+
+

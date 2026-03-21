@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class DoctorPrescriptionsPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -246,7 +247,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Prescription updated! Syncing...' : 'Prescription saved! Syncing...'),
+          content: Text(wasEditing ? tr('Prescription updated! Syncing...') : tr('Prescription saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -263,7 +264,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       _performPrescriptionSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -284,9 +285,12 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Doctor Prescription'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Doctor Prescription')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -324,28 +328,28 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Prescription Details',
+                      title: tr('Prescription Details'),
                       icon: Icons.history_edu_outlined,
                       children: [
-                        _buildDatePicker('Prescription Date', selectedPrescriptionDate, (v) => setState(() => selectedPrescriptionDate = v)),
+                        _buildDatePicker(tr('Prescription Date'), selectedPrescriptionDate, (v) => setState(() => selectedPrescriptionDate = v)),
                         const SizedBox(height: 24),
-                        const Text('Add Medicine', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(tr('Add Medicine'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         const Divider(),
-                        formTextField('Medicine Name', _medicineNameController),
+                        formTextField(tr('Medicine Name'), _medicineNameController),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Dosage', _dosageController)),
+                            Expanded(child: formTextField(tr('Dosage'), _dosageController)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Frequency', _frequencyController)),
+                            Expanded(child: formTextField(tr('Frequency'), _frequencyController)),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Duration', _durationController)),
+                            Expanded(child: formTextField(tr('Duration'), _durationController)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Remarks', _remarksController)),
+                            Expanded(child: formTextField(tr('Remarks'), _remarksController)),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -354,7 +358,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                           child: ElevatedButton.icon(
                             onPressed: _addMedicine,
                             icon: const Icon(Icons.add),
-                            label: const Text('Add to List'),
+                            label: Text(tr('Add to List')),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blueAccent,
                               foregroundColor: Colors.white,
@@ -365,7 +369,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                         ),
                         if (_medicines.isNotEmpty) ...[
                           const SizedBox(height: 24),
-                          const Text('Medicines List', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          Text(tr('Medicines List'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
                           ListView.builder(
                             shrinkWrap: true,
@@ -395,18 +399,19 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumberController),
+        formTextField(tr('Registration Number'), _registrationNumberController),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -419,7 +424,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -427,18 +432,18 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Age', _ageController, keyboardType: TextInputType.number),
+        formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number),
       ],
     );
   }

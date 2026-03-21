@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class QuarterlySurveyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -342,7 +343,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Survey updated! Syncing...' : 'Survey saved! Syncing...'),
+          content: Text(wasEditing ? tr('Survey updated! Syncing...') : tr('Survey saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -357,7 +358,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
       _performSurveySync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -378,9 +379,12 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Quarterly Survey Questionnaire'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Quarterly Survey Questionnaire')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -419,15 +423,15 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Health Facility visit',
+                      title: tr('Health Facility visit'),
                       icon: Icons.local_hospital_outlined,
                       children: [
-                        formSearchableDropdown(context, '1.Past 3 months are you visited health care facility', yesNo12Choices, visitedFacility, (v) => setState(() => visitedFacility = v)),
+                        formSearchableDropdown(context, tr('1.Past 3 months are you visited health care facility'), yesNo12Choices, visitedFacility, (v) => setState(() => visitedFacility = v)),
                         if (visitedFacility == '(1) Yes') ...[
                           const SizedBox(height: 12),
-                          const Text('If yes, specify reason', style: TextStyle(fontWeight: FontWeight.w500)),
+                          Text(tr('If yes, specify reason'), style: const TextStyle(fontWeight: FontWeight.w500)),
                           ...visitReasons.keys.map((key) => CheckboxListTile(
-                            title: Text(key),
+                            title: Text(tr(key)),
                             value: visitReasons[key],
                             onChanged: (val) => setState(() => visitReasons[key] = val ?? false),
                             controlAffinity: ListTileControlAffinity.leading,
@@ -435,7 +439,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
                           )),
                           if (visitReasons['(4) others'] == true) ...[
                             const SizedBox(height: 12),
-                            formTextField('specify others', _visitOthersController),
+                            formTextField(tr('specify others'), _visitOthersController),
                           ],
                         ],
                       ],
@@ -443,48 +447,48 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Diabetes',
+                      title: tr('Diabetes'),
                       icon: Icons.medication_outlined,
                       children: [
-                        formSearchableDropdown(context, 'Are you currently taking medicines for Diabetes?', yesNo12Choices, takingDmMed, (v) => setState(() => takingDmMed = v)),
+                        formSearchableDropdown(context, tr('Are you currently taking medicines for Diabetes?'), yesNo12Choices, takingDmMed, (v) => setState(() => takingDmMed = v)),
                         if (takingDmMed == '(1) Yes') ...[
                           const SizedBox(height: 12),
-                          formSearchableDropdown(context, 'Where did you received medicines?', dmMedSourceChoices, dmMedSource, (v) => setState(() => dmMedSource = v)),
+                          formSearchableDropdown(context, tr('Where did you received medicines?'), dmMedSourceChoices, dmMedSource, (v) => setState(() => dmMedSource = v)),
                           if (dmMedSource == '(4) Others') ...[
                             const SizedBox(height: 12),
-                            formTextField('specify others', _dmMedOthersController),
+                            formTextField(tr('specify others'), _dmMedOthersController),
                           ],
                           const SizedBox(height: 12),
-                          formTextField('Medicnes Names (Diabetes)', _dmMedNamesController, maxLines: 2),
+                          formTextField(tr('Medicnes Names (Diabetes)'), _dmMedNamesController, maxLines: 2),
                           const SizedBox(height: 12),
-                          formSearchableDropdown(context, '1.Did you ever forget to take medicines?', yesNo12Choices, dmForget, (v) => setState(() => dmForget = v)),
-                          formSearchableDropdown(context, '2.Do You ever neglected taking medicines', yesNo12Choices, dmNeglected, (v) => setState(() => dmNeglected = v)),
-                          formSearchableDropdown(context, '3.Have you ever stopped taking medicines on feeling better', yesNo12Choices, dmStoppedBetter, (v) => setState(() => dmStoppedBetter = v)),
-                          formSearchableDropdown(context, '4.Have you ever stopped taking medicines on feeling more worsening of your health', yesNo12Choices, dmStoppedWorse, (v) => setState(() => dmStoppedWorse = v)),
+                          formSearchableDropdown(context, tr('1.Did you ever forget to take medicines?'), yesNo12Choices, dmForget, (v) => setState(() => dmForget = v)),
+                          formSearchableDropdown(context, tr('2.Do You ever neglected taking medicines'), yesNo12Choices, dmNeglected, (v) => setState(() => dmNeglected = v)),
+                          formSearchableDropdown(context, tr('3.Have you ever stopped taking medicines on feeling better'), yesNo12Choices, dmStoppedBetter, (v) => setState(() => dmStoppedBetter = v)),
+                          formSearchableDropdown(context, tr('4.Have you ever stopped taking medicines on feeling more worsening of your health'), yesNo12Choices, dmStoppedWorse, (v) => setState(() => dmStoppedWorse = v)),
                         ],
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Blood Pressure',
+                      title: tr('Blood Pressure'),
                       icon: Icons.monitor_heart_outlined,
                       children: [
-                        formSearchableDropdown(context, '3. Are you currently taking medicines for Blood Pressure', yesNo12Choices, takingHtnMed, (v) => setState(() => takingHtnMed = v)),
+                        formSearchableDropdown(context, tr('3. Are you currently taking medicines for Blood Pressure'), yesNo12Choices, takingHtnMed, (v) => setState(() => takingHtnMed = v)),
                         if (takingHtnMed == '(1) Yes') ...[
                           const SizedBox(height: 12),
-                          formSearchableDropdown(context, 'Where did you received medicnes?', htnMedSourceChoices, htnMedSource, (v) => setState(() => htnMedSource = v)),
+                          formSearchableDropdown(context, tr('Where did you received medicnes?'), htnMedSourceChoices, htnMedSource, (v) => setState(() => htnMedSource = v)),
                           if (htnMedSource == 'OTHER' || htnMedSource == '(4) Others') ...[
                             const SizedBox(height: 12),
-                            formTextField('specify others', _htnMedOthersController),
+                            formTextField(tr('specify others'), _htnMedOthersController),
                           ],
                           const SizedBox(height: 12),
-                          formTextField('Medicnes Names (Hypertension)', _htnMedNamesController, maxLines: 2),
+                          formTextField(tr('Medicnes Names (Hypertension)'), _htnMedNamesController, maxLines: 2),
                           const SizedBox(height: 12),
-                          formSearchableDropdown(context, '1.Did you ever forget to take medicines', yesNo12Choices, htnForget, (v) => setState(() => htnForget = v)),
-                          formSearchableDropdown(context, '2.Do You ever neglected taking medicines', yesNo12Choices, htnNeglected, (v) => setState(() => htnNeglected = v)),
-                          formSearchableDropdown(context, '3.Have you ever stopped taking medicines on feeling better', yesNo12Choices, htnStoppedBetter, (v) => setState(() => htnStoppedBetter = v)),
-                          formSearchableDropdown(context, '4.Have you ever stopped taking medicines on feeling more worsening of your health', yesNo12Choices, htnStoppedWorse, (v) => setState(() => htnStoppedWorse = v)),
+                          formSearchableDropdown(context, tr('1.Did you ever forget to take medicines'), yesNo12Choices, htnForget, (v) => setState(() => htnForget = v)),
+                          formSearchableDropdown(context, tr('2.Do You ever neglected taking medicines'), yesNo12Choices, htnNeglected, (v) => setState(() => htnNeglected = v)),
+                          formSearchableDropdown(context, tr('3.Have you ever stopped taking medicines on feeling better'), yesNo12Choices, htnStoppedBetter, (v) => setState(() => htnStoppedBetter = v)),
+                          formSearchableDropdown(context, tr('4.Have you ever stopped taking medicines on feeling more worsening of your health'), yesNo12Choices, htnStoppedWorse, (v) => setState(() => htnStoppedWorse = v)),
                         ],
                       ],
                     ),
@@ -494,18 +498,19 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Respondent Identity',
+      title: tr('Respondent Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _regNoController),
+        formTextField(tr('Registration Number'), _regNoController),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyIdController,
           onSearch: () {
             if (_familyIdController.text.isNotEmpty) {
@@ -518,7 +523,7 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -526,26 +531,26 @@ class _QuarterlySurveyPageState extends State<QuarterlySurveyPage> {
           selectedName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', interviewDate, (v) => setState(() => interviewDate = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), interviewDate, (v) => setState(() => interviewDate = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+        formSearchableDropdown(context, tr('Interviewer Name'), interviewerList, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
       ],
     );
   }

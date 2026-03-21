@@ -6,6 +6,7 @@ import 'dart:io';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class QuestionnairePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -515,7 +516,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Questionnaire updated! Syncing...' : 'Questionnaire saved! Syncing...'),
+          content: Text(wasEditing ? tr('Questionnaire updated! Syncing...') : tr('Questionnaire saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -531,8 +532,8 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     } catch (e) {
       debugPrint('Error saving questionnaire: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Failed to save questionnaire.'),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(tr('Failed to save questionnaire.')),
           backgroundColor: Colors.red,
         ));
       }
@@ -542,9 +543,12 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   }
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Main Questionnaire'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Main Questionnaire')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -598,18 +602,19 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -622,7 +627,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -630,28 +635,28 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _age, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Contact Tel', _contactTel, keyboardType: TextInputType.phone),
+        formTextField(tr('Contact Tel'), _contactTel, keyboardType: TextInputType.phone),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+        formSearchableDropdown(context, tr('Interviewer Name'), interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
         const SizedBox(height: 16),
         _buildImagePicker(),
       ],
@@ -662,7 +667,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Profile Image', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr('Profile Image'), style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         InkWell(
           onTap: _pickImage,
@@ -679,18 +684,18 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Widget _buildMeasurementSection() {
     return buildSectionCard(
       context: context,
-      title: 'Measurements',
+      title: tr('Measurements'),
       icon: Icons.straighten_outlined,
       children: [
         Row(
           children: [
-            Expanded(child: formTextField('Height (cm)', _heightCm, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Height (cm)'), _heightCm, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('Weight (kg)', _weightKg, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Weight (kg)'), _weightKg, keyboardType: TextInputType.number)),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, '1. What is your general health status?', ['(1) Excellent', '(2) Good', '(3) Fair', '(4) Poor'], generalHealthStatus, (v) => setState(() => generalHealthStatus = v)),
+        formSearchableDropdown(context, tr('1. What is your general health status?'), ['(1) Excellent', '(2) Good', '(3) Fair', '(4) Poor'], generalHealthStatus, (v) => setState(() => generalHealthStatus = v)),
       ],
     );
   }
@@ -698,31 +703,31 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Widget _buildHypertensionSection() {
     return buildSectionCard(
       context: context,
-      title: 'Hypertension',
+      title: tr('Hypertension'),
       icon: Icons.favorite_outline,
       children: [
-        const Text('2. Have you ever been diagnosed/screened with hypertension?', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('2. Have you ever been diagnosed/screened with hypertension?'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Yes')), value: '(1) Yes', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(2) No')), value: '(2) No', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         if (hasHypertension == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('(2a) If Yes, since how many had?', _hypertensionDays)),
+              Expanded(child: formTextField(tr('(2a) If Yes, since how many had?'), _hypertensionDays)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], hypertensionDuration, (v) => setState(() => hypertensionDuration = v))),
+              Expanded(child: formSearchableDropdown(context, tr('Duration'), ['(1) Years', '(2) Months', '(3) Days'], hypertensionDuration, (v) => setState(() => hypertensionDuration = v))),
             ],
           ),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, '(2b) Are you currently using any medicine\'s?', hypertensionMeds, hypertensionMedicine, (v) => setState(() => hypertensionMedicine = v)),
+          formSearchableDropdown(context, tr('(2b) Are you currently using any medicine\'s?'), hypertensionMeds, hypertensionMedicine, (v) => setState(() => hypertensionMedicine = v)),
           const SizedBox(height: 12),
-          formTextField('Dosage', _hypertensionDosage),
+          formTextField(tr('Dosage'), _hypertensionDosage),
           const SizedBox(height: 12),
-          formTextField('Any other Medicine name', _hypertensionOtherMedicine),
+          formTextField(tr('Any other Medicine name'), _hypertensionOtherMedicine),
         ],
       ],
     );
@@ -731,31 +736,31 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Widget _buildDiabetesSection() {
     return buildSectionCard(
       context: context,
-      title: 'Diabetes',
+      title: tr('Diabetes'),
       icon: Icons.medical_services_outlined,
       children: [
-        const Text('3. Have you ever been diagnosed/screened with Diabetes?', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('3. Have you ever been diagnosed/screened with Diabetes?'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Yes')), value: '(1) Yes', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(2) No')), value: '(2) No', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         if (hasDiabetes == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('(3a) If Yes, since how many had?', _diabetesDays, keyboardType: TextInputType.number)),
+              Expanded(child: formTextField(tr('(3a) If Yes, since how many had?'), _diabetesDays, keyboardType: TextInputType.number)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], diabetesDuration, (v) => setState(() => diabetesDuration = v))),
+              Expanded(child: formSearchableDropdown(context, tr('Duration'), ['(1) Years', '(2) Months', '(3) Days'], diabetesDuration, (v) => setState(() => diabetesDuration = v))),
             ],
           ),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, '(3b) Are you currently using any medicine\'s?', diabetesMeds, diabetesMedicine, (v) => setState(() => diabetesMedicine = v)),
+          formSearchableDropdown(context, tr('(3b) Are you currently using any medicine\'s?'), diabetesMeds, diabetesMedicine, (v) => setState(() => diabetesMedicine = v)),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, 'Strength', diabetesStrengths, diabetesStrength, (v) => setState(() => diabetesStrength = v)),
+          formSearchableDropdown(context, tr('Strength'), diabetesStrengths, diabetesStrength, (v) => setState(() => diabetesStrength = v)),
           const SizedBox(height: 12),
-          formTextField('Any other Medicine name', _diabetesOtherMedicine),
+          formTextField(tr('Any other Medicine name'), _diabetesOtherMedicine),
         ],
       ],
     );
@@ -764,61 +769,61 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Widget _buildHabitsSection() {
     return buildSectionCard(
       context: context,
-      title: 'Habits (Tobacco & Alcohol)',
+      title: tr('Habits (Tobacco & Alcohol)'),
       icon: Icons.smoke_free_outlined,
       children: [
-        const Text('4. Do you smoke/chew tobacco related products now?', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('4. Do you smoke/chew tobacco related products now?'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Yes')), value: '(1) Yes', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(2) No')), value: '(2) No', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         if (smokesNow == '(1) Yes') ...[
-          const Text('Products List (Present)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Text(tr('Products List (Present)'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
           const SizedBox(height: 8),
           _buildTobaccoProductsList(tobaccoProductsPresent),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPresent), icon: const Icon(Icons.add), label: const Text('Add Product')),
+          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPresent), icon: const Icon(Icons.add), label: Text(tr('Add Product'))),
         ],
         const Divider(height: 32),
-        const Text('5. Have you ever smoke/chew in the past?', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('5. Have you ever smoke/chew in the past?'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Yes')), value: '(1) Yes', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(2) No')), value: '(2) No', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         if (smokedPast == '(1) Yes') ...[
-          const Text('Products List (Past)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Text(tr('Products List (Past)'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
           const SizedBox(height: 8),
           _buildTobaccoProductsList(tobaccoProductsPast),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPast), icon: const Icon(Icons.add), label: const Text('Add Product')),
+          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPast), icon: const Icon(Icons.add), label: Text(tr('Add Product'))),
         ],
         const Divider(height: 32),
-        const Text('6. Do you drink/consume Alcohol?', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('6. Do you drink/consume Alcohol?'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Yes')), value: '(1) Yes', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(2) No')), value: '(2) No', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         if (drinksAlcohol == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('Duration', _alcoholDuration, keyboardType: TextInputType.number)),
+              Expanded(child: formTextField(tr('Duration'), _alcoholDuration, keyboardType: TextInputType.number)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Unit', ['(1) Years', '(2) Months', '(3) Days'], alcoholDurationUnit, (v) => setState(() => alcoholDurationUnit = v))),
+              Expanded(child: formSearchableDropdown(context, tr('Unit'), ['(1) Years', '(2) Months', '(3) Days'], alcoholDurationUnit, (v) => setState(() => alcoholDurationUnit = v))),
             ],
           ),
           const SizedBox(height: 12),
-          const Text('Alcohol List', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Text(tr('Alcohol List'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
           const SizedBox(height: 8),
           _buildAlcoholProductsList(),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: _addAlcoholProduct, icon: const Icon(Icons.add), label: const Text('Add Item')),
+          ElevatedButton.icon(onPressed: _addAlcoholProduct, icon: const Icon(Icons.add), label: Text(tr('Add Item'))),
         ],
       ],
     );
@@ -839,28 +844,28 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Tobacco Name', tobaccoNames, item['Tobacco_Name'], (v) => setState(() => item['Tobacco_Name'] = v))),
+                    Expanded(child: formSearchableDropdown(context, tr('Tobacco Name'), tobaccoNames, item['Tobacco_Name'], (v) => setState(() => item['Tobacco_Name'] = v))),
                     IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => products.removeAt(index))),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Habit', ['(1) Yes', '(0) No'], item['Product_Habit'], (v) => setState(() => item['Product_Habit'] = v))),
+                    Expanded(child: formSearchableDropdown(context, tr('Habit'), ['(1) Yes', '(0) No'], item['Product_Habit'], (v) => setState(() => item['Product_Habit'] = v))),
                     const SizedBox(width: 8),
-                    Expanded(child: formTextField('Days', TextEditingController(text: item['Days']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Days'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Days'), TextEditingController(text: item['Days']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Days'] = int.tryParse(v), keyboardType: TextInputType.number)),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Months/Years', ['(1) Years', '(2) Months', '(3) Days'], item['Months_years'], (v) => setState(() => item['Months_years'] = v))),
+                    Expanded(child: formSearchableDropdown(context, tr('Months/Years'), ['(1) Years', '(2) Months', '(3) Days'], item['Months_years'], (v) => setState(() => item['Months_years'] = v))),
                     const SizedBox(width: 8),
-                    Expanded(child: formTextField('Qty', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Qty'), TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
                   ],
                 ),
                 const SizedBox(height: 8),
-                formSearchableDropdown(context, 'Type', ['(1) Number', '(2) Packets'], item['Type_field'], (v) => setState(() => item['Type_field'] = v)),
+                formSearchableDropdown(context, tr('Type'), ['(1) Number', '(2) Packets'], item['Type_field'], (v) => setState(() => item['Type_field'] = v)),
               ],
             ),
           ),
@@ -884,20 +889,20 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Item', alcoholItems, item['Item'], (v) => setState(() => item['Item'] = v))),
+                    Expanded(child: formSearchableDropdown(context, tr('Item'), alcoholItems, item['Item'], (v) => setState(() => item['Item'] = v))),
                     IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => alcoholProducts.removeAt(index))),
                   ],
                 ),
                 const SizedBox(height: 8),
-                formTextField('If Others Please Mention', TextEditingController(text: item['If_Others_Please_Mention'] ?? '')..addListener(() {}), onChanged: (v) => item['If_Others_Please_Mention'] = v),
+                formTextField(tr('If Others Please Mention'), TextEditingController(text: item['If_Others_Please_Mention'] ?? '')..addListener(() {}), onChanged: (v) => item['If_Others_Please_Mention'] = v),
                 const SizedBox(height: 8),
-                formSearchableDropdown(context, 'Frequency', alcoholFrequencies, item['Frequent'], (v) => setState(() => item['Frequent'] = v)),
+                formSearchableDropdown(context, tr('Frequency'), alcoholFrequencies, item['Frequent'], (v) => setState(() => item['Frequent'] = v)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: formTextField('Quantity', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Quantity'), TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
                     const SizedBox(width: 8),
-                    Expanded(child: formSearchableDropdown(context, 'Unit', alcoholUnits, item['Units'], (v) => setState(() => item['Units'] = v))),
+                    Expanded(child: formSearchableDropdown(context, tr('Unit'), alcoholUnits, item['Units'], (v) => setState(() => item['Units'] = v))),
                   ],
                 ),
               ],
@@ -919,114 +924,114 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   Widget _buildSystemicReview() {
     return buildSectionCard(
       context: context,
-      title: 'Systemic Review',
+      title: tr('Systemic Review'),
       icon: Icons.medical_services_outlined,
       children: [
         _buildReviewItem(
-          '7. Did you suffer from General Health problems?',
+          tr('7. Did you suffer from General Health problems?'),
           sufferGeneralHealth,
           (v) => setState(() => sufferGeneralHealth = v),
           details: sufferGeneralHealth == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Weight gain', '(2) Weight loss'], generalHealthStatusDetail, (v) => setState(() => generalHealthStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Weight gain', '(2) Weight loss'], generalHealthStatusDetail, (v) => setState(() => generalHealthStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _generalHealthOther),
+              formTextField(tr('If Others Please Mention'), _generalHealthOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '8. Did you suffer from vision problems?',
+          tr('8. Did you suffer from vision problems?'),
           sufferVision,
           (v) => setState(() => sufferVision = v),
           details: sufferVision == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Near sightedness', '(2) Far sightedness', '(3) Any Other'], visionStatusDetail, (v) => setState(() => visionStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Near sightedness', '(2) Far sightedness', '(3) Any Other'], visionStatusDetail, (v) => setState(() => visionStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _visionOther),
+              formTextField(tr('If Others Please Mention'), _visionOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '9. Did you suffer from Ear, Nose and Throat problems?',
+          tr('9. Did you suffer from Ear, Nose and Throat problems?'),
           sufferEnt,
           (v) => setState(() => sufferEnt = v),
           details: sufferEnt == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Ear', '(2) Nose', '(3) Throat', '(4) Any Other'], entStatusDetail, (v) => setState(() => entStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Ear', '(2) Nose', '(3) Throat', '(4) Any Other'], entStatusDetail, (v) => setState(() => entStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _entOther),
+              formTextField(tr('If Others Please Mention'), _entOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '10. Did you suffer from Respiratory problems?',
+          tr('10. Did you suffer from Respiratory problems?'),
           sufferRespiratory,
           (v) => setState(() => sufferRespiratory = v),
           details: sufferRespiratory == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Aasthma', '(2) COPD', '(3) Any Other'], respiratoryStatusDetail, (v) => setState(() => respiratoryStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Aasthma', '(2) COPD', '(3) Any Other'], respiratoryStatusDetail, (v) => setState(() => respiratoryStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _respiratoryOther),
+              formTextField(tr('If Others Please Mention'), _respiratoryOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '11. Did you suffer from Gastrointestinal problems?',
+          tr('11. Did you suffer from Gastrointestinal problems?'),
           sufferGastro,
           (v) => setState(() => sufferGastro = v),
           details: sufferGastro == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Heart burn', '(2) Abdominal Pain', '(3) Any Other'], gastroStatusDetail, (v) => setState(() => gastroStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Heart burn', '(2) Abdominal Pain', '(3) Any Other'], gastroStatusDetail, (v) => setState(() => gastroStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _gastroOther),
+              formTextField(tr('If Others Please Mention'), _gastroOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '12. Did you suffer from Genitourinary problems?',
+          tr('12. Did you suffer from Genitourinary problems?'),
           sufferGenitourinary,
           (v) => setState(() => sufferGenitourinary = v),
           details: sufferGenitourinary == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Burning in urine', '(2) Increase frequency of urine', '(3) Any Other'], genitourinaryStatusDetail, (v) => setState(() => genitourinaryStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Burning in urine', '(2) Increase frequency of urine', '(3) Any Other'], genitourinaryStatusDetail, (v) => setState(() => genitourinaryStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _genitourinaryOther),
+              formTextField(tr('If Others Please Mention'), _genitourinaryOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '13. Did you suffer from Muscles or bones problems?',
+          tr('13. Did you suffer from Muscles or bones problems?'),
           sufferMusclesBones,
           (v) => setState(() => sufferMusclesBones = v),
           details: sufferMusclesBones == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Arthritis', '(2) Spondylitis', '(3) Any Other'], musclesBonesStatusDetail, (v) => setState(() => musclesBonesStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Arthritis', '(2) Spondylitis', '(3) Any Other'], musclesBonesStatusDetail, (v) => setState(() => musclesBonesStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _musclesBonesOther),
+              formTextField(tr('If Others Please Mention'), _musclesBonesOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '14. Did you suffer from Skin problems?',
+          tr('14. Did you suffer from Skin problems?'),
           sufferSkin,
           (v) => setState(() => sufferSkin = v),
           details: sufferSkin == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Skin rash', '(2) Skin dryness', '(3) Itching', '(4) Any Other'], skinStatusDetail, (v) => setState(() => skinStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Skin rash', '(2) Skin dryness', '(3) Itching', '(4) Any Other'], skinStatusDetail, (v) => setState(() => skinStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _skinOther),
+              formTextField(tr('If Others Please Mention'), _skinOther),
             ],
           ) : null,
         ),
         _buildReviewItem(
-          '15. Did you suffer from blood related problems?',
+          tr('15. Did you suffer from blood related problems?'),
           sufferBlood,
           (v) => setState(() => sufferBlood = v),
           details: sufferBlood == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Anemia', '(2) Bruising or excessive bleeding', '(3) Any Other'], bloodStatusDetail, (v) => setState(() => bloodStatusDetail = v)),
+              formSearchableDropdown(context, tr('Details'), ['(1) Anemia', '(2) Bruising or excessive bleeding', '(3) Any Other'], bloodStatusDetail, (v) => setState(() => bloodStatusDetail = v)),
               const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _bloodOther),
+              formTextField(tr('If Others Please Mention'), _bloodOther),
             ],
           ) : null,
         ),
@@ -1040,8 +1045,8 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       children: [
         Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
         Row(children: [
-          Expanded(child: RadioListTile<String>(value: '(1) Yes', title: const Text('Yes', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
-          Expanded(child: RadioListTile<String>(value: '(2) No', title: const Text('No', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
+          Expanded(child: RadioListTile<String>(value: '(1) Yes', title: Text(tr('Yes'), style: const TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
+          Expanded(child: RadioListTile<String>(value: '(2) No', title: Text(tr('No'), style: const TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
         ]),
         if (details != null) Padding(padding: const EdgeInsets.only(left: 16, bottom: 12), child: details),
         const Divider(),

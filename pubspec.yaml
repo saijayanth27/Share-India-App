@@ -1,4 +1,4 @@
-# name: family_code_app
+﻿# name: family_code_app
 # description: "A new Flutter project."
 # # The following line prevents the package from being accidentally published to
 # # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -101,6 +101,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   sqflite: ^2.3.0
   path: ^1.8.3
   connectivity_plus: ^5.0.2
@@ -117,6 +119,7 @@ dependencies:
   intl: ^0.20.2
   google_generative_ai: ^0.4.7
   path_provider: ^2.0.15
+  shared_preferences: ^2.5.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -126,8 +129,10 @@ flutter:
   uses-material-design: true
   assets:            
     - .env
+    - assets/i18n/
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "web/icons/ShareIndiaLogo.png"
   # You can also add specific adaptive icons for Android 8.0+ here if you want
+

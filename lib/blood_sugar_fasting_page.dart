@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class BloodSugarFastingPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -245,7 +246,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Blood Sugar updated! Syncing...' : 'Blood Sugar saved! Syncing...'),
+          content: Text(wasEditing ? tr('Blood Sugar updated! Syncing...') : tr('Blood Sugar saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -256,7 +257,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -277,11 +278,15 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Blood Sugar Form(After Eating)'),
+        title: Text(tr('Blood Sugar Form(After Eating)')),
         elevation: 0,
+        actions: const [LanguageToggleButton()],
       ),
       drawer: const AppDrawer(),
       body: Stack(
@@ -321,31 +326,31 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
                     _buildIdentitySection(),
                     buildSectionCard(
                       context: context,
-                      title: 'Blood Sugar Screening',
+                      title: tr('Blood Sugar Screening'),
                       icon: Icons.bloodtype_outlined,
                       children: [
-                        formSearchableDropdown(context, 
-                          'If FBS not done, give reason',
+                        formSearchableDropdown(context,
+                          tr('If FBS not done, give reason'),
                           _reasonList,
                           _notDoneReason,
                           (v) => setState(() => _notDoneReason = v),
                         ),
                         if (_notDoneReason == "(4) Other") ...[
                           const SizedBox(height: 12),
-                          formTextField('If Others Please Mention', _otherReasonController),
+                          formTextField(tr('If Others Please Mention'), _otherReasonController),
                         ],
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Date of Last Meal', _lastMealDateController, hint: 'dd-MMM-yyyy')),
+                            Expanded(child: formTextField(tr('Date of Last Meal'), _lastMealDateController, hint: 'dd-MMM-yyyy')),
                             const SizedBox(width: 12),
-                            Expanded(child: _buildTimePicker('Time of Last Meal', _lastMealTimeController)),
+                            Expanded(child: _buildTimePicker(tr('Time of Last Meal'), _lastMealTimeController)),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        const Text('(Note: Use 24-hour format)', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                        Text(tr('(Note: Use 24-hour format)'), style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
                         const SizedBox(height: 16),
-                        formTextField('FBS Test Result (mg/dL)', _fbsResultController, keyboardType: TextInputType.number),
+                        formTextField(tr('FBS Test Result (mg/dL)'), _fbsResultController, keyboardType: TextInputType.number),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -361,18 +366,19 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -385,7 +391,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMembers, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -393,15 +399,15 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
           selectedName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
             Expanded(
               child: RadioListTile<String>(
-                title: const Text('(1) Male'),
+                title: Text(tr('(1) Male')),
                 value: '(1) Male',
                 groupValue: selectedGender,
                 onChanged: (v) => setState(() => selectedGender = v),
@@ -411,7 +417,7 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
             ),
             Expanded(
               child: RadioListTile<String>(
-                title: const Text('(0) Female'),
+                title: Text(tr('(0) Female')),
                 value: '(0) Female',
                 groupValue: selectedGender,
                 onChanged: (v) => setState(() => selectedGender = v),
@@ -424,15 +430,15 @@ class _BloodSugarFastingPageState extends State<BloodSugarFastingPage> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+            Expanded(child: formTextField(tr('Age'), _age, keyboardType: TextInputType.number, hint: 'e.g. 45')),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Date of Interview'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Interviewer’s Name',
+          tr('Interviewer\'s Name'),
           ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
           interviewersName,
           (v) => setState(() => interviewersName = v),

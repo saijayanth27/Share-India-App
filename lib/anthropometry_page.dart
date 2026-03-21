@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class AnthropometryPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -254,7 +255,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Anthropometry updated! Syncing...' : 'Anthropometry saved! Syncing...'),
+          content: Text(wasEditing ? tr('Anthropometry updated! Syncing...') : tr('Anthropometry saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -269,7 +270,7 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
       _performAnthropometrySync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -290,9 +291,12 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Anthropometry'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Anthropometry')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -326,38 +330,38 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Measurements',
+                      title: tr('Measurements'),
                       icon: Icons.straighten_outlined,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: formTextField('Weight (kg)', _weight, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Weight (kg)'), _weight, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Height (cm)', _height, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Height (cm)'), _height, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Waist (cm)', _waistMeasurement, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Waist (cm)'), _waistMeasurement, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Hip (cm)', _hipMeasurement, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Hip (cm)'), _hipMeasurement, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        formTextField('Other Details', _otherDetails, maxLines: 2),
+                        formTextField(tr('Other Details'), _otherDetails, maxLines: 2),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Status',
+                      title: tr('Status'),
                       icon: Icons.info_outline,
                       children: [
-                        formSearchableDropdown(context, 'Reason if Not Done', ['(1) Refused', '(2) Sick', '(3) Others'], notDoneReason, (v) => setState(() => notDoneReason = v)),
-                        if (notDoneReason == '(3) Others') formTextField('Specify Other Reason', _notDoneOther),
+                        formSearchableDropdown(context, tr('Reason if Not Done'), ['(1) Refused', '(2) Sick', '(3) Others'], notDoneReason, (v) => setState(() => notDoneReason = v)),
+                        if (notDoneReason == '(3) Others') formTextField(tr('Specify Other Reason'), _notDoneOther),
                         const SizedBox(height: 16),
-                        formTextField('CHV Name', chvName != null ? TextEditingController(text: chvName) : TextEditingController(), onChanged: (v) => chvName = v), // Minimal fix for CHV Name
+                        formTextField(tr('CHV Name'), chvName != null ? TextEditingController(text: chvName) : TextEditingController(), onChanged: (v) => chvName = v), // Minimal fix for CHV Name
                       ],
                     ),
                   ],
@@ -372,22 +376,23 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
         formTextField(
-          'Registration Number',
+          tr('Registration Number'),
           _registrationNumber,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -396,12 +401,12 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -409,36 +414,36 @@ class _AnthropometryPageState extends State<AnthropometryPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(child: formTextField(
-              'Age',
+              tr('Age'),
               _age,
               keyboardType: TextInputType.number,
-              validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+              validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
             )),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 
-          'Interviewer Name',
+        formSearchableDropdown(context,
+          tr('Interviewer Name'),
           interviewerList,
           interviewersName,
           (v) => setState(() => interviewersName = v),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
       ],
     );

@@ -19,6 +19,7 @@ import 'app_drawer.dart';
 import 'health_ocr_service.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 enum ReadingType { bp, sugar }
 
@@ -352,7 +353,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Readings updated! Syncing...' : 'Readings saved! Syncing...'),
+          content: Text(wasEditing ? tr('Readings updated! Syncing...') : tr('Readings saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -365,7 +366,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
       _performHealthSync(healthData);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -398,9 +399,12 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('BP & Glucose Form'), elevation: 0),
+      appBar: AppBar(title: Text(tr('BP & Glucose Form')), elevation: 0, actions: const [LanguageToggleButton()]),
       drawer: const AppDrawer(),
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -422,27 +426,27 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
               if (_statusMessage.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_statusMessage, style: const TextStyle(color: Colors.blue))),
               buildSectionCard(
                 context: context,
-                title: 'Identity & Registration',
+                title: tr('Identity & Registration'),
                 icon: Icons.fingerprint_outlined,
                 children: [
                   formTextField(
-                    'Registration Number',
+                    tr('Registration Number'),
                     _registrationNumber,
                     keyboardType: TextInputType.number,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
                   ),
                   const SizedBox(height: 12),
                   formSearchField(
-                    'Family Code',
+                    tr('Family Code'),
                     _familyCodeController,
                     onSearch: () => _fetchMembersByFamily(_familyCodeController.text),
                     isLoading: _isLoadingMembers,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
                   ),
                   const SizedBox(height: 12),
                   formSearchableDropdown(
                     context,
-                    'Name',
+                    tr('Name'),
                     ({
                       ...familyMembers,
                       ..._existingRecords.map((r) => r['Name']?.toString() ?? '')
@@ -450,78 +454,78 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
                     selectedName,
                     _onNameSelected,
                     isLoading: _isLoadingMembers,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
                   ),
                   const SizedBox(height: 12),
-                  const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+                  Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
                   Row(children: [
-                    Expanded(child: RadioListTile<String>(title: const Text('Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), dense: true)),
-                    Expanded(child: RadioListTile<String>(title: const Text('Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), dense: true)),
+                    Expanded(child: RadioListTile<String>(title: Text(tr('Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), dense: true)),
+                    Expanded(child: RadioListTile<String>(title: Text(tr('Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), dense: true)),
                   ]),
                   const SizedBox(height: 12),
                   formTextField(
-                    'Age',
+                    tr('Age'),
                     _age,
                     keyboardType: TextInputType.number,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
                   ),
                   const SizedBox(height: 12),
-                  _buildDatePicker('Date of Interview', dateOfInterview, (v) => setState(() => dateOfInterview = v)),
+                  _buildDatePicker(tr('Date of Interview'), dateOfInterview, (v) => setState(() => dateOfInterview = v)),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 
-                    'Interviewer’s Name',
+                  formSearchableDropdown(context,
+                    tr('Interviewer\'s Name'),
                     ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
                     interviewersName,
                     (v) => setState(() => interviewersName = v),
-                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
                   ),
                 ],
               ),
               const SizedBox(height: 16),
               buildSectionCard(
                 context: context,
-                title: 'Screening Status',
+                title: tr('Screening Status'),
                 icon: Icons.help_outline,
                 children: [
-                  RadioListTile<String>(title: const Text('Not available'), value: '(1) Not available', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
-                  RadioListTile<String>(title: const Text('Refused'), value: '(2) Refused for current visit', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
-                  RadioListTile<String>(title: const Text('Door Locked'), value: '(3) Door Locked', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
-                  RadioListTile<String>(title: const Text('Other'), value: '(4) Other', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
-                  if (ifNotDoneReason == '(4) Other') formTextField('Specify', _othersMention),
+                  RadioListTile<String>(title: Text(tr('Not available')), value: '(1) Not available', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
+                  RadioListTile<String>(title: Text(tr('Refused')), value: '(2) Refused for current visit', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
+                  RadioListTile<String>(title: Text(tr('Door Locked')), value: '(3) Door Locked', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
+                  RadioListTile<String>(title: Text(tr('Other')), value: '(4) Other', groupValue: ifNotDoneReason, onChanged: (v) => setState(() => ifNotDoneReason = v), dense: true),
+                  if (ifNotDoneReason == '(4) Other') formTextField(tr('Specify'), _othersMention),
                 ],
               ),
               const SizedBox(height: 16),
               ...List.generate(3, (i) => Column(children: [
                 buildSectionCard(
                   context: context,
-                  title: 'BP Reading ${i + 1}',
+                  title: tr('BP Reading ${i + 1}'),
                   icon: Icons.monitor_heart,
                   children: [
                     Row(children: [
                       Expanded(child: formTextField(
-                        'Sys',
+                        tr('Sys'),
                         _sysControllers[i],
                         keyboardType: TextInputType.number,
-                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? 'Required' : null,
+                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? tr('Required') : null,
                       )),
                       const SizedBox(width: 8),
                       Expanded(child: formTextField(
-                        'Dia',
+                        tr('Dia'),
                         _diaControllers[i],
                         keyboardType: TextInputType.number,
-                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? 'Required' : null,
+                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? tr('Required') : null,
                       )),
                       const SizedBox(width: 8),
                       Expanded(child: formTextField(
-                        'Pulse',
+                        tr('Pulse'),
                         _pulseControllers[i],
                         keyboardType: TextInputType.number,
-                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? 'Required' : null,
+                        validator: (v) => (ifNotDoneReason == null && (v == null || v.isEmpty)) ? tr('Required') : null,
                       )),
                     ]),
                     const SizedBox(height: 12),
                     if (_bpImages[i] != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(_bpImages[i]!, height: 120, width: double.infinity, fit: BoxFit.cover))),
-                    SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => _captureImage(ReadingType.bp, index: i), icon: const Icon(Icons.camera_alt), label: const Text('Capture Reading'))),
+                    SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => _captureImage(ReadingType.bp, index: i), icon: const Icon(Icons.camera_alt), label: Text(tr('Capture Reading')))),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -531,6 +535,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
         ),
       ),
     );
+    });
   }
 
   Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
@@ -544,7 +549,7 @@ class _HealthReadingsPageState extends State<HealthReadingsPage> {
         },
         child: InputDecorator(
           decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8), suffixIcon: Icon(Icons.calendar_today, size: 18)),
-          child: Text(selectedDate == null ? 'Select Date' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+          child: Text(selectedDate == null ? tr('Select Date') : DateFormat('dd-MMM-yyyy').format(selectedDate)),
         ),
       ),
     ]);

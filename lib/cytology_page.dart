@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class CytologyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -314,7 +315,7 @@ class _CytologyPageState extends State<CytologyPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Cytology updated! Syncing...' : 'Cytology saved! Syncing...'),
+          content: Text(wasEditing ? tr('Cytology updated! Syncing...') : tr('Cytology saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -329,7 +330,7 @@ class _CytologyPageState extends State<CytologyPage> {
       _performCytologySync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -350,9 +351,12 @@ class _CytologyPageState extends State<CytologyPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Cytology (Pap Smear)'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Cytology (Pap Smear)')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -391,21 +395,21 @@ class _CytologyPageState extends State<CytologyPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Cytology Details',
+                      title: tr('Cytology Details'),
                       icon: Icons.biotech_outlined,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: _buildDatePicker('Date received in lab', dateReceived, (v) => setState(() => dateReceived = v))),
+                            Expanded(child: _buildDatePicker(tr('Date received in lab'), dateReceived, (v) => setState(() => dateReceived = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: _buildDatePicker('Date read and reported', dateRead, (v) => setState(() => dateRead = v))),
+                            Expanded(child: _buildDatePicker(tr('Date read and reported'), dateRead, (v) => setState(() => dateRead = v))),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Cytology adequacy?', adequacyChoices, selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
+                        formSearchableDropdown(context, tr('Cytology adequacy?'), adequacyChoices, selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
                         if (selectedAdequacy != adequacyChoices[0]) ...[
                           const SizedBox(height: 12),
-                          const Text('Adequacy reasons', style: TextStyle(fontWeight: FontWeight.w500)),
+                          Text(tr('Adequacy reasons'), style: const TextStyle(fontWeight: FontWeight.w500)),
                           ...adequacyReasonChoices.map((c) => CheckboxListTile(
                                 title: Text(c, style: const TextStyle(fontSize: 13)),
                                 value: selectedAdequacyReasons.contains(c),
@@ -414,10 +418,10 @@ class _CytologyPageState extends State<CytologyPage> {
                                 contentPadding: EdgeInsets.zero,
                                 dense: true,
                               )),
-                          if (selectedAdequacyReasons.contains("(6) Other")) formTextField('Specify Other Reason', _otherAdequacyReasonController),
+                          if (selectedAdequacyReasons.contains("(6) Other")) formTextField(tr('Specify Other Reason'), _otherAdequacyReasonController),
                         ],
                         const SizedBox(height: 16),
-                        const Text('Infections identified', style: TextStyle(fontWeight: FontWeight.w500)),
+                        Text(tr('Infections identified'), style: const TextStyle(fontWeight: FontWeight.w500)),
                         ...infectionChoices.map((c) => CheckboxListTile(
                               title: Text(c, style: const TextStyle(fontSize: 13)),
                               value: selectedInfections.contains(c),
@@ -427,9 +431,9 @@ class _CytologyPageState extends State<CytologyPage> {
                               dense: true,
                             )),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Epithelial abnormality diagnosis', epithelialDiagnosisChoices, selectedEpithelialDiagnosis, (v) => setState(() => selectedEpithelialDiagnosis = v)),
+                        formSearchableDropdown(context, tr('Epithelial abnormality diagnosis'), epithelialDiagnosisChoices, selectedEpithelialDiagnosis, (v) => setState(() => selectedEpithelialDiagnosis = v)),
                         const SizedBox(height: 16),
-                        const Text('Squamous cell abnormalities', style: TextStyle(fontWeight: FontWeight.w500)),
+                        Text(tr('Squamous cell abnormalities'), style: const TextStyle(fontWeight: FontWeight.w500)),
                         ...squamousCellChoices.map((c) => CheckboxListTile(
                               title: Text(c, style: const TextStyle(fontSize: 13)),
                               value: selectedSquamousCells.contains(c),
@@ -438,9 +442,9 @@ class _CytologyPageState extends State<CytologyPage> {
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             )),
-                        formTextField('Other Neoplastic', _otherNeoplasticController),
+                        formTextField(tr('Other Neoplastic'), _otherNeoplasticController),
                         const SizedBox(height: 16),
-                        const Text('Glandular cell abnormalities', style: TextStyle(fontWeight: FontWeight.w500)),
+                        Text(tr('Glandular cell abnormalities'), style: const TextStyle(fontWeight: FontWeight.w500)),
                         ...glandularCellChoices.map((c) => CheckboxListTile(
                               title: Text(c, style: const TextStyle(fontSize: 13)),
                               value: selectedGlandularCells.contains(c),
@@ -449,9 +453,9 @@ class _CytologyPageState extends State<CytologyPage> {
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             )),
-                        formTextField('Other Non-Neoplastic Cell Changes', _otherNonNeoplasticController),
+                        formTextField(tr('Other Non-Neoplastic Cell Changes'), _otherNonNeoplasticController),
                         const SizedBox(height: 16),
-                        formTextField('Comments', _commentController, maxLines: 3),
+                        formTextField(tr('Comments'), _commentController, maxLines: 3),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -467,22 +471,23 @@ class _CytologyPageState extends State<CytologyPage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
         formTextField(
-          'Registration Number',
+          tr('Registration Number'),
           _regNoController,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -491,12 +496,12 @@ class _CytologyPageState extends State<CytologyPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -504,14 +509,14 @@ class _CytologyPageState extends State<CytologyPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
       ],

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'blood_sample_status_page.dart';
+import 'language_provider.dart';
 
 class BloodSampleStatusReportPage extends StatefulWidget {
   const BloodSampleStatusReportPage({super.key});
@@ -18,15 +19,16 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return LocalizedBuilder(
+      builder: (context) => Scaffold(
+        appBar: AppBar(
         title: _isSearchingActive
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Search by Reg No or Name...',
+                  hintText: tr('Search by Reg No or Name...'),
                   hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                   border: InputBorder.none,
                   suffixIcon: IconButton(
@@ -42,7 +44,7 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
                 ),
                 onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
               )
-            : const Text('Sample Status Reports', style: TextStyle(fontWeight: FontWeight.bold)),
+            : Text(tr('Sample Status Reports'), style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -75,7 +77,7 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
               builder: (context, snapshot) {
                 final count = snapshot.data?.docs.length ?? 0;
                 return Text(
-                  'Total Records: $count',
+                  tr('Total Records: {count}').replaceFirst('{count}', '$count'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold),
                 );
@@ -90,7 +92,7 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text('No records found.'));
+                  return Center(child: Text(tr('No records found.')));
                 }
 
                 final docs = snapshot.data!.docs.where((doc) {
@@ -116,14 +118,20 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
                           backgroundColor: Theme.of(context).primaryColor,
                           child: Text((index + 1).toString(), style: const TextStyle(color: Colors.white)),
                         ),
-                        title: Text(data['Name'] ?? 'No Name', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: Text(
+                          data['Name'] ?? tr('No Name'),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Reg No: ${data['Registration_Number'] ?? 'N/A'}'),
-                            Text('Family Code: ${data['Family_code'] ?? 'N/A'}'),
+                            Text('${tr('Reg No')}: ${data['Registration_Number'] ?? tr('N/A')}'),
+                            Text('${tr('Family Code')}: ${data['Family_code'] ?? tr('N/A')}'),
                             if (data['clientUpdatedAt'] != null)
-                              Text('Last Updated: ${DateFormat('dd-MMM-yyyy').format(DateTime.fromMillisecondsSinceEpoch(data['clientUpdatedAt']))}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              Text(
+                                '${tr('Last Updated')}: ${DateFormat(tr('dd-MMM-yyyy')).format(DateTime.fromMillisecondsSinceEpoch(data['clientUpdatedAt']))}',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
                           ],
                         ),
                         trailing: IconButton(
@@ -146,6 +154,7 @@ class _BloodSampleStatusReportPageState extends State<BloodSampleStatusReportPag
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }

@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'language_provider.dart';
 
 Widget yesNoQuestion({
   required String label,
@@ -18,7 +19,7 @@ Widget yesNoQuestion({
               dense: true,
               visualDensity: VisualDensity.compact,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Yes'),
+              title: Text(tr('Yes')),
               value: 'yes',
               groupValue: value,
               onChanged: onChanged,
@@ -29,7 +30,7 @@ Widget yesNoQuestion({
               dense: true,
               visualDensity: VisualDensity.compact,
               contentPadding: EdgeInsets.zero,
-              title: const Text('No'),
+              title: Text(tr('No')),
               value: 'no',
               groupValue: value,
               onChanged: onChanged,
@@ -122,7 +123,7 @@ Widget formActionButtons({
         children: [
           _buildActionButton(
             context,
-            label: 'New',
+            label: tr('New'),
             icon: Icons.add_circle_outline,
             color: Colors.blue.shade700,
             onPressed: onNew,
@@ -130,7 +131,7 @@ Widget formActionButtons({
           const SizedBox(width: 8),
           _buildActionButton(
             context,
-            label: 'Save',
+            label: tr('Save'),
             icon: Icons.save_outlined,
             color: Colors.green.shade700,
             onPressed: isSaving ? null : onSave,
@@ -138,7 +139,7 @@ Widget formActionButtons({
           const SizedBox(width: 8),
           _buildActionButton(
             context,
-            label: 'Edit',
+            label: tr('Edit'),
             icon: isEditMode ? Icons.edit : Icons.edit_outlined,
             color: Colors.orange.shade700,
             onPressed: onEdit,
@@ -147,7 +148,7 @@ Widget formActionButtons({
           const SizedBox(width: 8),
           _buildActionButton(
             context,
-            label: 'Cancel',
+            label: tr('Cancel'),
             icon: Icons.cancel_outlined,
             color: Colors.red.shade700,
             onPressed: onCancel,
@@ -155,7 +156,7 @@ Widget formActionButtons({
           const SizedBox(width: 8),
           _buildActionButton(
             context,
-            label: 'Exit',
+            label: tr('Exit'),
             icon: Icons.exit_to_app_outlined,
             color: Colors.grey.shade700,
             onPressed: onExit,
@@ -227,8 +228,8 @@ Widget formTextField(
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: Colors.blue, width: 2),
           ),
-          hintText: hint,
-          helperText: helper,
+          hintText: hint == null ? null : tr(hint),
+          helperText: helper == null ? null : tr(helper),
           fillColor: readOnly ? Colors.grey.shade100 : Colors.white,
           filled: true,
         ),
@@ -276,10 +277,11 @@ Widget formDropdown(
           fillColor: Colors.white,
           filled: true,
         ),
-        items: items.toSet().map((i) => DropdownMenuItem(value: i, child: Text(i, style: const TextStyle(fontSize: 14), overflow: TextOverflow.ellipsis))).toList(),
+        items: items.toSet().map((i) => DropdownMenuItem(value: i, child: Text(tr(i), style: const TextStyle(fontSize: 14), overflow: TextOverflow.ellipsis))).toList(),
         onChanged: onChanged,
+        selectedItemBuilder: (context) => items.toSet().map((i) => Text(tr(i), style: const TextStyle(fontSize: 14), overflow: TextOverflow.ellipsis)).toList(),
         validator: validator,
-        hint: Text(hint ?? '-Select-', style: const TextStyle(fontSize: 14)),
+        hint: Text(hint ?? tr('-Select-'), style: const TextStyle(fontSize: 14)),
       ),
     ],
   );
@@ -357,7 +359,7 @@ Widget formSearchableDropdown(
                 errorText: state.errorText,
               ),
               child: Text(
-                (state.value != null && items.contains(state.value)) ? state.value! : (hint ?? '-Select-'),
+                (state.value != null && items.contains(state.value)) ? tr(state.value!) : (hint ?? tr('-Select-')),
                 style: TextStyle(
                   fontSize: 14,
                   color: (state.value != null && items.contains(state.value)) ? Colors.black87 : Colors.grey.shade600,
@@ -398,8 +400,9 @@ class _SearchableDialogState extends State<_SearchableDialog> {
 
   void _filterItems(String query) {
     setState(() {
+      final q = query.toLowerCase();
       filteredItems = widget.items
-          .where((item) => item.toLowerCase().contains(query.toLowerCase()))
+          .where((item) => item.toLowerCase().contains(q) || tr(item).toLowerCase().contains(q))
           .toList();
     });
   }
@@ -416,13 +419,13 @@ class _SearchableDialogState extends State<_SearchableDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Select ${widget.title}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('${tr('-Select-')} ${widget.title}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             TextField(
               controller: _searchController,
               autofocus: true,
               decoration: InputDecoration(
-                hintText: 'Search...',
+                hintText: tr('Search...'),
                 isDense: true,
                 prefixIcon: const Icon(Icons.search, size: 20),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -441,11 +444,11 @@ class _SearchableDialogState extends State<_SearchableDialog> {
                     final item = filteredItems[index];
                     final isSelected = item == widget.initialValue;
                     return ListTile(
-                      title: Text(item, style: TextStyle(fontSize: 14, color: isSelected ? Colors.blue : Colors.black87)),
+                      title: Text(tr(item), style: TextStyle(fontSize: 14, color: isSelected ? Colors.blue : Colors.black87)),
                       dense: true,
                       selected: isSelected,
-                      selectedTileColor: Colors.blue.withOpacity(0.05),
-                      onTap: () => Navigator.pop(context, item),
+                      selectedTileColor: Colors.blue.withValues(alpha: 0.05),
+                      onTap: () => Navigator.pop(context, item), // Returns English value
                     );
                   },
                 ),
@@ -457,7 +460,7 @@ class _SearchableDialogState extends State<_SearchableDialog> {
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: Text(tr('Cancel')),
                 ),
               ],
             ),
@@ -526,3 +529,4 @@ Widget formSearchField(
     ],
   );
 }
+

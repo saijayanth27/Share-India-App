@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class RefusedFormPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -288,7 +289,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Refusal form updated! Syncing...' : 'Refusal form saved! Syncing...'),
+          content: Text(wasEditing ? tr('Refusal form updated! Syncing...') : tr('Refusal form saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -304,8 +305,8 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
     } catch (e) {
       debugPrint('Error saving refusal form: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Failed to save refusal form.'),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(tr('Failed to save refusal form.')),
           backgroundColor: Colors.red,
         ));
       }
@@ -315,12 +316,16 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
   }
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Withdrawal Consent Form', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(tr('Withdrawal Consent Form'), style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
+        actions: const [LanguageToggleButton()],
         backgroundColor: Colors.transparent,
         flexibleSpace: Container(
           decoration: BoxDecoration(
@@ -370,19 +375,19 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Withdrawal / Refusal Details',
+                      title: tr('Withdrawal / Refusal Details'),
                       icon: Icons.cancel_outlined,
                       children: [
-                        formSearchableDropdown(context, 'Information given by whom?', respondents, selectedRespondent, (v) => setState(() => selectedRespondent = v)),
+                        formSearchableDropdown(context, tr('Information given by whom?'), respondents, selectedRespondent, (v) => setState(() => selectedRespondent = v)),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Reason for Withdrawal/Refusal', withdrawalReasons, selectedReason, (v) => setState(() => selectedReason = v)),
+                        formSearchableDropdown(context, tr('Reason for Withdrawal/Refusal'), withdrawalReasons, selectedReason, (v) => setState(() => selectedReason = v)),
                         if (selectedReason == '(2) Died') ...[
                           const SizedBox(height: 12),
-                          _buildDatePicker('Date of Death', deathDate, (v) => setState(() => deathDate = v)),
+                          _buildDatePicker(tr('Date of Death'), deathDate, (v) => setState(() => deathDate = v)),
                         ],
                         if (selectedReason == '(4) Not Interested / Refused') ...[
                           const SizedBox(height: 12),
-                          formTextField('Specify Other Reasons', _specifyOtherController, maxLines: 2),
+                          formTextField(tr('Specify Other Reasons'), _specifyOtherController, maxLines: 2),
                         ],
                       ],
                     ),
@@ -392,18 +397,19 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumberController),
+        formTextField(tr('Registration Number'), _registrationNumberController),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -416,7 +422,7 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -424,26 +430,26 @@ class _RefusedFormPageState extends State<RefusedFormPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+        formSearchableDropdown(context, tr('Interviewer Name'), interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
       ],
     );
   }

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class ChildImmunizationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -405,7 +406,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Immunization updated! Syncing...' : 'Immunization saved! Syncing...'),
+          content: Text(wasEditing ? tr('Immunization updated! Syncing...') : tr('Immunization saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -420,7 +421,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
       _performImmunizationSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -441,9 +442,12 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Child Immunization'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Child Immunization')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -476,15 +480,15 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Immunization Details',
+                      title: tr('Immunization Details'),
                       icon: Icons.vaccines_outlined,
                       children: [
-                        formSearchableDropdown(context, 'Select Entry Screen', ['BCG', 'DPT', 'OPV', 'Measles', 'HepB', 'Vitamin A', 'DT', 'Remarks'], selectEntryScreen, (v) {
+                        formSearchableDropdown(context, tr('Select Entry Screen'), ['BCG', 'DPT', 'OPV', 'Measles', 'HepB', 'Vitamin A', 'DT', 'Remarks'], selectEntryScreen, (v) {
                           setState(() { selectEntryScreen = v; });
                           if (selectedFamilyCode != null) _fetchExistingRecords(selectedFamilyCode!, entryScreen: v);
                         }),
                         const SizedBox(height: 16),
-                        _buildDatePicker('DOB', dob, (v) => setState(() => dob = v)),
+                        _buildDatePicker(tr('DOB'), dob, (v) => setState(() => dob = v)),
                         const SizedBox(height: 16),
                         _buildVaccineSections(),
                       ],
@@ -495,6 +499,8 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
               ),
             ),
     );
+    });
+
   }
 
   Widget _buildVaccineSections() {
@@ -520,21 +526,21 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
           children: [
             Row(
               children: [
-                Expanded(child: formTextField('Birth Weight (kg)', _birthWeight, keyboardType: TextInputType.number)),
+                Expanded(child: formTextField(tr('Birth Weight (kg)'), _birthWeight, keyboardType: TextInputType.number)),
                 const SizedBox(width: 12),
-                Expanded(child: formTextField('Birth Height (cm)', _birthHeight)),
+                Expanded(child: formTextField(tr('Birth Height (cm)'), _birthHeight)),
               ],
             ),
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: formSearchableDropdown(context, 'Diarrhea', ['Yes', 'No'], hasDiarrhea, (v) => setState(() => hasDiarrhea = v))),
+                Expanded(child: formSearchableDropdown(context, tr('Diarrhea'), ['Yes', 'No'], hasDiarrhea, (v) => setState(() => hasDiarrhea = v))),
                 const SizedBox(width: 12),
-                Expanded(child: formSearchableDropdown(context, 'Breastfeeding', ['Yes', 'No'], isBreastfeeding, (v) => setState(() => isBreastfeeding = v))),
+                Expanded(child: formSearchableDropdown(context, tr('Breastfeeding'), ['Yes', 'No'], isBreastfeeding, (v) => setState(() => isBreastfeeding = v))),
               ],
             ),
             const SizedBox(height: 16),
-            formTextField('Remarks', _remarksController, maxLines: 3),
+            formTextField(tr('Remarks'), _remarksController, maxLines: 3),
           ],
         );
       default:
@@ -575,7 +581,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
               Expanded(
                 child: formSearchableDropdown(
                   context,
-                  'Given?',
+                  tr('Given?'),
                   ['(1) Yes', '(0) No'],
                   vaccines[doseLabel]!['given'],
                   (v) => setState(() => vaccines[doseLabel]!['given'] = v),
@@ -584,7 +590,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildDatePicker(
-                  'Date',
+                  tr('Date'),
                   vaccines[doseLabel]!['date'],
                   (v) => setState(() => vaccines[doseLabel]!['date'] = v),
                 ),
@@ -594,7 +600,7 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
           const SizedBox(height: 12),
           formSearchableDropdown(
             context,
-            'Given By',
+            tr('Given By'),
             ['(0) RHC', '(1) PVT', '(2) GOVT'],
             vaccines[doseLabel]!['by'],
             (v) => setState(() => vaccines[doseLabel]!['by'] = v),
@@ -650,13 +656,13 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber, enabled: false),
+        formTextField(tr('Registration Number'), _registrationNumber, readOnly: true),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -665,12 +671,12 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -678,30 +684,30 @@ class _ChildImmunizationPageState extends State<ChildImmunizationPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        formTextField('Mother Name', _motherName),
+        formTextField(tr('Mother Name'), _motherName),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(child: formTextField(
-              'Age',
+              tr('Age'),
               _age,
               keyboardType: TextInputType.number,
-              validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+              validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
             )),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 
-          'Interviewer Name',
+        formSearchableDropdown(context,
+          tr('Interviewer Name'),
           interviewerList,
           interviewersName,
           (v) => setState(() => interviewersName = v),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
       ],
     );

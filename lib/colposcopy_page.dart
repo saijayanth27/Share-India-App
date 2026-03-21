@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class ColposcopyPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -281,7 +282,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Colposcopy updated! Syncing...' : 'Colposcopy saved! Syncing...'),
+          content: Text(wasEditing ? tr('Colposcopy updated! Syncing...') : tr('Colposcopy saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -296,7 +297,7 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
       _performColposcopySync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -317,9 +318,12 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Colposcopy Screening'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Colposcopy Screening')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -357,27 +361,27 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Assessment',
+                      title: tr('Assessment'),
                       icon: Icons.assignment_outlined,
                       children: [
-                        _buildDatePicker('Interview Date', interviewDate, (v) => setState(() => interviewDate = v)),
+                        _buildDatePicker(tr('Interview Date'), interviewDate, (v) => setState(() => interviewDate = v)),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Visit Number', visitChoices, selectedVisitNumber, (v) => setState(() => selectedVisitNumber = v)),
+                        formSearchableDropdown(context, tr('Visit Number'), visitChoices, selectedVisitNumber, (v) => setState(() => selectedVisitNumber = v)),
                         const SizedBox(height: 16),
-                        _buildRadioGroup('5 Colposcopy adequacy?', ['Satisfactory', 'Unsatisfactory'], selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
+                        _buildRadioGroup(tr('5 Colposcopy adequacy?'), ['Satisfactory', 'Unsatisfactory'], selectedAdequacy, (v) => setState(() => selectedAdequacy = v)),
                         const SizedBox(height: 16),
-                        _buildVerticalRadioGroup('6 Level of new squamo-columnar junction (SCJ)', scjChoices, selectedSCJ, (v) => setState(() => selectedSCJ = v)),
+                        _buildVerticalRadioGroup(tr('6 Level of new squamo-columnar junction (SCJ)'), scjChoices, selectedSCJ, (v) => setState(() => selectedSCJ = v)),
                         const SizedBox(height: 16),
-                        _buildVerticalRadioGroup('7 Colposcopic impression?', impressionChoices, selectedImpression, (v) => setState(() => selectedImpression = v)),
+                        _buildVerticalRadioGroup(tr('7 Colposcopic impression?'), impressionChoices, selectedImpression, (v) => setState(() => selectedImpression = v)),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Procedure Recommended',
+                      title: tr('Procedure Recommended'),
                       icon: Icons.recommend_outlined,
                       children: [
-                        const Text('8. Procedure recommended', style: TextStyle(fontWeight: FontWeight.w600)),
+                        Text(tr('8. Procedure recommended'), style: const TextStyle(fontWeight: FontWeight.w600)),
                         ...procedureChoices.map((c) => CheckboxListTile(
                               title: Text(c),
                               value: procedureRecommended.contains(c),
@@ -386,16 +390,16 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             )),
-                        if (procedureRecommended.contains("(4) Others")) formTextField('If Others Please Mention', _otherRecommendedController),
+                        if (procedureRecommended.contains("(4) Others")) formTextField(tr('If Others Please Mention'), _otherRecommendedController),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Procedure Performed',
+                      title: tr('Procedure Performed'),
                       icon: Icons.task_alt_outlined,
                       children: [
-                        const Text('9. Procedure performed', style: TextStyle(fontWeight: FontWeight.w600)),
+                        Text(tr('9. Procedure performed'), style: const TextStyle(fontWeight: FontWeight.w600)),
                         ...procedureChoices.map((c) => CheckboxListTile(
                               title: Text(c),
                               value: procedurePerformed.contains(c),
@@ -404,22 +408,22 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             )),
-                        if (procedurePerformed.contains("(4) Others")) formTextField('If Others Please Mention', _otherPerformedController),
+                        if (procedurePerformed.contains("(4) Others")) formTextField(tr('If Others Please Mention'), _otherPerformedController),
                         const SizedBox(height: 24),
-                        _buildRadioGroup('10 Number of cervical biopsies taken', ['1', '2', '3', '4'], selectedBiopsiesCount, (v) => setState(() => selectedBiopsiesCount = v)),
+                        _buildRadioGroup(tr('10 Number of cervical biopsies taken'), ['1', '2', '3', '4'], selectedBiopsiesCount, (v) => setState(() => selectedBiopsiesCount = v)),
                         const SizedBox(height: 16),
-                        _buildRadioGroup('12. How many colposcopy images were taken?', ['0', '1', '2'], selectedImagesCount, (v) => setState(() => selectedImagesCount = v)),
+                        _buildRadioGroup(tr('12. How many colposcopy images were taken?'), ['0', '1', '2'], selectedImagesCount, (v) => setState(() => selectedImagesCount = v)),
                         const SizedBox(height: 16),
-                        formTextField('12a. Comments', _commentsController, maxLines: 3),
+                        formTextField(tr('12a. Comments'), _commentsController, maxLines: 3),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Findings',
+                      title: tr('Findings'),
                       icon: Icons.description_outlined,
                       children: [
-                        formTextField('13. Procedure details, findings and comments:', _detailsController, maxLines: 5),
+                        formTextField(tr('13. Procedure details, findings and comments:'), _detailsController, maxLines: 5),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -428,22 +432,23 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
         formTextField(
-          'Registration Number',
+          tr('Registration Number'),
           _regNoController,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -452,12 +457,12 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -465,14 +470,14 @@ class _ColposcopyPageState extends State<ColposcopyPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
       ],

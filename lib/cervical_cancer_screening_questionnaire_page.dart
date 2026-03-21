@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class CervicalCancerScreeningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -280,7 +281,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Screening updated! Syncing...' : 'Screening saved! Syncing...'),
+          content: Text(wasEditing ? tr('Screening updated! Syncing...') : tr('Screening saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -295,7 +296,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
       _performScreeningSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -316,10 +317,13 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Cervical Screening', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(tr('Cervical Screening'), style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -370,12 +374,12 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Socio-Demographic Details',
+                      title: tr('Socio-Demographic Details'),
                       icon: Icons.info_outline,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: _buildDatePicker('Date of Birth', dateOfBirth, (v) {
+                            Expanded(child: _buildDatePicker(tr('Date of Birth'), dateOfBirth, (v) {
                               setState(() {
                                 dateOfBirth = v;
                                 final age = DateTime.now().year - v.year;
@@ -383,35 +387,35 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
                               });
                             })),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Age', _age1Controller, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Age'), _age1Controller, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        const Text('Have you ever attended school?', style: TextStyle(fontWeight: FontWeight.w500)),
+                        Text(tr('Have you ever attended school?'), style: const TextStyle(fontWeight: FontWeight.w500)),
                         Row(
                           children: [
-                            Expanded(child: RadioListTile<String>(title: const Text('Yes'), value: 'Yes', groupValue: selectedAttendedSchool, onChanged: (v) => setState(() => selectedAttendedSchool = v), contentPadding: EdgeInsets.zero, dense: true)),
-                            Expanded(child: RadioListTile<String>(title: const Text('No'), value: 'No', groupValue: selectedAttendedSchool, onChanged: (v) => setState(() => selectedAttendedSchool = v), contentPadding: EdgeInsets.zero, dense: true)),
+                            Expanded(child: RadioListTile<String>(title: Text(tr('Yes')), value: 'Yes', groupValue: selectedAttendedSchool, onChanged: (v) => setState(() => selectedAttendedSchool = v), contentPadding: EdgeInsets.zero, dense: true)),
+                            Expanded(child: RadioListTile<String>(title: Text(tr('No')), value: 'No', groupValue: selectedAttendedSchool, onChanged: (v) => setState(() => selectedAttendedSchool = v), contentPadding: EdgeInsets.zero, dense: true)),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        formTextField('Highest level of school completed?', _schoolLevelController),
+                        formTextField(tr('Highest level of school completed?'), _schoolLevelController),
                         const SizedBox(height: 16),
-                        formTextField('What is your occupation?', _occupationController),
+                        formTextField(tr('What is your occupation?'), _occupationController),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Religion', ['Hindu', 'Muslim', 'Christian', 'Others'], selectedReligion, (v) => setState(() => selectedReligion = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Religion'), ['Hindu', 'Muslim', 'Christian', 'Others'], selectedReligion, (v) => setState(() => selectedReligion = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'Marital status', ['Single', 'Married', 'Widowed', 'Divorced'], selectedMaritalStatus, (v) => setState(() => selectedMaritalStatus = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Marital status'), ['Single', 'Married', 'Widowed', 'Divorced'], selectedMaritalStatus, (v) => setState(() => selectedMaritalStatus = v))),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Total monthly income (Rs.)', _monthlyIncomeController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Total monthly income (Rs.)'), _monthlyIncomeController, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Family members count', _familyMembersCountController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Family members count'), _familyMembersCountController, keyboardType: TextInputType.number)),
                           ],
                         ),
                       ],
@@ -422,22 +426,23 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
         formTextField(
-          'Registration Number',
+          tr('Registration Number'),
           _registrationNumber,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyIdController,
           onSearch: () {
             if (_familyIdController.text.isNotEmpty) {
@@ -446,12 +451,12 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -459,37 +464,37 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(child: formTextField(
-              'Age (years)',
+              tr('Age (years)'),
               _ageController,
               keyboardType: TextInputType.number,
-              validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+              validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
             )),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Exam Date', examDate, (v) => setState(() => examDate = v))),
+            Expanded(child: _buildDatePicker(tr('Exam Date'), examDate, (v) => setState(() => examDate = v))),
           ],
         ),
         const SizedBox(height: 16),
-        const Text("Interviewer's Name", style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr("Interviewer's Name"), style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         Row(
           children: [
-            Expanded(child: formTextField('First Name', _firstNameController)),
+            Expanded(child: formTextField(tr('First Name'), _firstNameController)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('Last Name', _lastNameController)),
+            Expanded(child: formTextField(tr('Last Name'), _lastNameController)),
           ],
         ),
       ],
@@ -519,7 +524,7 @@ class _CervicalCancerScreeningPageState extends State<CervicalCancerScreeningPag
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
-            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+            child: Text(selectedDate == null ? tr('Select Date') : DateFormat('dd-MMM-yyyy').format(selectedDate)),
           ),
         ),
       ],

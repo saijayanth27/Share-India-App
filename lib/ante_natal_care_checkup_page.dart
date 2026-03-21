@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class AnteNatalCareCheckupPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -294,7 +295,7 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'ANC Checkup updated! Syncing...' : 'ANC Checkup saved! Syncing...'),
+          content: Text(wasEditing ? tr('ANC Checkup updated! Syncing...') : tr('ANC Checkup saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -309,7 +310,7 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
       _performANCSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -330,9 +331,12 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('ANC Checkup'), elevation: 0),
+      appBar: AppBar(title: Text(tr('ANC Checkup')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -370,30 +374,30 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Checkup Details',
+                      title: tr('Checkup Details'),
                       icon: Icons.assignment_outlined,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: _buildDatePicker('Checkup Date', checkupDt, (v) => setState(() => checkupDt = v))),
+                            Expanded(child: _buildDatePicker(tr('Checkup Date'), checkupDt, (v) => setState(() => checkupDt = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'Place', ['Subcentre', 'PHC', 'CHC', 'Dist Hosp', 'Others'], checkupPlace, (v) => setState(() => checkupPlace = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Place'), ['Subcentre', 'PHC', 'CHC', 'Dist Hosp', 'Others'], checkupPlace, (v) => setState(() => checkupPlace = v))),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Weight (kg)', _weight, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Weight (kg)'), _weight, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Height (cm)', _height, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Height (cm)'), _height, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Systolic', _systolic, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Systolic'), _systolic, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Diastolic', _diastolic, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Diastolic'), _diastolic, keyboardType: TextInputType.number)),
                           ],
                         ),
                       ],
@@ -401,30 +405,30 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Tests & Screenings',
+                      title: tr('Tests & Screenings'),
                       icon: Icons.biotech_outlined,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'HBsAg', ['Pos', 'Neg'], hbsag, (v) => setState(() => hbsag = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('HBsAg'), ['Pos', 'Neg'], hbsag, (v) => setState(() => hbsag = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'HIV', ['Pos', 'Neg'], hiv, (v) => setState(() => hiv = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('HIV'), ['Pos', 'Neg'], hiv, (v) => setState(() => hiv = v))),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Hb', ['Normal', 'Anemic'], hb, (v) => setState(() => hb = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Hb'), ['Normal', 'Anemic'], hb, (v) => setState(() => hb = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'VDRL', ['Pos', 'Neg'], vdrl, (v) => setState(() => vdrl = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('VDRL'), ['Pos', 'Neg'], vdrl, (v) => setState(() => vdrl = v))),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'USG', ['Normal', 'Abnormal'], ultraS, (v) => setState(() => ultraS = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('USG'), ['Normal', 'Abnormal'], ultraS, (v) => setState(() => ultraS = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'Urine', ['Normal', 'Abnormal'], urine, (v) => setState(() => urine = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Urine'), ['Normal', 'Abnormal'], urine, (v) => setState(() => urine = v))),
                           ],
                         ),
                       ],
@@ -432,10 +436,10 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Remarks',
+                      title: tr('Remarks'),
                       icon: Icons.description_outlined,
                       children: [
-                        formTextField('General Remarks', _remarks, maxLines: 3),
+                        formTextField(tr('General Remarks'), _remarks, maxLines: 3),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -444,16 +448,17 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -466,7 +471,7 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -474,14 +479,14 @@ class _AnteNatalCareCheckupPageState extends State<AnteNatalCareCheckupPage> {
           selectedName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Visit No', _visitNo, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Visit No'), _visitNo, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('LMP Date', lmpDate, (v) => setState(() => lmpDate = v))),
+            Expanded(child: _buildDatePicker(tr('LMP Date'), lmpDate, (v) => setState(() => lmpDate = v))),
           ],
         ),
       ],

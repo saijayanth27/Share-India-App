@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class LabInvestigationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -250,7 +251,7 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Lab Investigation updated! Syncing...' : 'Lab Investigation saved! Syncing...'),
+          content: Text(wasEditing ? tr('Lab Investigation updated! Syncing...') : tr('Lab Investigation saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -265,7 +266,7 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
       _performLabInvestigationSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -286,9 +287,12 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Lab Investigation'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Lab Investigation')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -326,46 +330,46 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Investigation Details',
+                      title: tr('Investigation Details'),
                       icon: Icons.biotech_outlined,
                       children: [
-                        _buildDatePicker('Investigation Date', investigationDate, (v) => setState(() => investigationDate = v)),
+                        _buildDatePicker(tr('Investigation Date'), investigationDate, (v) => setState(() => investigationDate = v)),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Fasting Sugar (mg/dL)', _fastingSugarController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Fasting Sugar (mg/dL)'), _fastingSugarController, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('HbA1c (%)', _hba1cController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('HbA1c (%)'), _hba1cController, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Glycosylated Hb', _glycosylatedHbController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Glycosylated Hb'), _glycosylatedHbController, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Mean Glucose', _meanGlucoseController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Mean Glucose'), _meanGlucoseController, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Creatinine', _creatinineController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Creatinine'), _creatinineController, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Urine Albumin', _urineAlbuminController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Urine Albumin'), _urineAlbuminController, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        formTextField('Albumin/Creatinine Ratio', _albuminRatioController, keyboardType: TextInputType.number),
+                        formTextField(tr('Albumin/Creatinine Ratio'), _albuminRatioController, keyboardType: TextInputType.number),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Protein (Urine Spot)', _proteinUrineSpotController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Protein (Urine Spot)'), _proteinUrineSpotController, keyboardType: TextInputType.number)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Creatinine (Urine Spot)', _creatinineUrineSpotController, keyboardType: TextInputType.number)),
+                            Expanded(child: formTextField(tr('Creatinine (Urine Spot)'), _creatinineUrineSpotController, keyboardType: TextInputType.number)),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        formTextField('Protein/Creatinine Ratio', _proteinCreatinineRatioController, keyboardType: TextInputType.number),
+                        formTextField(tr('Protein/Creatinine Ratio'), _proteinCreatinineRatioController, keyboardType: TextInputType.number),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -374,22 +378,23 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
         formTextField(
-          'Registration Number',
+          tr('Registration Number'),
           _regNoController,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -398,12 +403,12 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -411,14 +416,14 @@ class _LabInvestigationPageState extends State<LabInvestigationPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
       ],

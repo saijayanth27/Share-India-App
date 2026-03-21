@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class MedicinesEntryPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -348,7 +349,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Medicines updated! Syncing...' : 'Medicines saved! Syncing...'),
+          content: Text(wasEditing ? tr('Medicines updated! Syncing...') : tr('Medicines saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -363,7 +364,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
       _performMedicinesSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -384,9 +385,12 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Medicines Entry'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Medicines Entry')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -426,18 +430,18 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Medicine Details',
+                      title: tr('Medicine Details'),
                       icon: Icons.medication_outlined,
                       children: [
-                        _buildDatePicker('Date', selectedDate, (v) => setState(() => selectedDate = v)),
+                        _buildDatePicker(tr('Date'), selectedDate, (v) => setState(() => selectedDate = v)),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Source of Medicine:', messageSources, selectedSource, (v) => setState(() => selectedSource = v)),
+                        formSearchableDropdown(context, tr('Source of Medicine:'), messageSources, selectedSource, (v) => setState(() => selectedSource = v)),
                         const SizedBox(height: 16),
-                        formTextField('Other ?', _otherSourceController),
+                        formTextField(tr('Other ?'), _otherSourceController),
                         const SizedBox(height: 16),
-                        formTextField('Doctor Name', _doctorNameController),
+                        formTextField(tr('Doctor Name'), _doctorNameController),
                         const SizedBox(height: 16),
-                        formTextField('Remarks', _remarksController, maxLines: 2),
+                        formTextField(tr('Remarks'), _remarksController, maxLines: 2),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -446,16 +450,17 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Medicines Entry',
+      title: tr('Medicines Entry'),
       icon: Icons.person_outline,
       children: [
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -468,7 +473,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -476,26 +481,26 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Registration Number', _regNoController)),
+            Expanded(child: formTextField(tr('Registration Number'), _regNoController)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number)),
           ],
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer’s Name/ID', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+        formSearchableDropdown(context, tr('Interviewer\'s Name/ID'), interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
       ],
     );
   }
@@ -503,7 +508,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   Widget _buildPrescriptionList() {
     return buildSectionCard(
       context: context,
-      title: 'Prescription List',
+      title: tr('Prescription List'),
       icon: Icons.list_alt_outlined,
       children: [
         ListView.builder(
@@ -526,7 +531,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                         Expanded(
                           child: formSearchableDropdown(
                             context,
-                            'Medicine For',
+                            tr('Medicine For'),
                             medicineCategories,
                             item['Medicine_For'],
                             (v) {
@@ -543,28 +548,28 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                     const SizedBox(height: 8),
                     formSearchableDropdown(
                       context,
-                      'Medicines',
+                      tr('Medicines'),
                       medForId != null ? (staticMedicines[medForId] ?? []) : [],
                       item['Medicines'],
                       (v) => setState(() => item['Medicines'] = v),
-                      hint: medFor == null ? 'Select category first' : '-Select Medicine-',
+                      hint: medFor == null ? tr('Select category first') : tr('-Select Medicine-'),
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: formTextField('Duration(Days)', TextEditingController(text: item['Duration_Days'] ?? '')..selection = TextSelection.fromPosition(TextPosition(offset: item['Duration_Days']?.length ?? 0)), onChanged: (v) => item['Duration_Days'] = v)),
+                        Expanded(child: formTextField(tr('Duration(Days)'), TextEditingController(text: item['Duration_Days'] ?? '')..selection = TextSelection.fromPosition(TextPosition(offset: item['Duration_Days']?.length ?? 0)), onChanged: (v) => item['Duration_Days'] = v)),
                         const SizedBox(width: 8),
-                        Expanded(child: formSearchableDropdown(context, 'Dosage', dosagesList, item['Dosage'], (v) => setState(() => item['Dosage'] = v))),
+                        Expanded(child: formSearchableDropdown(context, tr('Dosage'), dosagesList, item['Dosage'], (v) => setState(() => item['Dosage'] = v))),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: formSearchableDropdown(context, 'Morning', timeSlots, item['Morning'], (v) => setState(() => item['Morning'] = v))),
+                        Expanded(child: formSearchableDropdown(context, tr('Morning'), timeSlots, item['Morning'], (v) => setState(() => item['Morning'] = v))),
                         const SizedBox(width: 4),
-                        Expanded(child: formSearchableDropdown(context, 'Afternoon', timeSlots, item['Afternoon'], (v) => setState(() => item['Afternoon'] = v))),
+                        Expanded(child: formSearchableDropdown(context, tr('Afternoon'), timeSlots, item['Afternoon'], (v) => setState(() => item['Afternoon'] = v))),
                         const SizedBox(width: 4),
-                        Expanded(child: formSearchableDropdown(context, 'Night', timeSlots, item['Night'], (v) => setState(() => item['Night'] = v))),
+                        Expanded(child: formSearchableDropdown(context, tr('Night'), timeSlots, item['Night'], (v) => setState(() => item['Night'] = v))),
                       ],
                     ),
                   ],
@@ -577,7 +582,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         ElevatedButton.icon(
           onPressed: () => setState(() => prescriptionList.add({'Medicine_For': '', 'Medicines': '', 'Duration_Days': '', 'Dosage': null, 'Morning': null, 'Afternoon': null, 'Night': null})),
           icon: const Icon(Icons.add),
-          label: const Text('Add Medicine'),
+          label: Text(tr('Add Medicine')),
         ),
       ],
     );

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'blood_sugar_fasting_page.dart';
 import 'app_drawer.dart';
+import 'language_provider.dart';
 
 class BloodSugarFastingReportPage extends StatefulWidget {
   const BloodSugarFastingReportPage({super.key});
@@ -30,16 +31,19 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Record'),
-        content: const Text('Are you sure you want to delete this blood sugar record?'),
+        title: Text(tr('Delete Record')),
+        content: Text(tr('Are you sure you want to delete this blood sugar record?')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr('Cancel')),
+          ),
           TextButton(
             onPressed: () {
               FirebaseFirestore.instance.collection('blood_sugar_fasting').doc(docId).delete();
               Navigator.pop(context);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text(tr('Delete'), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -75,8 +79,22 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
             }
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: Colors.blue), title: Text('Edit'), contentPadding: EdgeInsets.zero)),
-            const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('Delete'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(
+              value: 'edit',
+              child: ListTile(
+                leading: const Icon(Icons.edit, color: Colors.blue),
+                title: Text(tr('Edit')),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: Text(tr('Delete')),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
           ],
         ),
       );
@@ -94,7 +112,7 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(tr(label), style: const TextStyle(fontWeight: FontWeight.bold)),
           if (label != 'Actions' && label != 'Sync')
             IconButton(
               icon: const Icon(Icons.search, size: 16),
@@ -110,15 +128,17 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return LocalizedBuilder(
+      builder: (context) => Scaffold(
+        appBar: AppBar(
         title: _isSearchingActive
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Search $_searchField...',
+                  hintText: tr('Search {field}...')
+                      .replaceFirst('{field}', tr(_searchField)),
                   hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                   border: InputBorder.none,
                   suffixIcon: IconButton(
@@ -132,7 +152,7 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
                 ),
                 onChanged: (val) => setState(() => _activeSearchQuery = val),
               )
-            : const Text('Blood Sugar Reports', style: TextStyle(fontWeight: FontWeight.bold)),
+            : Text(tr('Blood Sugar Reports'), style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -160,8 +180,12 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('blood_sugar_fasting').orderBy('clientUpdatedAt', descending: true).snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('${tr('Error')}: ${snapshot.error}'));
+          }
 
           var docs = snapshot.data?.docs ?? [];
 
@@ -184,7 +208,11 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 color: Colors.orange.shade50,
-                child: Text('Found ${docs.length} records', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w500)),
+                child: Text(
+                  tr('Found {n} records').replaceFirst('{n}', '${docs.length}'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
               ),
               Expanded(
                 child: SingleChildScrollView(
@@ -194,7 +222,7 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
                     child: DataTable(
                       columns: [
                         ..._fieldMapping.keys.map((label) => _buildSearchColumn(label)),
-                        const DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(label: Text(tr('Actions'), style: const TextStyle(fontWeight: FontWeight.bold))),
                       ],
                       rows: docs.map((doc) {
                         final data = doc.data() as Map<String, dynamic>;
@@ -213,6 +241,7 @@ class _BloodSugarFastingReportPageState extends State<BloodSugarFastingReportPag
           );
         },
       ),
-    );
+    ),
+  );
   }
 }

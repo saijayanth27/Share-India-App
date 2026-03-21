@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class PersonalDetailsPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -269,10 +270,17 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Duplicate Status'),
-          content: Text("Selected Person '$val' s Marital Status in the DataBase is Married,Please Check............."),
+          title: Text(tr('Duplicate Status')),
+          content: Text(
+            tr(
+              "Selected Person '{name}' marital status in the database is Married. Please check.",
+            ).replaceFirst('{name}', val.toString()),
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(tr('OK')),
+            ),
           ],
         ),
       );
@@ -607,12 +615,12 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       await DataCacheService().addMember(data); 
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Personal details saved locally! Syncing...'),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(tr('Personal details saved locally! Syncing...')),
           backgroundColor: Colors.indigo,
-          duration: Duration(seconds: 1),
+          duration: const Duration(seconds: 1),
         ));
-        
+
         // Post-Save Dialog for new records
         if (widget.docId != null || wasEditing) {
           if (widget.docId != null) Navigator.pop(context); else _resetForm();
@@ -621,22 +629,22 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
             context: context,
             barrierDismissible: false,
             builder: (ctx) => AlertDialog(
-              title: const Text('Record Saved'),
-              content: const Text('Do you want to add same members in same family code?'),
+              title: Text(tr('Record Saved')),
+              content: Text(tr('Do you want to add same members in same family code?')),
               actions: [
                 TextButton(
                   onPressed: () {
                     Navigator.pop(ctx);
                     _resetForm(keepFamilyContext: true);
                   },
-                  child: const Text('Yes'),
+                  child: Text(tr('Yes')),
                 ),
                 TextButton(
                   onPressed: () {
                     Navigator.pop(ctx);
                     Navigator.pop(context);
                   },
-                  child: const Text('No'),
+                  child: Text(tr('No')),
                 ),
               ],
             ),
@@ -672,7 +680,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       );
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -720,9 +728,12 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Personal Details'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Personal Details')), elevation: 0, actions: const [LanguageToggleButton()]),
       drawer: const AppDrawer(),
       body: Stack(
         children: [
@@ -760,27 +771,27 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                   else ...[
                     buildSectionCard(
                       context: context,
-                      title: 'Identity & Registration',
+                      title: tr('Identity & Registration'),
                       icon: Icons.fingerprint_outlined,
                 children: [
                   formSearchField(
-                    'Family Code',
+                    tr('Family Code'),
                     _familyCodeController,
                     onSearch: () => _fetchMembersByFamily(_familyCodeController.text),
                     isLoading: _isLoadingFamily,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Family Code is required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Family Code is required') : null,
                   ),
                   const SizedBox(height: 12),
                   Row(children: [
-                    Expanded(child: formTextField('Spouse', _spouseNo, keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Spouse'), _spouseNo, keyboardType: TextInputType.number)),
                     const SizedBox(width: 12),
-                    Expanded(child: formTextField('Map No.', _mapNo, keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Map No.'), _mapNo, keyboardType: TextInputType.number)),
                   ]),
                   const SizedBox(height: 12),
                   _isEditMode
                       ? formSearchableDropdown(
                           context,
-                          'Member to Edit',
+                          tr('Member to Edit'),
                           _allMembersList.map((m) => m['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList()..sort(),
                           _firstName.text.isEmpty ? null : _firstName.text,
                           (val) {
@@ -789,84 +800,84 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                             }
                           },
                           isLoading: _isLoadingFamily,
-                          validator: (v) => (v == null || v.isEmpty) ? 'Please select a member' : null,
+                          validator: (v) => (v == null || v.isEmpty) ? tr('Please select a member') : null,
                         )
                       : formTextField(
-                          'Name',
+                          tr('Name'),
                           _firstName,
-                          validator: (v) => (v == null || v.isEmpty) ? 'Name is required' : null,
+                          validator: (v) => (v == null || v.isEmpty) ? tr('Name is required') : null,
                         ),
                   const SizedBox(height: 12),
                   Row(children: [
-                    Expanded(child: formTextField('Gen', _gen, keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('Gen'), _gen, keyboardType: TextInputType.number)),
                     const SizedBox(width: 12),
-                    Expanded(child: formTextField('SI No', _siNo, keyboardType: TextInputType.number)),
+                    Expanded(child: formTextField(tr('SI No'), _siNo, keyboardType: TextInputType.number)),
                   ]),
                   const SizedBox(height: 12),
-                  const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+                  Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
                   Row(children: [
-                    Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() { selectedGender = v; _updateAutoRelation(); }), contentPadding: EdgeInsets.zero, dense: true)),
-                    Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() { selectedGender = v; _updateAutoRelation(); }), contentPadding: EdgeInsets.zero, dense: true)),
+                    Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() { selectedGender = v; _updateAutoRelation(); }), contentPadding: EdgeInsets.zero, dense: true)),
+                    Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() { selectedGender = v; _updateAutoRelation(); }), contentPadding: EdgeInsets.zero, dense: true)),
                   ]),
                   const SizedBox(height: 12),
                     formTextField(
-                      'Registration Number',
+                      tr('Registration Number'),
                       _regNo,
                       keyboardType: TextInputType.number,
-                      enabled: false,
+                      readOnly: true,
                     ),
                 ],
               ),
               const SizedBox(height: 16),
               buildSectionCard(
                 context: context,
-                title: 'Personal Info',
+                title: tr('Personal Info'),
                 icon: Icons.person_outline,
                 children: [
                   Row(children: [
-                    Expanded(child: _buildDatePicker('Date of Birth', dateOfBirth, _onDOBChanged)),
+                    Expanded(child: _buildDatePicker(tr('Date of Birth'), dateOfBirth, _onDOBChanged)),
                     const SizedBox(width: 12),
                     Expanded(child: formTextField(
-                      'Age',
+                      tr('Age'),
                       _age,
                       keyboardType: TextInputType.number,
                       validator: (v) {
-                        if (v == null || v.isEmpty) return 'Age is required';
-                        if (int.tryParse(v) == null) return 'Enter a valid age';
+                        if (v == null || v.isEmpty) return tr('Age is required');
+                        if (int.tryParse(v) == null) return tr('Enter a valid age');
                         return null;
                       },
                     )),
                   ]),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'Live Status', ['(1) Alive', '(0) Dead'], liveStatus, (v) => setState(() => liveStatus = v)),
+                  formSearchableDropdown(context, tr('Live Status'), ['(1) Alive', '(0) Dead'], liveStatus, (v) => setState(() => liveStatus = v)),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'A/v Status', ['(1) Active', '(0) Vacant'], avStatus, (v) => setState(() => avStatus = v)),
+                  formSearchableDropdown(context, tr('A/v Status'), ['(1) Active', '(0) Vacant'], avStatus, (v) => setState(() => avStatus = v)),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'Marital Status', ['(0) Unmarried', '(1) Married', '(2) Divorce', '(3) Widow', '(4) Not Eligible'], maritalStatus, (v) { setState(() { maritalStatus = v; if (v == '(0) Unmarried') showSpouseDetails = false; }); }),
+                  formSearchableDropdown(context, tr('Marital Status'), ['(0) Unmarried', '(1) Married', '(2) Divorce', '(3) Widow', '(4) Not Eligible'], maritalStatus, (v) { setState(() { maritalStatus = v; if (v == '(0) Unmarried') showSpouseDetails = false; }); }),
                   if (liveStatus == '(0) Dead') ...[
                     const SizedBox(height: 12),
-                    formSearchableDropdown(context, 'Death Place', ['(0) RHC', '(1) PVT', '(2) GOVT', '(3) HOME'], selectedDeathPlace, (v) => setState(() => selectedDeathPlace = v)),
+                    formSearchableDropdown(context, tr('Death Place'), ['(0) RHC', '(1) PVT', '(2) GOVT', '(3) HOME'], selectedDeathPlace, (v) => setState(() => selectedDeathPlace = v)),
                     const SizedBox(height: 12),
-                    formTextField('Death Cause', _deathCause),
+                    formTextField(tr('Death Cause'), _deathCause),
                     const SizedBox(height: 12),
-                    _buildDatePicker('Death Date', deathDate, (picked) => setState(() => deathDate = picked)),
+                    _buildDatePicker(tr('Death Date'), deathDate, (picked) => setState(() => deathDate = picked)),
                   ],
                   const SizedBox(height: 12),
                   if ((int.tryParse(_age.text) ?? 0) > 3)
-                    formSearchableDropdown(context, 'Education', ['(0) ILLITIRATE', '(1) CAN READ ONLY', '(2) CAN READ AND WRITE', '(3) PRIMARY SCHOOL', '(4) MIDDLE SCHOOL', '(5) HIGH SCHOOL', '(6) GRADUATE', '(7) POST GRADUATE'], selectedEducation, (v) => setState(() => selectedEducation = v)),
+                    formSearchableDropdown(context, tr('Education'), ['(0) ILLITIRATE', '(1) CAN READ ONLY', '(2) CAN READ AND WRITE', '(3) PRIMARY SCHOOL', '(4) MIDDLE SCHOOL', '(5) HIGH SCHOOL', '(6) GRADUATE', '(7) POST GRADUATE'], selectedEducation, (v) => setState(() => selectedEducation = v)),
                   if ((int.tryParse(_age.text) ?? 0) > 3) const SizedBox(height: 12),
                   if ((int.tryParse(_age.text) ?? 0) > 3)
-                    formSearchableDropdown(context, 'Occupation', ['(1) HOUSE WIFE', '(2) AGRICULTURE', '(3) UNEMPLOYED', '(4)LABOUR', '(5) SELF-EMPLOYED', '(6) PRIVATE EMPLOYEE', '(7) ANGANWADI TEACHER', '(8) C.H.V', '(9) PENSION', '(10) GOVT EMPLOYEE', '(99) DONT KNOW'], selectedOccupation, (v) => setState(() => selectedOccupation = v)),
+                    formSearchableDropdown(context, tr('Occupation'), ['(1) HOUSE WIFE', '(2) AGRICULTURE', '(3) UNEMPLOYED', '(4)LABOUR', '(5) SELF-EMPLOYED', '(6) PRIVATE EMPLOYEE', '(7) ANGANWADI TEACHER', '(8) C.H.V', '(9) PENSION', '(10) GOVT EMPLOYEE', '(99) DONT KNOW'], selectedOccupation, (v) => setState(() => selectedOccupation = v)),
                   if ((int.tryParse(_age.text) ?? 0) > 15) const SizedBox(height: 12),
-                  if ((int.tryParse(_age.text) ?? 0) > 15) formTextField('Income', _income),
+                  if ((int.tryParse(_age.text) ?? 0) > 15) formTextField(tr('Income'), _income),
                   const SizedBox(height: 12),
                   formTextField(
-                    'Aadhar No.',
+                    tr('Aadhar No.'),
                     _aadharNo,
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(12)],
                     validator: (v) {
-                      if (v != null && v.isNotEmpty && v.length != 12) return 'Aadhar must be 12 digits';
+                      if (v != null && v.isNotEmpty && v.length != 12) return tr('Aadhar must be 12 digits');
                       return null;
                     },
                   ),
@@ -875,41 +886,41 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
               const SizedBox(height: 16),
               buildSectionCard(
                 context: context,
-                title: 'Relations',
+                title: tr('Relations'),
                 icon: Icons.family_restroom_outlined,
                 children: [
-                  formSearchableDropdown(context, 'Mother Name', femaleMembers, motherName, _onMotherChanged, isLoading: _isLoadingFamily),
+                  formSearchableDropdown(context, tr('Mother Name'), femaleMembers, motherName, _onMotherChanged, isLoading: _isLoadingFamily),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'Father Name', maleMembers, fatherName, _onFatherChanged, isLoading: _isLoadingFamily),
+                  formSearchableDropdown(context, tr('Father Name'), maleMembers, fatherName, _onFatherChanged, isLoading: _isLoadingFamily),
                   const SizedBox(height: 12),
                   formSearchableDropdown(
                     context,
-                    'Relation with Head',
+                    tr('Relation with Head'),
                     ['ADOPTED DAUGHTER', 'ADOPTED GRAND DAUGHTER', 'ADOPTED GRAND SON', 'ADOPTED GREAT GRAND DAUGHTER', 'ADOPTED SON', 'AUNTY', 'BROTHER', 'BROTHER DAUGHTER', 'BROTHER SON', 'BROTHER-DAUGHTER-DAUGHTER(DD)', 'BROTHER-DAUGHTER-SON(DS)', 'BROTHER-IN-LAW', 'BROTHERS DAUGHTER HUSBAND', 'BROTHERS SON ADOPTED', 'BROTHERS SON WIFE', 'BROTHERS SONS DAUGHTER', 'BROTHERS SONS SON', 'BSW', 'DAUGHTER', 'DAUGHTER-IN-LAW', 'FATHER-IN-LAW', 'GRAND DAUGHTER HUSBAND(D)', 'GRAND DAUGHTER HUSBAND(S)', 'GRAND PARENT', 'GRAND-DAUGHTER (D)', 'GRAND-DAUGHTER(S)', 'GRAND-DAUGHTER-IN-LAW', 'GRAND-DAUGHTER-IN-LAW (S)', 'GRAND-SON (D)', 'GRAND-SON(S)', 'GREAT GRAND DAUGHTER (ASD)', 'GREAT GRAND DAUGHTER (DD)', 'GREAT GRAND DAUGHTER (SS)', 'GREAT GRAND DAUGTHER(SD)', 'GREAT GRAND PARENT', 'GREAT GRAND SON (DD)', 'GREAT GRAND SON (SS)', 'GREAT GRAND SON(SD)', 'GREAT-GRAND-DAUGTHER(DS)', 'GREAT-GRAND-SON(DS)', 'HEAD OF THE FAMILY', 'HUSBAND', 'MOTHER RELATIONS', 'MOTHERS-IN-LAW', 'NEPHEW', 'NIECE', 'OTHERS', 'PARENT', 'SINGLE', 'SISTER', 'SISTER DAUGHTER HUSBAND', 'SISTER-GRAND-DAUGHTER', 'SISTER-GRAND-SON', 'SISTER-IN-LAW (U)', 'SISTER-IN-LAW(BW)', 'SISTER-SON-WIFE', 'SON', 'SON-IN-LAW', 'UNCLE', 'WIFE', 'WIFE BROTHER', 'WIFE BROTHERS DAUGHTER', 'WIFE BROTHERS SON', 'WIFE BROTHERS WIFE', 'WIFE PARENT', 'WIFE RELATIONS'],
                     relationWithHead,
                     _onRelationChanged,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Relation with Head is required' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? tr('Relation with Head is required') : null,
                   ),
                   const SizedBox(height: 8),
-                  CheckboxListTile(title: const Text('Spouse Details'), value: showSpouseDetails, enabled: maritalStatus != '(0) Unmarried', onChanged: maritalStatus == '(0) Unmarried' ? null : (v) => setState(() => showSpouseDetails = v ?? false), controlAffinity: ListTileControlAffinity.leading, contentPadding: EdgeInsets.zero),
+                  CheckboxListTile(title: Text(tr('Spouse Details')), value: showSpouseDetails, enabled: maritalStatus != '(0) Unmarried', onChanged: maritalStatus == '(0) Unmarried' ? null : (v) => setState(() => showSpouseDetails = v ?? false), controlAffinity: ListTileControlAffinity.leading, contentPadding: EdgeInsets.zero),
                   if (showSpouseDetails) ...[
                     const SizedBox(height: 12),
-                    formSearchableDropdown(context, 'Select Spouse', selectedGender == '(1) Male' ? femaleMembers : maleMembers, spouseNameLookup, _onSpouseChanged, isLoading: _isLoadingFamily),
+                    formSearchableDropdown(context, tr('Select Spouse'), selectedGender == '(1) Male' ? femaleMembers : maleMembers, spouseNameLookup, _onSpouseChanged, isLoading: _isLoadingFamily),
                     const SizedBox(height: 12),
-                    formSearchableDropdown(context, 'Marriage Type', ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
+                    formSearchableDropdown(context, tr('Marriage Type'), ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
                   ],
                 ],
               ),
               const SizedBox(height: 16),
               buildSectionCard(
                 context: context,
-                title: 'Health Status',
+                title: tr('Health Status'),
                 icon: Icons.health_and_safety_outlined,
                 children: [
                   ...diseases.keys.map((d) => Column(children: [
-                    ListTile(title: Text(d, style: const TextStyle(fontSize: 13)), trailing: SizedBox(width: 150, child: Row(children: [
-                      Expanded(child: RadioListTile<String>(title: const Text('Yes', style: TextStyle(fontSize: 11)), value: '(1) Yes', groupValue: diseases[d], onChanged: (v) => setState(() => diseases[d] = v), contentPadding: EdgeInsets.zero, dense: true)),
-                      Expanded(child: RadioListTile<String>(title: const Text('No', style: TextStyle(fontSize: 11)), value: '(2) No', groupValue: diseases[d], onChanged: (v) => setState(() => diseases[d] = v), contentPadding: EdgeInsets.zero, dense: true)),
+                    ListTile(title: Text(tr(d), style: const TextStyle(fontSize: 13)), trailing: SizedBox(width: 150, child: Row(children: [
+                      Expanded(child: RadioListTile<String>(title: Text(tr('Yes'), style: const TextStyle(fontSize: 11)), value: '(1) Yes', groupValue: diseases[d], onChanged: (v) => setState(() => diseases[d] = v), contentPadding: EdgeInsets.zero, dense: true)),
+                      Expanded(child: RadioListTile<String>(title: Text(tr('No'), style: const TextStyle(fontSize: 11)), value: '(2) No', groupValue: diseases[d], onChanged: (v) => setState(() => diseases[d] = v), contentPadding: EdgeInsets.zero, dense: true)),
                     ]))),
                     const Divider(),
                   ])),
@@ -928,6 +939,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
             ),
         ],
       ),
+    );
+      },
     );
   }
 

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class TBQuestionnairePage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -299,7 +300,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'TB Questionnaire updated! Syncing...' : 'TB Questionnaire saved! Syncing...'),
+          content: Text(wasEditing ? tr('TB Questionnaire updated! Syncing...') : tr('TB Questionnaire saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -314,7 +315,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
       _performTBQuestionnaireSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -335,9 +336,12 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('TB Questionnaire'), elevation: 0),
+      appBar: AppBar(title: Text(tr('TB Questionnaire')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -376,75 +380,75 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(1) Current Symptoms',
+                      title: tr('(1) Current Symptoms'),
                       icon: Icons.personal_injury_outlined,
                       children: [
-                        _buildQuestionRow('Have you had a cough for more than 2 weeks?', 'Have_you_had_a_cough_for_more_than_2_weeks'),
-                        _buildQuestionRow('Have you had a fever for more than 2 weeks?', 'Have_you_had_a_fever_for_more_than_2_weeks'),
-                        _buildQuestionRow('Do you feel like you have lost weight?', 'Do_you_feel_like_you_have_lost_weight'),
-                        _buildQuestionRow('Are you experiencing excessive sweating at night (Night sweats)?', 'Are_you_experiencing_excessive_sweating_at_night_Night_sweats'),
-                        _buildQuestionRow('Haemoptysis (coughing up blood):', 'Haemoptysis_coughing_up_blood'),
+                        _buildQuestionRow(tr('Have you had a cough for more than 2 weeks?'), 'Have_you_had_a_cough_for_more_than_2_weeks'),
+                        _buildQuestionRow(tr('Have you had a fever for more than 2 weeks?'), 'Have_you_had_a_fever_for_more_than_2_weeks'),
+                        _buildQuestionRow(tr('Do you feel like you have lost weight?'), 'Do_you_feel_like_you_have_lost_weight'),
+                        _buildQuestionRow(tr('Are you experiencing excessive sweating at night (Night sweats)?'), 'Are_you_experiencing_excessive_sweating_at_night_Night_sweats'),
+                        _buildQuestionRow(tr('Haemoptysis (coughing up blood):'), 'Haemoptysis_coughing_up_blood'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(2) Medical History',
+                      title: tr('(2) Medical History'),
                       icon: Icons.history_outlined,
                       children: [
-                        _buildQuestionRow('Have you been diagnosed with tuberculosis before? If yes, please provide details', 'Medical_History1'),
-                        if (answers['Medical_History1'] == '(1) Yes') formTextField('If yes , provide details', _ifYesProvideDetailsController),
-                        _buildQuestionRow('Do you have a history of exposure to someone with confirmed TB? ', 'Medical_History2'),
+                        _buildQuestionRow(tr('Have you been diagnosed with tuberculosis before? If yes, please provide details'), 'Medical_History1'),
+                        if (answers['Medical_History1'] == '(1) Yes') formTextField(tr('If yes , provide details'), _ifYesProvideDetailsController),
+                        _buildQuestionRow(tr('Do you have a history of exposure to someone with confirmed TB? '), 'Medical_History2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(3) Respiratory and General Health',
+                      title: tr('(3) Respiratory and General Health'),
                       icon: Icons.medical_services_outlined,
                       children: [
-                        _buildQuestionRow('Any history of chronic respiratory conditions (e.g., asthma, chronic bronchitis)? ', 'Respiratory_and_General_Health1'),
-                        if (answers['Respiratory_and_General_Health1'] == '(1) Yes') formTextField(' If yes, please provide details.', _ifYesPleaseProvideDetailsController),
-                        _buildQuestionRow('Any recent respiratory infections or illnesses?', 'Respiratory_and_General_Health2'),
+                        _buildQuestionRow(tr('Any history of chronic respiratory conditions (e.g., asthma, chronic bronchitis)? '), 'Respiratory_and_General_Health1'),
+                        if (answers['Respiratory_and_General_Health1'] == '(1) Yes') formTextField(tr(' If yes, please provide details.'), _ifYesPleaseProvideDetailsController),
+                        _buildQuestionRow(tr('Any recent respiratory infections or illnesses?'), 'Respiratory_and_General_Health2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(4) Social and Environmental Factors:',
+                      title: tr('(4) Social and Environmental Factors:'),
                       icon: Icons.people_outline,
                       children: [
-                        _buildQuestionRow(' Are you living or working in crowded places? ', 'Social_and_Environmental_Factors1'),
-                        _buildQuestionRow('Is there a history of TB in your household or close contacts?', 'Social_and_Environmental_Factors2'),
+                        _buildQuestionRow(tr(' Are you living or working in crowded places? '), 'Social_and_Environmental_Factors1'),
+                        _buildQuestionRow(tr('Is there a history of TB in your household or close contacts?'), 'Social_and_Environmental_Factors2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(5) Occupational History:',
+                      title: tr('(5) Occupational History:'),
                       icon: Icons.work_outline,
                       children: [
-                        _buildQuestionRow('Do you work in healthcare, correctional facilities, or others? ', 'Occupational_History1'),
-                        _buildQuestionRow('environments with an increased risk of TB exposure? ', 'Occupational_History2'),
+                        _buildQuestionRow(tr('Do you work in healthcare, correctional facilities, or others? '), 'Occupational_History1'),
+                        _buildQuestionRow(tr('environments with an increased risk of TB exposure? '), 'Occupational_History2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(6) Behavioural Risk Factors',
+                      title: tr('(6) Behavioural Risk Factors'),
                       icon: Icons.warning_amber_outlined,
                       children: [
-                        _buildQuestionRow('Do you smoke or have a history of smoking?', 'Behavioural_Risk_Factors1'),
-                        _buildQuestionRow(' Do you consume alcohol regularly?', 'Behavioural_Risk_Factors2'),
+                        _buildQuestionRow(tr('Do you smoke or have a history of smoking?'), 'Behavioural_Risk_Factors1'),
+                        _buildQuestionRow(tr(' Do you consume alcohol regularly?'), 'Behavioural_Risk_Factors2'),
                       ],
                     ),
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: '(7) Diagnostic Tests:',
+                      title: tr('(7) Diagnostic Tests:'),
                       icon: Icons.biotech_outlined,
                       children: [
-                        _buildQuestionRow('Have you had any recent chest X-rays or other respiratory tests?', 'Diagnostic_Tests1'),
+                        _buildQuestionRow(tr('Have you had any recent chest X-rays or other respiratory tests?'), 'Diagnostic_Tests1'),
                       ],
                     ),
                 ],
@@ -459,18 +463,19 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             final v = _familyCodeController.text;
@@ -492,7 +497,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -500,34 +505,34 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+            Expanded(child: formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Date of Interview', interviewDate, (v) => setState(() => interviewDate = v))),
+            Expanded(child: _buildDatePicker(tr('Date of Interview'), interviewDate, (v) => setState(() => interviewDate = v))),
           ],
         ),
         const SizedBox(height: 12),
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Interviewer’s Name',
+          tr('Interviewer\'s Name'),
           interviewers,
           selectedInterviewer,
           (v) => setState(() => selectedInterviewer = v),
         ),
         const SizedBox(height: 16),
-        const Text('If not done, reason', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('If not done, reason'), style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         Wrap(
           spacing: 16,
@@ -542,7 +547,7 @@ class _TBQuestionnairePageState extends State<TBQuestionnairePage> {
         if (selectedReason == '(4) Other') 
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: formTextField('Specify if other', _reasonIfOtherController, hint: 'Single Line'),
+            child: formTextField(tr('Specify if other'), _reasonIfOtherController, hint: 'Single Line'),
           ),
       ],
     );

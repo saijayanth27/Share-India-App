@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'ante_natal_care_checkup_page.dart';
 import 'app_drawer.dart';
+import 'language_provider.dart';
 
 class AnteNatalCareCheckupReportPage extends StatefulWidget {
   const AnteNatalCareCheckupReportPage({super.key});
@@ -43,16 +44,19 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Record'),
-        content: const Text('Are you sure you want to delete this ANC checkup record?'),
+        title: Text(tr('Delete Record')),
+        content: Text(tr('Are you sure you want to delete this ANC checkup record?')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr('Cancel')),
+          ),
           TextButton(
             onPressed: () {
               FirebaseFirestore.instance.collection('ante_natal_care_checkup').doc(docId).delete();
               Navigator.pop(context);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text(tr('Delete'), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -81,8 +85,22 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
             }
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: Colors.blue), title: Text('Edit'), contentPadding: EdgeInsets.zero)),
-            const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('Delete'), contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(
+              value: 'edit',
+              child: ListTile(
+                leading: const Icon(Icons.edit, color: Colors.blue),
+                title: Text(tr('Edit')),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: Text(tr('Delete')),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
           ],
         ),
       );
@@ -103,7 +121,7 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(tr(label), style: const TextStyle(fontWeight: FontWeight.bold)),
           if (label != 'Actions' && label != 'Sync')
             IconButton(
               icon: const Icon(Icons.search, size: 16),
@@ -119,30 +137,32 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _isSearchingActive
-            ? TextField(
-                controller: _searchController,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Search $_searchField...',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-                  border: InputBorder.none,
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear, color: Colors.white),
-                    onPressed: () => setState(() {
-                      _isSearchingActive = false;
-                      _activeSearchQuery = '';
-                      _searchController.clear();
-                    }),
+    return LocalizedBuilder(
+      builder: (context) => Scaffold(
+        appBar: AppBar(
+          title: _isSearchingActive
+              ? TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: tr('Search {field}...')
+                        .replaceFirst('{field}', tr(_searchField)),
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                    border: InputBorder.none,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear, color: Colors.white),
+                      onPressed: () => setState(() {
+                        _isSearchingActive = false;
+                        _activeSearchQuery = '';
+                        _searchController.clear();
+                      }),
+                    ),
                   ),
-                ),
-                onChanged: (val) => setState(() => _activeSearchQuery = val),
-              )
-            : const Text('ANC Checkup Report', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
+                  onChanged: (val) => setState(() => _activeSearchQuery = val),
+                )
+              : Text(tr('ANC Checkup Report'), style: const TextStyle(fontWeight: FontWeight.bold)),
+          centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
         flexibleSpace: Container(
@@ -154,23 +174,27 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
             ),
           ),
         ),
-        actions: [
-          if (!_isSearchingActive)
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () => setState(() {
-                _isSearchingActive = true;
-                _searchField = 'All';
-              }),
-            ),
-        ],
-      ),
-      drawer: const AppDrawer(),
-      body: StreamBuilder<QuerySnapshot>(
+          actions: [
+            if (!_isSearchingActive)
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () => setState(() {
+                  _isSearchingActive = true;
+                  _searchField = 'All';
+                }),
+              ),
+          ],
+        ),
+        drawer: const AppDrawer(),
+        body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('ante_natal_care_checkup').snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('${tr('Error')}: ${snapshot.error}'));
+          }
 
           final fromCache = snapshot.data?.metadata.isFromCache ?? false;
           final syncing = snapshot.data?.metadata.hasPendingWrites ?? false;
@@ -203,7 +227,7 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
             return Column(
               children: [
                 _buildSyncBanner(fromCache, syncing, 0),
-                const Expanded(child: Center(child: Text('No records found.'))),
+                Expanded(child: Center(child: Text(tr('No records found.')))),
               ],
             );
           }
@@ -219,8 +243,8 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
                     child: DataTable(
                       headingRowColor: MaterialStateProperty.all(Colors.grey.shade200),
                       columns: [
-                        const DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
-                        const DataColumn(label: Text('Sync', style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(label: Text(tr('Actions'), style: const TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(label: Text(tr('Sync'), style: const TextStyle(fontWeight: FontWeight.bold))),
                         ..._fieldMapping.keys.where((k) => k != 'Sync').map((label) => _buildSearchColumn(label)),
                       ],
                       rows: docs.map((doc) {
@@ -241,7 +265,8 @@ class _AnteNatalCareCheckupReportPageState extends State<AnteNatalCareCheckupRep
           );
         },
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildSyncBanner(bool fromCache, bool syncing, int count) {

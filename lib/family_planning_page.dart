@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class FamilyPlanningPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -385,7 +386,7 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Family Planning updated! Syncing...' : 'Family Planning saved! Syncing...'),
+          content: Text(wasEditing ? tr('Family Planning updated! Syncing...') : tr('Family Planning saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -400,7 +401,14 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
       _performFamilyPlanningSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${tr('Error saving')}: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -421,9 +429,12 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Family Planning'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Family Planning')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -461,10 +472,10 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Entry Selection',
+                      title: tr('Entry Selection'),
                       icon: Icons.settings_outlined,
                       children: [
-                        formSearchableDropdown(context, 'Select Entry Screen', ['(1) Permanent', '(0) Temporary'], selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
+                        formSearchableDropdown(context, tr('Select Entry Screen'), ['(1) Permanent', '(0) Temporary'], selectEntryScreen, (v) => setState(() => selectEntryScreen = v)),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -476,23 +487,24 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
               ),
             ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
         Row(
           children: [
-            Expanded(child: formTextField('Registration Number', _regNoController, enabled: false)),
+            Expanded(child: formTextField(tr('Registration Number'), _regNoController, readOnly: true)),
             const SizedBox(width: 8),
-            Expanded(child: formTextField('Family No', _familyNoController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Family No'), _familyNoController, keyboardType: TextInputType.number)),
           ],
         ),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -501,17 +513,17 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
             }
           },
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        formTextField('Final Family Code', _finalFamilyCodeController),
+        formTextField(tr('Final Family Code'), _finalFamilyCodeController),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               child: formSearchableDropdown(
                 context,
-                'Name',
+                tr('Name'),
                 (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
                     .where((n) => n.isNotEmpty)
                     .toList()
@@ -519,25 +531,25 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
                 selectedName,
                 _onNameSelected,
                 isLoading: _isLoadingMembers,
-                validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
               ),
             ),
             const SizedBox(width: 8),
-            Expanded(child: formTextField('Name ID', _nameIdController, readOnly: true)),
+            Expanded(child: formTextField(tr('Name ID'), _nameIdController, readOnly: true)),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Husband Name', _husbandNameController),
+        formTextField(tr('Husband Name'), _husbandNameController),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Mother Reg No', _motherRegNoController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Mother Reg No'), _motherRegNoController, keyboardType: TextInputType.number)),
             const SizedBox(width: 8),
-            Expanded(child: formTextField('Father Reg No', _fatherRegNoController, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Father Reg No'), _fatherRegNoController, keyboardType: TextInputType.number)),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Marriage Type', ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
+        formSearchableDropdown(context, tr('Marriage Type'), ['Married In', 'Married Out'], marriageType, (v) => setState(() => marriageType = v)),
       ],
     );
   }
@@ -545,20 +557,20 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
   Widget _buildPermanentSection() {
     return buildSectionCard(
       context: context,
-      title: 'Permanent Method',
+      title: tr('Permanent Method'),
       icon: Icons.verified_user_outlined,
       children: [
-        formSearchableDropdown(context, 'Used?', ['(0) Tubectomy', '(1) Vasectomy', '(2) Hysectomy'], permanentUsed, (v) => setState(() => permanentUsed = v)),
+        formSearchableDropdown(context, tr('Used?'), ['(0) Tubectomy', '(1) Vasectomy', '(2) Hysectomy'], permanentUsed, (v) => setState(() => permanentUsed = v)),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _buildDatePicker('Date?', permanentDate, (v) => setState(() => permanentDate = v))),
+            Expanded(child: _buildDatePicker(tr('Date?'), permanentDate, (v) => setState(() => permanentDate = v))),
             const SizedBox(width: 12),
-            Expanded(child: formSearchableDropdown(context, 'Place?', ['(0) RHC', '(1) PVT', '(2) GOVT'], permanentPlace, (v) => setState(() => permanentPlace = v))),
+            Expanded(child: formSearchableDropdown(context, tr('Place?'), ['(0) RHC', '(1) PVT', '(2) GOVT'], permanentPlace, (v) => setState(() => permanentPlace = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Remarks', _remarksController, maxLines: 3),
+        formTextField(tr('Remarks'), _remarksController, maxLines: 3),
       ],
     );
   }
@@ -566,31 +578,31 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
   Widget _buildTemporarySection() {
     return buildSectionCard(
       context: context,
-      title: 'Temporary Method',
+      title: tr('Temporary Method'),
       icon: Icons.history_outlined,
       children: [
-        _buildDropdownRow('Used oral contraceptives?', ['(1) Yes', '(0) No'], usedOralContraceptives, (v) => setState(() => usedOralContraceptives = v)),
+        _buildDropdownRow(tr('Used oral contraceptives?'), ['(1) Yes', '(0) No'], usedOralContraceptives, (v) => setState(() => usedOralContraceptives = v)),
         if (usedOralContraceptives == '(1) Yes') ...[
-          formTextField('How long use oral', _howLongUseOralController),
+          formTextField(tr('How long use oral'), _howLongUseOralController),
           const SizedBox(height: 12),
-          _buildDatePicker('Last use oral contraceptives?', lastUseOralDate, (v) => setState(() => lastUseOralDate = v)),
+          _buildDatePicker(tr('Last use oral contraceptives?'), lastUseOralDate, (v) => setState(() => lastUseOralDate = v)),
           const SizedBox(height: 16),
         ],
-        _buildDropdownRow('Used condoms?', ['(1) Yes', '(0) No'], usedCondoms, (v) => setState(() => usedCondoms = v)),
+        _buildDropdownRow(tr('Used condoms?'), ['(1) Yes', '(0) No'], usedCondoms, (v) => setState(() => usedCondoms = v)),
         const SizedBox(height: 12),
-        _buildDropdownRow('Used an Copper-T?', ['(1) Yes', '(0) No'], usedCopperT, (v) => setState(() => usedCopperT = v)),
+        _buildDropdownRow(tr('Used an Copper-T?'), ['(1) Yes', '(0) No'], usedCopperT, (v) => setState(() => usedCopperT = v)),
         const SizedBox(height: 12),
-        _buildDropdownRow('Used injectable contraceptives?', ['(1) Yes', '(0) No'], usedInjectable, (v) => setState(() => usedInjectable = v)),
+        _buildDropdownRow(tr('Used injectable contraceptives?'), ['(1) Yes', '(0) No'], usedInjectable, (v) => setState(() => usedInjectable = v)),
         if (usedInjectable == '(1) Yes') ...[
-          formSearchableDropdown(context, 'How long using injectable?', ['Choice 1', 'Choice 2', 'Choice 3'], howLongInjectable, (v) => setState(() => howLongInjectable = v)),
+          formSearchableDropdown(context, tr('How long using injectable?'), ['Choice 1', 'Choice 2', 'Choice 3'], howLongInjectable, (v) => setState(() => howLongInjectable = v)),
           const SizedBox(height: 12),
-          _buildDatePicker('Last use injectable date', lastUseInjectableDate, (v) => setState(() => lastUseInjectableDate = v)),
+          _buildDatePicker(tr('Last use injectable date'), lastUseInjectableDate, (v) => setState(() => lastUseInjectableDate = v)),
           const SizedBox(height: 16),
         ],
-        _buildDatePicker('Temporary Date?', temporaryDate, (v) => setState(() => temporaryDate = v)),
+        _buildDatePicker(tr('Temporary Date?'), temporaryDate, (v) => setState(() => temporaryDate = v)),
         const SizedBox(height: 12),
-        _buildDropdownRow('Used other?', ['(1) Yes', '(0) No'], usedOther, (v) => setState(() => usedOther = v)),
-        if (usedOther == '(1) Yes') formTextField('If yes,', _ifYesController),
+        _buildDropdownRow(tr('Used other?'), ['(1) Yes', '(0) No'], usedOther, (v) => setState(() => usedOther = v)),
+        if (usedOther == '(1) Yes') formTextField(tr('If yes,'), _ifYesController),
       ],
     );
   }
@@ -629,7 +641,11 @@ class _FamilyPlanningPageState extends State<FamilyPlanningPage> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               suffixIcon: const Icon(Icons.calendar_today, size: 18),
             ),
-            child: Text(selectedDate == null ? 'dd-MMM-yyyy' : DateFormat('dd-MMM-yyyy').format(selectedDate)),
+            child: Text(
+              selectedDate == null
+                  ? tr('dd-MMM-yyyy')
+                  : DateFormat('dd-MMM-yyyy').format(selectedDate),
+            ),
           ),
         ),
       ],

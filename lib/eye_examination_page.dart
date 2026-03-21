@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class EyeExaminationPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -278,7 +279,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Eye Examination updated! Syncing...' : 'Eye Examination saved! Syncing...'),
+          content: Text(wasEditing ? tr('Eye Examination updated! Syncing...') : tr('Eye Examination saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -293,7 +294,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
       _performEyeExaminationSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -314,9 +315,12 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Eye Examination'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Eye Examination')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -355,30 +359,30 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Right EYE (OD)',
+                      title: tr('Right EYE (OD)'),
                       icon: Icons.remove_red_eye_outlined,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Distance', distanceChoices, selectedFailedDistanceOD, (v) => setState(() => selectedFailedDistanceOD = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Distance'), distanceChoices, selectedFailedDistanceOD, (v) => setState(() => selectedFailedDistanceOD = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'Pinhole', pinholeChoices, selectedFailedPinholeOD, (v) => setState(() => selectedFailedPinholeOD = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Pinhole'), pinholeChoices, selectedFailedPinholeOD, (v) => setState(() => selectedFailedPinholeOD = v))),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Signs and symptoms', symptomsChoices, selectedSymptomsOD, (v) => setState(() => selectedSymptomsOD = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Signs and symptoms'), symptomsChoices, selectedSymptomsOD, (v) => setState(() => selectedSymptomsOD = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Any Others', _othersSymptomsODController)),
+                            Expanded(child: formTextField(tr('Any Others'), _othersSymptomsODController)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOD, (v) => setState(() => selectedEyeProblemsOD = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Eye Problems suspected'), eyeProblemsChoices, selectedEyeProblemsOD, (v) => setState(() => selectedEyeProblemsOD = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Any Others', _othersEyeProblemsODController)),
+                            Expanded(child: formTextField(tr('Any Others'), _othersEyeProblemsODController)),
                           ],
                         ),
                       ],
@@ -386,30 +390,30 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Left EYE (OS)',
+                      title: tr('Left EYE (OS)'),
                       icon: Icons.remove_red_eye,
                       children: [
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Distance', distanceChoices, selectedFailedDistanceOS, (v) => setState(() => selectedFailedDistanceOS = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Distance'), distanceChoices, selectedFailedDistanceOS, (v) => setState(() => selectedFailedDistanceOS = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formSearchableDropdown(context, 'Pinhole', pinholeChoices, selectedFailedPinholeOS, (v) => setState(() => selectedFailedPinholeOS = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Pinhole'), pinholeChoices, selectedFailedPinholeOS, (v) => setState(() => selectedFailedPinholeOS = v))),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Signs and symptoms', symptomsChoices, selectedSymptomsOS, (v) => setState(() => selectedSymptomsOS = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Signs and symptoms'), symptomsChoices, selectedSymptomsOS, (v) => setState(() => selectedSymptomsOS = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Any Others', _othersSymptomsOSController)),
+                            Expanded(child: formTextField(tr('Any Others'), _othersSymptomsOSController)),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            Expanded(child: formSearchableDropdown(context, 'Eye Problems suspected', eyeProblemsChoices, selectedEyeProblemsOS, (v) => setState(() => selectedEyeProblemsOS = v))),
+                            Expanded(child: formSearchableDropdown(context, tr('Eye Problems suspected'), eyeProblemsChoices, selectedEyeProblemsOS, (v) => setState(() => selectedEyeProblemsOS = v))),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Any Others', _othersEyeProblemsOSController)),
+                            Expanded(child: formTextField(tr('Any Others'), _othersEyeProblemsOSController)),
                           ],
                         ),
                       ],
@@ -426,18 +430,19 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Patient Identity',
+      title: tr('Patient Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -450,7 +455,7 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -458,27 +463,27 @@ class _EyeExaminationPageState extends State<EyeExaminationPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
+            Expanded(child: formTextField(tr('Age'), _ageController, keyboardType: TextInputType.number, hint: 'e.g. 45')),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Examination Date', examinationDate, (v) => setState(() => examinationDate = v))),
+            Expanded(child: _buildDatePicker(tr('Examination Date'), examinationDate, (v) => setState(() => examinationDate = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 
-          'Interviewer’s Name',
+        formSearchableDropdown(context,
+          tr('Interviewer\'s Name'),
           ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'],
           selectedInterviewer,
           (v) => setState(() => selectedInterviewer = v),

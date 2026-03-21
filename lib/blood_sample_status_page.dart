@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
 import 'widget.dart';
+import 'language_provider.dart';
 
 class BloodSampleStatusPage extends StatefulWidget {
   final Map<String, dynamic>? existingData;
@@ -295,7 +296,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(wasEditing ? 'Blood Sample Status updated! Syncing...' : 'Blood Sample Status saved! Syncing...'),
+          content: Text(wasEditing ? tr('Blood Sample Status updated! Syncing...') : tr('Blood Sample Status saved! Syncing...')),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ));
@@ -310,7 +311,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       _performBloodSampleStatusSync(data);
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Error saving')}: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -331,9 +332,12 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: LanguageProvider.instance.isTeluguNotifier,
+      builder: (context, isTelugu, _) {
+      return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Blood Sample Status'), elevation: 0),
+      appBar: AppBar(title: Text(tr('Blood Sample Status')), elevation: 0, actions: const [LanguageToggleButton()]),
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -372,16 +376,16 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
                     const SizedBox(height: 16),
                     buildSectionCard(
                       context: context,
-                      title: 'Sample Collection Status',
+                      title: tr('Sample Collection Status'),
                       icon: Icons.bloodtype_outlined,
                       children: [
-                        _buildCollectionRow('Blood Sample (CBP/Glu)', collectBloodSample, dateCBP, (v) => setState(() => collectBloodSample = v), (d) => setState(() => dateCBP = d)),
-                        _buildCollectionRow('HbA1c', collectHBA1C, dateHBA1C, (v) => setState(() => collectHBA1C = v), (d) => setState(() => dateHBA1C = d)),
-                        _buildCollectionRow('Thyroid (T3/T4/TSH)', collectThyroid, dateThyroid, (v) => setState(() => collectThyroid = v), (d) => setState(() => dateThyroid = d)),
-                        _buildCollectionRow('Creatinine (CRE)', collectCRE, dateCRE, (v) => setState(() => collectCRE = v), (d) => setState(() => dateCRE = d)),
-                        _buildCollectionRow('Sputum (TB)', collectSputumTB, dateSputumTB, (v) => setState(() => collectSputumTB = v), (d) => setState(() => dateSputumTB = d)),
-                        _buildCollectionRow('Vaginal Swab (HPV)', collectVaginalSwabHPV, dateVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v), (d) => setState(() => dateVaginalSwabHPV = d)),
-                        _buildCollectionRow('Urine', collectUrine, dateUrine, (v) => setState(() => collectUrine = v), (d) => setState(() => dateUrine = d)),
+                        _buildCollectionRow(tr('Blood Sample (CBP/Glu)'), collectBloodSample, dateCBP, (v) => setState(() => collectBloodSample = v), (d) => setState(() => dateCBP = d)),
+                        _buildCollectionRow(tr('HbA1c'), collectHBA1C, dateHBA1C, (v) => setState(() => collectHBA1C = v), (d) => setState(() => dateHBA1C = d)),
+                        _buildCollectionRow(tr('Thyroid (T3/T4/TSH)'), collectThyroid, dateThyroid, (v) => setState(() => collectThyroid = v), (d) => setState(() => dateThyroid = d)),
+                        _buildCollectionRow(tr('Creatinine (CRE)'), collectCRE, dateCRE, (v) => setState(() => collectCRE = v), (d) => setState(() => dateCRE = d)),
+                        _buildCollectionRow(tr('Sputum (TB)'), collectSputumTB, dateSputumTB, (v) => setState(() => collectSputumTB = v), (d) => setState(() => dateSputumTB = d)),
+                        _buildCollectionRow(tr('Vaginal Swab (HPV)'), collectVaginalSwabHPV, dateVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v), (d) => setState(() => dateVaginalSwabHPV = d)),
+                        _buildCollectionRow(tr('Urine'), collectUrine, dateUrine, (v) => setState(() => collectUrine = v), (d) => setState(() => dateUrine = d)),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -397,18 +401,19 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         ],
       ),
     );
+    });
   }
 
   Widget _buildIdentitySection() {
     return buildSectionCard(
       context: context,
-      title: 'Member Identity',
+      title: tr('Member Identity'),
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField(tr('Registration Number'), _registrationNumber),
         const SizedBox(height: 12),
         formSearchField(
-          'Family Code',
+          tr('Family Code'),
           _familyCodeController,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
@@ -421,7 +426,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         const SizedBox(height: 12),
         formSearchableDropdown(
           context,
-          'Name',
+          tr('Name'),
           (<String>{...familyMemberNames, ..._existingRecords.map((r) => r['Name']?.toString() ?? '')}
               .where((n) => n.isNotEmpty)
               .toList()
@@ -429,26 +434,26 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.isEmpty) ? tr('Required') : null,
         ),
         const SizedBox(height: 12),
-        const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
+        Text(tr('Gender'), style: const TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(1) Male')), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: Text(tr('(0) Female')), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField(tr('Age'), _age, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker(tr('Interview Date'), dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+        formSearchableDropdown(context, tr('Interviewer Name'), interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
       ],
     );
   }
@@ -461,10 +466,10 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, 'Status', ['(1) Collected', '(0) Not Collected'], value, onChanged)),
+            Expanded(child: formSearchableDropdown(context, tr('Status'), ['(1) Collected', '(0) Not Collected'], value, onChanged)),
             if (value == '(1) Collected') ...[
               const SizedBox(width: 12),
-              Expanded(child: _buildDatePicker('Date', date, onDateChanged)),
+              Expanded(child: _buildDatePicker(tr('Date'), date, onDateChanged)),
             ],
           ],
         ),
