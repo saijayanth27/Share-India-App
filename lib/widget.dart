@@ -203,6 +203,7 @@ Widget formTextField(
   String? helper,
   int maxLines = 1,
   bool readOnly = false,
+  bool? enabled,
   void Function(String)? onChanged,
   List<TextInputFormatter>? inputFormatters,
   String? Function(String?)? validator,
@@ -215,6 +216,7 @@ Widget formTextField(
       TextFormField(
         controller: controller,
         readOnly: readOnly,
+        enabled: enabled,
         decoration: InputDecoration(
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -229,7 +231,7 @@ Widget formTextField(
           ),
           hintText: hint,
           helperText: helper,
-          fillColor: readOnly ? Colors.grey.shade100 : Colors.white,
+          fillColor: (readOnly || enabled == false) ? Colors.grey.shade100 : Colors.white,
           filled: true,
         ),
         keyboardType: keyboardType,
@@ -473,6 +475,7 @@ Widget formSearchField(
   required VoidCallback onSearch,
   String? hint,
   bool isLoading = false,
+  bool enabled = true,
   String? Function(String?)? validator,
 }) {
   return Column(
@@ -485,6 +488,7 @@ Widget formSearchField(
           Expanded(
             child: TextFormField(
               controller: controller,
+              enabled: enabled,
               decoration: InputDecoration(
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -498,7 +502,7 @@ Widget formSearchField(
                   borderSide: const BorderSide(color: Colors.blue, width: 2),
                 ),
                 hintText: hint ?? 'Enter $label',
-                fillColor: Colors.white,
+                fillColor: enabled ? Colors.white : Colors.grey.shade100,
                 filled: true,
               ),
               onFieldSubmitted: (_) => onSearch(),

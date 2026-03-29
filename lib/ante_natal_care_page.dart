@@ -96,10 +96,16 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
+      final fCode = familyCode.trim().toUpperCase();
+      if (fCode.isEmpty) {
+        setState(() => _isLoadingMembers = false);
+        return;
+      }
+
       // 1. Fetch Permanent Family Planning members to exclude them
       final fpSnapshot = await FirebaseFirestore.instance
           .collection('family_planning')
-          .where('Family_Code', isEqualTo: familyCode)
+          .where('Family_Code', isEqualTo: fCode)
           .where('Select_Entry_Screen', isEqualTo: '(1) Permanent')
           .get();
       final excludedNames = fpSnapshot.docs
@@ -107,17 +113,20 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
           .where((n) => n.isNotEmpty)
           .toSet();
 
-      // 2. Fetch Personal Details
+      // 2. Fetch Personal Details (Firestore)
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
-          .where('Family_Code', isEqualTo: familyCode)
-          .get(const GetOptions(source: Source.serverAndCache));
-      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+          .where('Family_Code', isEqualTo: fCode)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 4));
+
+      // 3. Fetch Personal Details (Local)
+      final localMembers = await DataCacheService().fetchMembersLocally(fCode);
       
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
       
-      void processMember(Map<String, dynamic> data) {
+      void processMember(Map<String, dynamic> data, {bool fromFirestore = false}) async {
         final name = data['Name']?.toString() ?? '';
         final gender = data['Gender']?.toString() ?? '';
         final maritalStatus = data['Marital_Status']?.toString() ?? '';
@@ -125,6 +134,11 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
 
         if (name.isEmpty) return;
         
+        if (fromFirestore) {
+          // NEW: Persist to local cache for offline availability
+          await DataCacheService().addMember(data);
+        }
+
         // Filter: (0) Female AND ((1) Married OR (3) Widow) AND (1) Active AND Not in excludedNames
         bool isEligibleFemale = gender == '(0) Female' && 
                                (maritalStatus == '(1) Married' || maritalStatus == '(3) Widow') &&
@@ -136,13 +150,20 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
         }
       }
 
-      for (var doc in snapshot.docs) processMember(doc.data());
+      // Process local first
       for (var local in localMembers) processMember(local);
+
+      // Process firestore and cache
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        data['firestoreDocId'] = doc.id;
+        processMember(data, fromFirestore: true);
+      }
       
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        selectedFamilyCode = familyCode;
+        selectedFamilyCode = fCode;
       });
     } catch (e) {
       debugPrint('Error fetching members: $e');
@@ -150,6 +171,7 @@ class _AnteNatalCarePageState extends State<AnteNatalCarePage> {
       if (mounted) setState(() => _isLoadingMembers = false);
     }
   }
+
 
   Future<void> _fetchExistingRecords(String familyCode) async {
     setState(() => _isLoadingMembers = true);

@@ -16,8 +16,12 @@ import 'widget.dart';
 import 'app_drawer.dart';
 import 'personal_details_page.dart';
 import 'sync_service.dart';
+import 'location_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'login_page.dart';
 
 Future<void> main() async {
+
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   
@@ -29,7 +33,11 @@ Future<void> main() async {
 
   await dotenv.load(fileName: ".env");
 
+  // Initialize Location Service with local cache and background refresh
+  await LocationService().init();
+  
   // Start the background sync service to auto-sync offline records when network is available
+
   SyncService().initialize();
 
   runApp(const MyApp());
@@ -72,17 +80,24 @@ class MyApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
-      home: const HomePage(),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (snapshot.hasData) {
+            return const HomePage();
+          }
+          return const LoginPage();
+        },
+      ),
+
     );
   }
 }
 
-final Map<String, Map<String, List<String>>> locationData = {
-  'telangana': {
-    'Hyderabad': ['Ameerpet', 'Begumpet'],
-    'Ranga Reddy': ['Shamshabad', 'Ibrahimpatnam'],
-  }
-};
+
 
 /* ============================================================
    FAMILY FORM PAGE
@@ -124,6 +139,7 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   String? selectedDistrict;
   String? selectedMandal;
   String? selectedVillage;
+
 
   bool familyIdReadOnly = false;
 
@@ -168,83 +184,29 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
   final _govtHospitalOther = TextEditingController();
   final _toiletOther = TextEditingController();
   Future<void> fetchLocations() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('locations')
-          .doc('telangana')
-          .get()
-          .timeout(const Duration(seconds: 10));
-
-      Map<String, dynamic> firestoreData = {};
-      if (doc.exists) {
-        firestoreData = doc.data()!;
-      }
-
-      // Merge local mapping from Excel (Source of truth for codes)
-      setState(() {
-        locationData = _mergeMappings(firestoreData, locationMapping);
-        isLoadingLocations = false;
-      });
-    } catch (e) {
-      debugPrint('Error fetching locations: $e');
-      setState(() {
-        locationData = locationMapping; // Fallback to local only
-        isLoadingLocations = false;
-      });
-    }
+    setState(() => isLoadingLocations = true);
+    
+    // Use the LocationService to get data (loads from cache first)
+    setState(() {
+      locationData = LocationService().locationData;
+      isLoadingLocations = false;
+    });
+    
+    // Optionally refresh from Firebase if needed, but LocationService already does this on init
+    // LocationService().refreshFromFirebase(); 
   }
 
-  Map<String, dynamic> _mergeMappings(Map<String, dynamic> firestore, Map<String, dynamic> local) {
-    final Map<String, dynamic> result = Map<String, dynamic>.from(firestore);
-    
-    // Add state code
-    if (local.containsKey('state_code')) {
-      result['state_code'] = local['state_code'];
-    }
-
-    // Merge districts
-    if (local.containsKey('districts')) {
-      final districts = Map<String, dynamic>.from(result['districts'] ?? {});
-      final localDistricts = local['districts'] as Map<String, dynamic>;
-      
-      localDistricts.forEach((dName, dData) {
-        final dist = Map<String, dynamic>.from(districts[dName] ?? {});
-        dist['code'] = dData['code'];
-        
-        // Merge mandals
-        final mandals = Map<String, dynamic>.from(dist['mandals'] ?? {});
-        final localMandals = dData['mandals'] as Map<String, dynamic>;
-        
-        localMandals.forEach((mName, mData) {
-          final mandal = Map<String, dynamic>.from(mandals[mName] ?? {});
-          mandal['code'] = mData['code'];
-          
-          // Merge villages
-          final villages = Map<String, dynamic>.from(mandal['Villages'] ?? {});
-          final localVillages = mData['Villages'] as Map<String, dynamic>;
-          
-          localVillages.forEach((vName, vData) {
-            villages[vName] = vData;
-          });
-          
-          mandal['Villages'] = villages;
-          mandals[mName] = mandal;
-        });
-        
-        dist['mandals'] = mandals;
-        districts[dName] = dist;
-      });
-      
-      result['districts'] = districts;
-    }
-    
-    return result;
-  }
+  // _mergeMappings logic moved to LocationService
 
   @override
   void initState() {
     super.initState();
     fetchLocations();
+    
+    // Generate initial ID based on defaults
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _generateFamilyId();
+    });
 
     if (widget.existingData != null) {
       _populateForm(widget.existingData!, widget.docId ?? widget.existingData!['family_id'] ?? '');
@@ -502,9 +464,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
 
       // familyIdReadOnly = false; (now permanently true)
 
-      selectedState = null;
-      selectedDistrict = null;
-      selectedMandal = null;
+      selectedState = 'Telangana';
+      selectedDistrict = 'Medchal-Malkajgiri';
+      selectedMandal = 'Medchal';
       selectedVillage = null;
 
       familyType = null;
@@ -718,28 +680,33 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         final villageCode = (locationData['districts'] as Map?)?[selectedDistrict]?['mandals']?[selectedMandal]?['Villages']?[selectedVillage]?['code'] ?? '';
         final String prefix = '$stateCode$districtCode$mandalCode$villageCode';
 
-        // Use the ID generated by _generateFamilyId if it matches the current selection and is Off-
-        // otherwise generate a new Off- ID.
-        if (!finalId.startsWith('Off-') || !finalId.contains(prefix)) {
-          int lastLocalSuffix = 0;
+        // Use the ID generated by _generateFamilyId if it matches the current selection
+        // otherwise calculate the next sequential one locally.
+        String nextSuf;
+        if (!finalId.contains(prefix)) {
+          int lastSuf = 0;
           final localData = await LocalDatabaseService().searchFamilyDetails(prefix, limit: 1);
           if (localData.isNotEmpty) {
             final lastId = localData.first['family_id']?.toString() ?? '';
-            // Ignore temporary IDs when calculating the suffix sequence
-            if (lastId.startsWith(prefix) && !lastId.startsWith('Off-') && !lastId.startsWith('OFF-') && !lastId.startsWith('OFF_')) {
-              final suffixStr = lastId.substring(prefix.length);
-              lastLocalSuffix = int.tryParse(suffixStr) ?? 0;
-            }
+            final suffixStr = lastId.substring(prefix.length);
+            lastSuf = int.tryParse(suffixStr) ?? 0;
           }
-          final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
-          final nextSuf = (lastLocalSuffix + 1).toString().padLeft(5, '0');
-          finalId = 'Off-$prefix-$nextSuf-$timestamp';
+          nextSuf = (lastSuf + 1).toString().padLeft(5, '0');
+          finalId = '$prefix$nextSuf';
+        } else {
+          // Extract existing suffix if finalId was already set by _generateFamilyId
+          nextSuf = finalId.substring(prefix.length).replaceAll(RegExp(r'[^0-9]'), '');
+          if (nextSuf.length > 5) nextSuf = nextSuf.substring(0, 5);
         }
 
-        data['firestoreDocId'] = finalId;
+        final randomSuffix = DateTime.now().millisecondsSinceEpoch.toString().substring(7);
+        final tempDocId = '$finalId-OFF-$randomSuffix';
+
+        data['firestoreDocId'] = tempDocId;
         data['family_id'] = finalId;
         data['is_temporary'] = true;
-        data['village_prefix'] = prefix; // Store prefix for background sync
+        data['village_prefix'] = prefix;
+        data['needs_final_id'] = true; // Mark for SyncService to run transaction
 
         // Save locally for SyncService
         await DataCacheService().saveOfflineSubmission('Family Code Creation', data);
@@ -766,8 +733,13 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           ),
         );
 
-        // Show confirmation dialog to proceed to Personal Details
-        _showProceedToPersonalDetailsDialog(finalId);
+        // Show confirmation dialog to proceed to Personal Details ONLY for new records
+        if (!isEditing) {
+          _showProceedToPersonalDetailsDialog(finalId);
+        } else if (Navigator.canPop(context)) {
+          // If editing, just go back to the previous screen (list or search)
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       debugPrint('SAVE CRITICAL ERROR: $e');
@@ -977,28 +949,51 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         return;
       }
 
-      final connectivityResult = await Connectivity().checkConnectivity();
-      
-      // Try to find last ID in SQLite first as a quick hint (even if online)
+      // Try to find the last ID from both Local DB and Firestore Cache to get the best sequential start
       int lastLocalSuffix = 0;
       try {
         final localData = await LocalDatabaseService().searchFamilyDetails(prefix, limit: 1);
         if (localData.isNotEmpty) {
           final lastId = localData.first['family_id']?.toString() ?? '';
-          if (lastId.startsWith(prefix) && !lastId.startsWith('Off-') && !lastId.startsWith('OFF-') && !lastId.startsWith('OFF_')) {
+          if (lastId.startsWith(prefix) && !lastId.startsWith('Off-')) {
             final suffixStr = lastId.substring(prefix.length);
             lastLocalSuffix = int.tryParse(suffixStr) ?? 0;
           }
         }
       } catch (e) {
-        debugPrint('Local suffix check failed: $e');
+        debugPrint('ID_GEN: Local suffix lookup failed: $e');
       }
 
-      if (connectivityResult == ConnectivityResult.none) {
-        // Offline: Format as Off-PREFIX-00001-TIMESTAMP for a cleaner look
+      int currentMaxSuffix = lastLocalSuffix;
+      
+      try {
+        // 1. Check local Firestore cache for the highest document ID with this prefix
+        final cacheSnapshot = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .where(FieldPath.documentId, isGreaterThanOrEqualTo: prefix)
+            .where(FieldPath.documentId, isLessThanOrEqualTo: '$prefix\uf8ff')
+            .orderBy(FieldPath.documentId, descending: true)
+            .limit(1)
+            .get(const GetOptions(source: Source.cache));
+            
+        if (cacheSnapshot.docs.isNotEmpty) {
+          final lastId = cacheSnapshot.docs.first.id;
+          final suffixStr = lastId.substring(prefix.length);
+          final suffix = int.tryParse(suffixStr) ?? 0;
+          if (suffix > currentMaxSuffix) currentMaxSuffix = suffix;
+        }
+      } catch (e) {
+        debugPrint('ID_GEN: Cache lookup failed: $e');
+      }
+
+      final connectivityResult = await Connectivity().checkConnectivity();
+      bool isOnline = connectivityResult != ConnectivityResult.none;
+
+      if (!isOnline) {
+        // Offline: Format as Off-PREFIX-TIMESTAMP for a clear temporary look
         final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
-        final nextSuf = (lastLocalSuffix + 1).toString().padLeft(5, '0');
-        if (mounted) setState(() => _familyId.text = 'Off-$prefix-$nextSuf-$timestamp');
+        final newId = 'Off-$prefix-$timestamp';
+        if (mounted) setState(() => _familyId.text = newId);
         return;
       }
 
@@ -1110,8 +1105,20 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
           labelText: label,
           border: const OutlineInputBorder(),
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          suffixIcon: const Icon(Icons.arrow_drop_down),
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (value != null)
+                IconButton(
+                  icon: const Icon(Icons.clear, size: 20),
+                  onPressed: () {
+                    onChanged(null);
+                  },
+                ),
+              const Icon(Icons.arrow_drop_down),
+            ],
+          ),
         ),
         child: Text(
           value ?? 'Select $label',
@@ -1236,6 +1243,46 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
         }
       }
 
+      // --- NEW: Sync Personal Details (Members) ---
+      debugPrint('Sync: Starting personal_details sync...');
+      int memberCount = 0;
+      bool hasMoreMembers = true;
+      DocumentSnapshot? lastMemberDoc;
+
+      while (hasMoreMembers) {
+        Query memberQuery = FirebaseFirestore.instance.collection('personal_details').limit(500);
+        if (lastMemberDoc != null) memberQuery = memberQuery.startAfterDocument(lastMemberDoc);
+
+        final memberSnapshot = await memberQuery.get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 60));
+
+        if (memberSnapshot.docs.isEmpty) {
+          hasMoreMembers = false;
+          break;
+        }
+
+        lastMemberDoc = memberSnapshot.docs.last;
+        memberCount += memberSnapshot.docs.length;
+
+        for (var doc in memberSnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          await dbService.saveMember(data);
+        }
+
+        if (mounted) {
+          setState(() {
+            // We reuse the progress for feedback, maybe showing a generic "Syncing members..."
+            _importedCountProgress = count + memberCount; 
+          });
+        }
+
+        if (memberSnapshot.docs.length < 500) {
+          hasMoreMembers = false;
+        }
+      }
+      debugPrint('Sync: Completed personal_details sync. Added $memberCount members.');
+
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('SUCCESS: $count records ready for offline use!'), backgroundColor: Colors.green),
@@ -1315,7 +1362,9 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               },
               onSave: _save,
               onEdit: () {
-                _searchAndLoadRecord(_familyId.text.trim());
+                setState(() {
+                  _isEditingFromSearch = true;
+                });
               },
               onCancel: () {
                 setState(() {
@@ -1360,7 +1409,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
               children: [
                 TextFormField(
                   controller: _familyId,
-                  readOnly: familyIdReadOnly,
+                  enabled: _isEditingFromSearch,
+                  readOnly: !_isEditingFromSearch,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
                     labelText: 'Family ID',
@@ -1462,6 +1512,8 @@ class _FamilyFormPageState extends State<FamilyFormPage> {
                     Expanded(
                       child: TextFormField(
                         controller: _head,
+                        enabled: false,
+                        readOnly: true,
                         decoration: const InputDecoration(
                           labelText: 'Head of Family',
                           border: OutlineInputBorder(),

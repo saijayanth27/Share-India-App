@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 import "package:flutter/material.dart";
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -68,6 +69,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   // Family Members for Dropdowns
   List<String> maleMembers = [];
   List<String> femaleMembers = [];
+  List<String> eligibleMothers = [];
+  List<String> eligibleFathers = [];
   List<Map<String, dynamic>> _familyMemberDocs = []; // Cache for full docs
   bool _isLoadingFamily = false;
 
@@ -97,6 +100,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       _loadExistingData();
     }
     _age.addListener(_onAgeChanged);
+    _familyCodeController.addListener(_onFamilyCodeChanged);
+  }
+
+  void _onFamilyCodeChanged() {
+    final code = _familyCodeController.text.trim();
+    if (code.length >= 7) {
+      _fetchMembersByFamily(code);
+    }
   }
 
   @override
@@ -159,90 +170,155 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingFamily = true);
     try {
-      final fCode = familyCode.trim();
+      final fCode = familyCode.trim().toUpperCase();
       if (fCode.isEmpty) {
         setState(() => _isLoadingFamily = false);
         return;
       }
 
-      // 1. Fetch from Family Code Creation for Head Name
-      final familySnap = await FirebaseFirestore.instance
-          .collection('Family Code Creation')
-          .where('family_id', isEqualTo: fCode)
-          .limit(1)
-          .get();
-
-      String? headNameFromFamily;
-      if (familySnap.docs.isNotEmpty) {
-        final data = familySnap.docs.first.data();
-        headNameFromFamily = (data['head_of_family'] ?? data['Head_of_the_family'])?.toString();
-      }
-
-      // 2. Fetch Members
+      // 1. Fetch Members (Local First)
       final localMembers = await DataCacheService().fetchMembersLocally(fCode);
-      final snapshot = await FirebaseFirestore.instance
-          .collection('personal_details')
-          .where('Family_Code', isEqualTo: fCode)
-          .get(const GetOptions(source: Source.serverAndCache));
-
       final Map<String, Map<String, dynamic>> merged = {};
       for (var m in localMembers) merged[m['Name'] ?? ''] = m;
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        data['id'] = doc.id; // Capture Firestore document ID
-        merged[data['Name'] ?? ''] = data;
-      }
-      
-      final docs = merged.values.toList();
-      final males = <String>[];
-      final females = <String>[];
 
-      for (var data in docs) {
-        final name = data['Name']?.toString() ?? '';
-        final gender = data['Gender']?.toString() ?? '';
-        if (gender.contains('(1) Male')) {
-          males.add(name);
-        } else if (gender.contains('(0) Female')) {
-          females.add(name);
+      // 2. Try to get Head Name from Local Cache
+      String? headNameFromFamily;
+      final details = await DataCacheService().fetchFamilyDetails();
+      final detail = details.firstWhere((d) => (d['family_id']?.toString().toUpperCase() ?? '') == fCode, orElse: () => {});
+      if (detail.isNotEmpty) {
+        headNameFromFamily = (detail['head_of_family'] ?? detail['Head_of_the_family'])?.toString();
+      }
+
+      // Update state with local data immediately
+      _updateMembersState(merged.values.toList(), headNameFromFamily);
+
+      // 3. Background: Fetch from Firestore (Head & Members)
+      try {
+        final familySnap = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .where('family_id', isEqualTo: fCode)
+            .limit(1)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 4));
+
+        if (familySnap.docs.isNotEmpty) {
+          final data = familySnap.docs.first.data();
+          headNameFromFamily = (data['head_of_family'] ?? data['Head_of_the_family'])?.toString();
+          // Cache the family header too while we're at it
+          await DataCacheService().addGeneratedDetail({...data, 'family_id': fCode});
         }
-      }
 
-      setState(() {
-        _familyMemberDocs = docs;
-        _allMembersList = docs;
-        maleMembers = males..sort();
-        femaleMembers = females..sort();
-        _isLoadingFamily = false;
+        final snapshot = await FirebaseFirestore.instance
+            .collection('personal_details')
+            .where('Family_Code', isEqualTo: fCode)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 4));
+
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          data['firestoreDocId'] = doc.id;
+          merged[data['Name'] ?? ''] = data;
+          
+          // NEW: Persist to local cache for offline availability
+          await DataCacheService().addMember(data);
+        }
         
-        _headDoc = docs.firstWhere(
-          (d) => d['Relation_with_Head'] == 'HEAD OF THE FAMILY',
-          orElse: () => headNameFromFamily != null ? {'Name': headNameFromFamily, 'Relation_with_Head': 'HEAD OF THE FAMILY'} : {},
-        );
+        // Final update with combined data
+        _updateMembersState(merged.values.toList(), headNameFromFamily);
+      } catch (e) {
+        debugPrint('Firestore fetch failed/timed out, using local data: $e');
+      }
 
-        if (!_isEditMode) {
-          _calculateNewFamilyID();
-        }
-      });
+
+      setState(() => _isLoadingFamily = false);
     } catch (e) {
       debugPrint('Error fetching members: $e');
       setState(() => _isLoadingFamily = false);
     }
   }
 
+  void _updateMembersState(List<Map<String, dynamic>> docs, String? headNameFromFamily) {
+    final marriedMales = <String>[];
+    final marriedFemales = <String>[];
+
+    for (var data in docs) {
+      final name = data['Name']?.toString() ?? '';
+      final gender = data['Gender']?.toString() ?? '';
+      final marital = data['Marital_Status']?.toString() ?? '';
+      
+      // Logic: Only Married/Widow/Divorced are eligible for Parent/Spouse roles
+      final isMarriedOrFormerly = !marital.contains('(0) Unmarried') && !marital.contains('(4) Not Eligible');
+
+      if (gender.contains('(1) Male') || gender.toLowerCase().contains('male')) {
+        if (isMarriedOrFormerly) marriedMales.add(name);
+      } else if (gender.contains('(0) Female') || gender.toLowerCase().contains('female')) {
+        if (isMarriedOrFormerly) marriedFemales.add(name);
+      }
+    }
+
+    setState(() {
+      _familyMemberDocs = docs;
+      _allMembersList = docs;
+      
+      // Father dropdown: Married Males
+      eligibleFathers = marriedMales..sort();
+      // Mother dropdown: Married Females
+      eligibleMothers = marriedFemales..sort();
+      
+      // Spouse List for FEMALE current person: Married Males
+      maleMembers = marriedMales..sort();
+      // Spouse List for MALE current person: Married Females
+      femaleMembers = marriedFemales..sort();
+
+      _headDoc = docs.firstWhere(
+        (d) => d['Relation_with_Head'] == 'HEAD OF THE FAMILY',
+        orElse: () => headNameFromFamily != null ? {'Name': headNameFromFamily, 'Relation_with_Head': 'HEAD OF THE FAMILY'} : {},
+      );
+
+      if (!_isEditMode) {
+        _calculateNewFamilyID();
+      }
+    });
+  }
+
+
   void _calculateNewFamilyID() {
     if (_familyCodeController.text.isEmpty) return;
-    
-    final baseID = _familyCodeController.text;
-    final distinctIDs = _allMembersList
-        .map((m) => m['New_Family_ID']?.toString())
-        .where((id) => id != null && id!.isNotEmpty)
-        .toSet();
-    
-    const alphabets = "ABCDEFGHIJKMNOPQRSTUVWXYZ";
-    final dupsize = distinctIDs.length; 
-    if (dupsize < alphabets.length) {
-      final letter = alphabets[dupsize];
-      _newFamilyId.text = "$baseID$letter";
+    final baseID = _familyCodeController.text.trim();
+
+    // 1. Head of family always uses the base Family Code
+    if (relationWithHead == 'HEAD OF THE FAMILY') {
+      _newFamilyId.text = baseID;
+      return;
+    }
+
+    // 2. Only calculate a new suffix if the person is married (Separation logic)
+    if (maritalStatus == '(1) Married') {
+      final distinctIDs = _allMembersList
+          .map((m) => m['New_Family_ID']?.toString() ?? '')
+          .where((id) => id.isNotEmpty && id != baseID) // Only count suffixed ones
+          .toSet();
+      
+      const alphabets = "ABCDEFGHIJKMNOPQRSTUVWXYZ";
+      final nextIndex = distinctIDs.length;
+      
+      if (nextIndex < alphabets.length) {
+        final letter = alphabets[nextIndex];
+        _newFamilyId.text = "$baseID$letter";
+      }
+    } else {
+      // 3. For unmarried members/children, inherit from parents if they are in a sub-family
+      String? parentNewId;
+      if (fatherName != null) {
+        final fDoc = _allMembersList.firstWhere((m) => m['Name'] == fatherName, orElse: () => {});
+        if (fDoc.isNotEmpty && fDoc['New_Family_ID'] != null) parentNewId = fDoc['New_Family_ID'];
+      }
+      if (parentNewId == null && motherName != null) {
+        final mDoc = _allMembersList.firstWhere((m) => m['Name'] == motherName, orElse: () => {});
+        if (mDoc.isNotEmpty && mDoc['New_Family_ID'] != null) parentNewId = mDoc['New_Family_ID'];
+      }
+      
+      _newFamilyId.text = parentNewId ?? baseID;
     }
   }
 
@@ -297,6 +373,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     setState(() {
       fatherName = val;
       _updateAutoRelation();
+      _calculateNewFamilyID();
     });
   }
 
@@ -304,6 +381,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     setState(() {
       motherName = val;
       _updateAutoRelation();
+      _calculateNewFamilyID();
     });
   }
 
@@ -398,6 +476,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       if (mapping.containsKey(val)) {
         _gen.text = mapping[val].toString();
       }
+      _calculateNewFamilyID();
     });
   }
 
@@ -408,6 +487,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     final List<Map<String, dynamic>> currentMembers = _allMembersList;
     final List<String> currentMales = maleMembers;
     final List<String> currentFemales = femaleMembers;
+    final List<String> currentMothers = eligibleMothers;
+    final List<String> currentFathers = eligibleFathers;
     final Map<String, dynamic>? currentHead = _headDoc;
 
     setState(() {
@@ -428,6 +509,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
         _familyMemberDocs = currentMembers;
         maleMembers = currentMales;
         femaleMembers = currentFemales;
+        eligibleMothers = currentMothers;
+        eligibleFathers = currentFathers;
         _headDoc = currentHead;
         _calculateNewFamilyID();
       } else {
@@ -436,6 +519,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
         _familyMemberDocs = [];
         maleMembers = [];
         femaleMembers = [];
+        eligibleMothers = [];
+        eligibleFathers = [];
         _headDoc = null;
       }
     });
@@ -504,13 +589,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     setState(() => _isLoadingFamily = true);
     try {
       // Fetch from Firestore to get the full, latest data and the correct doc ID
-      final fCode = _familyCodeController.text.trim();
+      final fCode = _familyCodeController.text.trim().toUpperCase();
       final snapshot = await FirebaseFirestore.instance
           .collection('personal_details')
           .where('Family_Code', isEqualTo: fCode)
           .where('Name', isEqualTo: name)
           .limit(1)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 4), onTimeout: () => throw TimeoutException('Member details fetch timed out'));
 
       if (snapshot.docs.isNotEmpty) {
         final doc = snapshot.docs.first;
@@ -606,6 +692,24 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       await DataCacheService().saveOfflineSubmission('personal_details', data);
       await DataCacheService().addMember(data); 
 
+      // 2. Immediately update local state so next member sees this one in dropdowns
+      final List<Map<String, dynamic>> updatedList = List.from(_allMembersList);
+      final int existingIdx = updatedList.indexWhere((m) => m['Name'] == data['Name']);
+      if (existingIdx != -1) {
+        updatedList[existingIdx] = data;
+      } else {
+        updatedList.add(data);
+      }
+      
+      // 1. Save for sync locally FIRST (Fast)
+      await DataCacheService().saveOfflineSubmission('personal_details', data);
+      
+      // 2. NEW: Also add to the family members lookup table for immediate offline dropdown access
+      await DataCacheService().addMember(data);
+
+      _updateMembersState(updatedList, _headDoc?['Name']);
+
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Personal details saved locally! Syncing...'),
@@ -622,7 +726,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
             barrierDismissible: false,
             builder: (ctx) => AlertDialog(
               title: const Text('Record Saved'),
-              content: const Text('Do you want to add same members in same family code?'),
+              content: const Text('Do you want to add  members in same family code?'),
               actions: [
                 TextButton(
                   onPressed: () {
@@ -652,8 +756,9 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
           spouseUpdate = {
             'Marital_Status': '(1) Married',
             'Spouse_Details1': true,
-            'Name2': _firstName.text, // Current member is spouse's spouse
+            'Name2': _firstName.text,
             'Name1': _firstName.text,
+            'New_Family_ID': _newFamilyId.text,
             'firestoreDocId': spouseRecord['id'] ?? spouseRecord['firestoreDocId'],
             'clientUpdatedAt': DateTime.now().millisecondsSinceEpoch,
             'needs_zoho_sync': true,
@@ -752,12 +857,13 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     isSaving: _isSaving,
                   ),
                   const SizedBox(height: 16),
-                  if (_isLoadingFamily) // Show a small inline loader if fetching member data
+                  if (_isLoadingFamily && _allMembersList.isEmpty) 
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: CircularProgressIndicator(),
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: Center(child: CircularProgressIndicator()),
                     )
                   else ...[
+                    if (_isLoadingFamily) const LinearProgressIndicator(minHeight: 2), 
                     buildSectionCard(
                       context: context,
                       title: 'Identity & Registration',
@@ -776,6 +882,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     const SizedBox(width: 12),
                     Expanded(child: formTextField('Map No.', _mapNo, keyboardType: TextInputType.number)),
                   ]),
+                  const SizedBox(height: 12),
+                  formTextField('New Family ID', _newFamilyId),
                   const SizedBox(height: 12),
                   _isEditMode
                       ? formSearchableDropdown(
@@ -842,7 +950,13 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                   const SizedBox(height: 12),
                   formSearchableDropdown(context, 'A/v Status', ['(1) Active', '(0) Vacant'], avStatus, (v) => setState(() => avStatus = v)),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'Marital Status', ['(0) Unmarried', '(1) Married', '(2) Divorce', '(3) Widow', '(4) Not Eligible'], maritalStatus, (v) { setState(() { maritalStatus = v; if (v == '(0) Unmarried') showSpouseDetails = false; }); }),
+                  formSearchableDropdown(context, 'Marital Status', ['(0) Unmarried', '(1) Married', '(2) Divorce', '(3) Widow', '(4) Not Eligible'], maritalStatus, (v) { 
+                    setState(() { 
+                      maritalStatus = v; 
+                      if (v == '(0) Unmarried') showSpouseDetails = false; 
+                      _calculateNewFamilyID();
+                    }); 
+                  }),
                   if (liveStatus == '(0) Dead') ...[
                     const SizedBox(height: 12),
                     formSearchableDropdown(context, 'Death Place', ['(0) RHC', '(1) PVT', '(2) GOVT', '(3) HOME'], selectedDeathPlace, (v) => setState(() => selectedDeathPlace = v)),
@@ -878,9 +992,9 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                 title: 'Relations',
                 icon: Icons.family_restroom_outlined,
                 children: [
-                  formSearchableDropdown(context, 'Mother Name', femaleMembers, motherName, _onMotherChanged, isLoading: _isLoadingFamily),
+                  formSearchableDropdown(context, 'Mother Name', eligibleMothers, motherName, _onMotherChanged, isLoading: _isLoadingFamily),
                   const SizedBox(height: 12),
-                  formSearchableDropdown(context, 'Father Name', maleMembers, fatherName, _onFatherChanged, isLoading: _isLoadingFamily),
+                  formSearchableDropdown(context, 'Father Name', eligibleFathers, fatherName, _onFatherChanged, isLoading: _isLoadingFamily),
                   const SizedBox(height: 12),
                   formSearchableDropdown(
                     context,

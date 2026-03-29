@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'auth_service.dart';
+import 'admin_dashboard_page.dart';
 import 'main.dart';
-import 'bpgluco.dart';
-import 'health_report_page.dart';
+import 'home_page.dart';
 import 'personal_details_page.dart';
 import 'personal_details_report_page.dart';
-import 'ante_natal_care_page.dart';
-import 'ante_natal_care_report_page.dart';
 import 'child_immunization_page.dart';
 import 'child_immunization_report_page.dart';
+import 'ante_natal_care_page.dart';
+import 'ante_natal_care_report_page.dart';
 import 'ante_natal_care_checkup_page.dart';
 import 'ante_natal_care_checkup_report_page.dart';
 import 'aarogya_page.dart';
 import 'aarogya_report_page.dart';
+import 'family_planning_page.dart';
+import 'family_planning_report_page.dart';
 import 'questionnaire_page.dart';
+import 'bpgluco.dart';
+import 'health_report_page.dart';
+import 'blood_sugar_fasting_page.dart';
+import 'blood_sugar_fasting_report_page.dart';
 import 'anthropometry_page.dart';
 import 'anthropometry_report_page.dart';
 import 'blood_sample_status_page.dart';
 import 'blood_sample_status_report_page.dart';
+import 'quarterly_survey_questionnaire_page.dart';
+import 'quarterly_survey_report_page.dart';
 import 'refused_form_page.dart';
 import 'refused_form_report_page.dart';
 import 'doctor_prescriptions_page.dart';
@@ -35,15 +45,8 @@ import 'lab_investigation_page.dart';
 import 'lab_investigation_report_page.dart';
 import 'cervical_cancer_screening_questionnaire_page.dart';
 import 'cervical_cancer_screening_questionnaire_report_page.dart';
-import 'quarterly_survey_questionnaire_page.dart';
-import 'quarterly_survey_report_page.dart';
-import 'blood_sugar_fasting_page.dart';
-import 'blood_sugar_fasting_report_page.dart';
 import 'local_database_service.dart';
-import 'family_planning_page.dart';
-import 'family_planning_report_page.dart';
-import 'home_page.dart';
-import 'main.dart';
+
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -91,7 +94,29 @@ class AppDrawer extends StatelessWidget {
               );
             },
           ),
+          
+          // --- ADMIN DASHBOARD (Conditional) ---
+          FutureBuilder<bool>(
+            future: AuthService().isAdmin(),
+            builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data == true) {
+                return ListTile(
+                  leading: const Icon(Icons.admin_panel_settings, color: Colors.red),
+                  title: const Text('Admin Dashboard', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
+                    );
+                  },
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
           const Divider(),
+
           
           // --- REACH MODULE ---
           ExpansionTile(
@@ -556,10 +581,27 @@ class AppDrawer extends StatelessWidget {
               ),
             ],
           ),
+
+
+          const Divider(),
+
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) {
+                Navigator.pop(context);
+                // AuthWrapper in main.dart will automatically switch to LoginPage
+              }
+            },
+          ),
+          const SizedBox(height: 20),
         ],
       ),
     );
   }
+
 
   void _showDatabaseStats(BuildContext context) async {
     final dbService = LocalDatabaseService();

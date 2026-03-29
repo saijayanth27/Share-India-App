@@ -87,21 +87,55 @@ class SyncService {
             firestoreData['serverUpdatedAt'] = FieldValue.serverTimestamp();
           }
 
-          if (firestoreDocId != null && firestoreDocId.isNotEmpty) {
-            // It's an update to an existing Firestore document
+          // --- Logic for Sequential ID Promotion ---
+          if (data['needs_final_id'] == true && collection == 'Family Code Creation') {
+            final String prefix = data['village_prefix'] ?? '';
+            String finalRealId = '';
+            
+            await FirebaseFirestore.instance.runTransaction((transaction) async {
+              final counterRef = FirebaseFirestore.instance.collection('village_counters').doc(prefix);
+              final counterSnap = await transaction.get(counterRef);
+              
+              int lastSuffix = 0;
+              if (counterSnap.exists) {
+                lastSuffix = counterSnap.data()?['last_suffix'] ?? 0;
+              }
+              
+              final nextSuffix = lastSuffix + 1;
+              finalRealId = '$prefix${nextSuffix.toString().padLeft(5, '0')}';
+              
+              transaction.set(counterRef, {'last_suffix': nextSuffix}, SetOptions(merge: true));
+              
+              // Clean data for final doc
+              final finalData = Map<String, dynamic>.from(firestoreData);
+              finalData.remove('needs_final_id');
+              finalData['family_id'] = finalRealId;
+              finalData['is_temporary'] = false;
+              
+              transaction.set(FirebaseFirestore.instance.collection(collection).doc(finalRealId), finalData);
+              
+              // If we are promoting from a temp doc, delete the temp doc
+              if (firestoreDocId != null && firestoreDocId != finalRealId) {
+                transaction.delete(FirebaseFirestore.instance.collection(collection).doc(firestoreDocId));
+              }
+            }).timeout(const Duration(seconds: 20));
+            
+            debugPrint('SyncService: Promoted record to Final ID $finalRealId');
+          } else if (firestoreDocId != null && firestoreDocId.isNotEmpty) {
+            // It's an update to an existing Firestore document OR a new doc without promotion
             await FirebaseFirestore.instance
                 .collection(collection)
                 .doc(firestoreDocId)
                 .set(firestoreData, SetOptions(merge: true))
                 .timeout(const Duration(seconds: 15));
-            debugPrint('SyncService: Updated existing doc $firestoreDocId in $collection.');
+            debugPrint('SyncService: Synced doc $firestoreDocId in $collection.');
           } else {
-            // It's a new document to add
+            // It's a new document to add with a generated ID
             await FirebaseFirestore.instance
                 .collection(collection)
                 .add(firestoreData)
                 .timeout(const Duration(seconds: 15));
-            debugPrint('SyncService: Added new doc to $collection.');
+            debugPrint('SyncService: Added new random doc to $collection.');
           }
 
           // Mark the local record as synced

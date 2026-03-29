@@ -175,8 +175,8 @@ class LocalDatabaseService {
   Future<void> saveMember(Map<String, dynamic> member) async {
     final db = await database;
     // unique_id should be something like Aadhar or Serial or docId
-    String uId = (member['unique_id'] ?? member['uniq_Registration_Number'] ?? member['Name'] + '_' + member['Family_Code']).toString();
-    String fId = member['Family_Code']?.toString() ?? '';
+    String uId = (member['unique_id'] ?? member['uniq_Registration_Number'] ?? (member['Name'].toString() + '_' + (member['Family_Code'] ?? ''))).toString();
+    String fId = member['Family_Code']?.toString().trim().toUpperCase() ?? '';
     
     await db.insert('family_members', {
       'unique_id': uId,
@@ -189,8 +189,8 @@ class LocalDatabaseService {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       'family_members',
-      where: 'family_id = ?',
-      whereArgs: [familyId],
+      where: 'UPPER(family_id) = ?',
+      whereArgs: [familyId.trim().toUpperCase()],
     );
     return results.map((e) => jsonDecode(e['data'] as String) as Map<String, dynamic>).toList();
   }
