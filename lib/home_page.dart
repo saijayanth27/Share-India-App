@@ -22,6 +22,8 @@ import 'eye_examination_page.dart';
 import 'cytology_page.dart';
 import 'lab_investigation_page.dart';
 import 'cervical_cancer_screening_questionnaire_page.dart';
+import 'questionnaire_na_page.dart';
+import 'cc_refusal_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -83,16 +85,16 @@ class HomePage extends StatelessWidget {
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalDetailsPage())),
                   ),
                   _DashboardItem(
-                    title: 'ANC',
-                    icon: Icons.pregnant_woman,
-                    color: Colors.pink,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnteNatalCarePage())),
-                  ),
-                  _DashboardItem(
                     title: 'Family Planning',
                     icon: Icons.family_restroom,
                     color: Colors.blueAccent,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyPlanningPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'ANC',
+                    icon: Icons.pregnant_woman,
+                    color: Colors.pink,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnteNatalCarePage())),
                   ),
                   _DashboardItem(
                     title: 'Child Imm.',
@@ -210,6 +212,18 @@ class HomePage extends StatelessWidget {
                     icon: Icons.description,
                     color: Colors.deepPurpleAccent,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CervicalCancerScreeningPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'Quest. N/A',
+                    icon: Icons.block,
+                    color: Colors.orange,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuestionnaireNAPage())),
+                  ),
+                  _DashboardItem(
+                    title: 'CC Refusal',
+                    icon: Icons.cancel_outlined,
+                    color: Colors.deepPurple,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CcRefusalPage())),
                   ),
                 ],
               ),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'login_page.dart';
 import 'auth_service.dart';
 import 'admin_dashboard_page.dart';
 import 'main.dart';
@@ -45,16 +45,32 @@ import 'lab_investigation_page.dart';
 import 'lab_investigation_report_page.dart';
 import 'cervical_cancer_screening_questionnaire_page.dart';
 import 'cervical_cancer_screening_questionnaire_report_page.dart';
+import 'family_code_report_page.dart';
 import 'local_database_service.dart';
 
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
+
+  @override
+  State<AppDrawer> createState() => _AppDrawerState();
+}
+
+class _AppDrawerState extends State<AppDrawer> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Drawer(
       child: ListView(
+        key: const PageStorageKey('app_drawer_scroll'),
+        controller: _scrollController,
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
@@ -99,6 +115,7 @@ class AppDrawer extends StatelessWidget {
           FutureBuilder<bool>(
             future: AuthService().isAdmin(),
             builder: (context, snapshot) {
+              // Show nothing while checking (near-instant if cached)
               if (snapshot.hasData && snapshot.data == true) {
                 return ListTile(
                   leading: const Icon(Icons.admin_panel_settings, color: Colors.red),
@@ -141,12 +158,12 @@ class AppDrawer extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.list_alt, color: Colors.teal),
-                title: const Text('Records List'),
+                title: const Text('Family Code Report'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const RecordsPage()),
+                    MaterialPageRoute(builder: (_) => const FamilyCodeReportPage()),
                   );
                 },
               ),
@@ -170,6 +187,29 @@ class AppDrawer extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const PersonalDetailsReportPage()),
+                  );
+                },
+              ),
+              const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.family_restroom, color: Colors.blueAccent),
+                title: const Text('Family Planning'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FamilyPlanningPage()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.analytics_outlined, color: Colors.teal),
+                title: const Text('Family Planning Report'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FamilyPlanningReportPage()),
                   );
                 },
               ),
@@ -262,29 +302,6 @@ class AppDrawer extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const AarogyaReportPage()),
-                  );
-                },
-              ),
-              const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16),
-              ListTile(
-                leading: const Icon(Icons.family_restroom, color: Colors.blueAccent),
-                title: const Text('Family Planning'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const FamilyPlanningPage()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.analytics_outlined, color: Colors.teal),
-                title: const Text('Family Planning Report'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const FamilyPlanningReportPage()),
                   );
                 },
               ),
@@ -440,7 +457,7 @@ class AppDrawer extends StatelessWidget {
                 title: const Text('Doctor Prescriptions Form Report'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const DoctorPrescriptionReportPage()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const DoctorPrescriptionsReportPage()));
                 },
               ),
               const Divider(height: 1, thickness: 0.5, indent: 16, endIndent: 16),
@@ -589,10 +606,14 @@ class AppDrawer extends StatelessWidget {
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             onTap: () async {
-              await FirebaseAuth.instance.signOut();
+              await AuthService().signOut();
               if (context.mounted) {
-                Navigator.pop(context);
-                // AuthWrapper in main.dart will automatically switch to LoginPage
+                // Clear all routes and go back to LoginPage immediately
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                  (route) => false,
+                );
               }
             },
           ),

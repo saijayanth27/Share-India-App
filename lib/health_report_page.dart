@@ -1,387 +1,175 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'app_drawer.dart';
 import 'bpgluco.dart';
+import 'app_drawer.dart';
+import 'widget.dart';
+import 'auth_service.dart';
 
 class HealthReportPage extends StatefulWidget {
   const HealthReportPage({super.key});
-
   @override
   State<HealthReportPage> createState() => _HealthReportPageState();
 }
 
 class _HealthReportPageState extends State<HealthReportPage> {
-  final TextEditingController _searchController = TextEditingController();
-  String _activeSearchQuery = '';
-  String _searchField = 'All';
-  bool _isSearchingActive = false;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  bool _isAdmin = false;
+  Set<String> _selectedIds = {};
+  late Stream<QuerySnapshot> _reportStream;
 
-  final Map<String, String> _fieldMapping = {
-    'Date & Time': 'timestamp',
-    'BP 1': 'systolic',
-    'BP 2': 'systolic2',
-    'BP 3': 'systolic3',
-    'Sugar': 'sugar_value',
-  };
+  @override
+  void initState() {
+    super.initState();
+    _reportStream = FirebaseFirestore.instance.collection('health_readings').snapshots(includeMetadataChanges: true);
+    _searchController.addListener(() { if (mounted) setState(() {}); });
+    AuthService().isAdmin().then((v) { if (mounted) setState(() => _isAdmin = v); });
+  }
+
+  @override
+  void dispose() { _searchController.dispose(); super.dispose(); }
+
   void _deleteRecord(String docId) {
-    showDialog(
+    showDialog(context: context, builder: (_) => AlertDialog(
+      title: const Text('Delete Record'),
+      content: const Text('Are you sure you want to delete this record?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () { FirebaseFirestore.instance.collection('health_readings').doc(docId).delete(); Navigator.pop(context); },
+            child: const Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
+    ));
+  }
+
+  Future<void> _deleteBulk() async {
+    if (_selectedIds.isEmpty) return;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Record'),
-        content: const Text('Are you sure you want to delete this health record?'),
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Selected Records'),
+        content: Text('Delete ${_selectedIds.length} record(s)? This cannot be undone.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              FirebaseFirestore.instance.collection('health_readings').doc(docId).delete();
-              Navigator.pop(context);
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete All', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (final id in _selectedIds) {
+      batch.delete(FirebaseFirestore.instance.collection('health_readings').doc(id));
+    }
+    await batch.commit();
+    if (mounted) setState(() => _selectedIds.clear());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: _isSearchingActive
-            ? TextField(
-                controller: _searchController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Search $_searchField...',
-                  border: InputBorder.none,
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () => setState(() {
-                      _isSearchingActive = false;
-                      _activeSearchQuery = '';
-                      _searchController.clear();
-                    }),
-                  ),
-                ),
-                onChanged: (val) => setState(() => _activeSearchQuery = val),
-              )
-            : const Text('Health Report', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          if (!_isSearchingActive)
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () => setState(() {
-                _isSearchingActive = true;
-                _searchField = 'All';
-              }),
-            ),
-        ],
+        title: const Text('Health Report', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true, elevation: 0, backgroundColor: Colors.transparent,
+        flexibleSpace: Container(decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.shade700, Colors.lightBlue.shade400], begin: Alignment.topLeft, end: Alignment.bottomRight))),
       ),
       drawer: const AppDrawer(),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('health_readings')
-            .orderBy('clientUpdatedAt', descending: true)
-            .snapshots(includeMetadataChanges: true),
+        stream: _reportStream,
         builder: (context, snapshot) {
-          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-
-          var docs = snapshot.data?.docs ?? [];
+          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
           final fromCache = snapshot.data?.metadata.isFromCache ?? false;
           final syncing = snapshot.data?.metadata.hasPendingWrites ?? false;
-
-          // Sorting logic (latest first)
-          docs.sort((a, b) {
-            final aData = a.data() as Map<String, dynamic>;
-            final bData = b.data() as Map<String, dynamic>;
-            final aVal = aData['clientUpdatedAt'] ?? 0;
-            final bVal = bData['clientUpdatedAt'] ?? 0;
-            return bVal.compareTo(aVal);
-          });
-
-          // Search filtering
-          if (_activeSearchQuery.isNotEmpty) {
-            final query = _activeSearchQuery.toLowerCase();
+          var docs = snapshot.data?.docs ?? [];
+          docs.sort((a, b) => ((b.data() as Map)['clientUpdatedAt'] ?? 0).compareTo((a.data() as Map)['clientUpdatedAt'] ?? 0));
+          if (_searchQuery.isNotEmpty) {
+            final q = _searchQuery.toLowerCase();
             docs = docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              if (_searchField == 'All') {
-                return data.values.any((v) => v.toString().toLowerCase().contains(query));
-              } else {
-                final key = _fieldMapping[_searchField];
-                if (key == null) return false;
-                if (key == 'systolic' || key == 'systolic2' || key == 'systolic3') {
-                  // Check sys/dia/pulse for BP slots
-                  final suffix = key == 'systolic' ? '' : key.substring(8); // '' or '2' or '3'
-                  final s = data['systolic$suffix']?.toString() ?? '';
-                  final d = data['diastolic$suffix']?.toString() ?? '';
-                  final p = data['pulse$suffix']?.toString() ?? '';
-                  return s.contains(query) || d.contains(query) || p.contains(query);
-                }
-                return data[key]?.toString().toLowerCase().contains(query) ?? false;
-              }
+              final d = doc.data() as Map<String, dynamic>;
+              return (d['Family_Code'] ?? d['Family_code'] ?? '').toString().toLowerCase().contains(q) || (d['Name'] ?? '').toString().toLowerCase().contains(q);
             }).toList();
           }
+          return Column(children: [
+            _buildBanner(fromCache, syncing, docs.length),
+            _buildSearchBar(),
+            adminBulkDeleteBar(isAdmin: _isAdmin, totalCount: docs.length, selectedCount: _selectedIds.length, onToggleAll: () => setState(() { if (_selectedIds.length == docs.length) _selectedIds.clear(); else _selectedIds = docs.map((d) => d.id).toSet(); }), onDeleteSelected: _deleteBulk),
+            docs.isEmpty ? const Expanded(child: Center(child: Text('No records found.'))) : Expanded(child: _buildList(docs)),
+          ]);
+        },
+      ),
+    );
+  }
 
-          final totalCount = docs.length;
+  Widget _buildSearchBar() => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+    child: Row(children: [
+      Expanded(child: TextField(
+        controller: _searchController,
+        textInputAction: TextInputAction.search,
+        textCapitalization: TextCapitalization.characters,
+        inputFormatters: [UpperCaseTextFormatter()],
+        decoration: InputDecoration(
+          hintText: 'Search by Family Code or Name...', prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) : null,
+          isDense: true, filled: true, fillColor: Colors.white, contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide(color: Colors.grey.shade300)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide(color: Colors.grey.shade300)),
+        ),
+        onSubmitted: (v) => setState(() => _searchQuery = v.trim()),
+      )),
+      const SizedBox(width: 8),
+      ElevatedButton(
+        onPressed: () => setState(() => _searchQuery = _searchController.text.trim()),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.indigo, foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        ),
+        child: const Text('Search'),
+      ),
+    ]),
+  );
 
-          return Column(
-            children: [
-              // Online status banner
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                color: fromCache ? Colors.orange.shade100 : Colors.green.shade100,
-                child: Text(
-                  '${fromCache ? 'Offline mode' : syncing ? 'Online – syncing...' : 'Online – synced'}  |  $totalCount / $totalCount records',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: docs.isEmpty 
-                  ? const Center(child: Text('No health records found.', style: TextStyle(color: Colors.grey)))
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.vertical,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columnSpacing: 25,
-                          headingRowHeight: 56,
-                          dataRowHeight: 64,
-                          headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
-                          columns: [
-                            const DataColumn(label: Text('Actions')),
-                            const DataColumn(label: Text('Sync')),
-                            _buildHeaderWithSearch('Date & Time'),
-                            _buildHeaderWithSearch('BP 1'),
-                            _buildHeaderWithSearch('BP 2'),
-                            _buildHeaderWithSearch('BP 3'),
-                            _buildHeaderWithSearch('Sugar'),
-                            const DataColumn(label: Text('Images')),
-                          ],
-                          rows: docs.map((doc) {
-                            final data = doc.data() as Map<String, dynamic>;
-                            final bool isPending = data['needs_gemini_extraction'] == true || data['needs_storage_upload'] == true;
-                            final bool hasBP = data['has_bp'] == true;
-                            final bool hasSugar = data['has_sugar'] == true;
-
-                            String bp1 = '--';
-                            if (hasBP) {
-                              if (data['bp_needs_extraction'] == true && data['systolic'] == null) bp1 = '...';
-                              else bp1 = '${data['systolic'] ?? '--'}/${data['diastolic'] ?? '--'} (${data['pulse'] ?? '--'})';
-                            }
-
-                            String bp2 = '--';
-                            if (data['systolic2'] != null || data['diastolic2'] != null) {
-                              bp2 = '${data['systolic2'] ?? '--'}/${data['diastolic2'] ?? '--'} (${data['pulse2'] ?? '--'})';
-                            } else if (data['bp_image_path2'] != null) {
-                              bp2 = '...';
-                            }
-
-                            String bp3 = '--';
-                            if (data['systolic3'] != null || data['diastolic3'] != null) {
-                              bp3 = '${data['systolic3'] ?? '--'}/${data['diastolic3'] ?? '--'} (${data['pulse3'] ?? '--'})';
-                            } else if (data['bp_image_path3'] != null) {
-                              bp3 = '...';
-                            }
-                            
-                            String sugarStr = '--';
-                            if (hasSugar) {
-                              if (data['sugar_needs_extraction'] == true && data['sugar_value'] == null) sugarStr = '...';
-                              else sugarStr = '${data['sugar_value'] ?? '--'} mg/dL';
-                            }
-
-                            return DataRow(cells: [
-                              DataCell(
-                                PopupMenuButton<String>(
-                                  icon: const Icon(Icons.more_vert, color: Colors.grey),
-                                  onSelected: (value) {
-                                    if (value == 'edit') {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => HealthReadingsPage(
-                                            existingData: data,
-                                            docId: doc.id,
-                                          ),
-                                        ),
-                                      );
-                                    } else if (value == 'delete') {
-                                      _deleteRecord(doc.id);
-                                    }
-                                  },
-                                  itemBuilder: (context) => [
-                                    const PopupMenuItem(
-                                      value: 'edit',
-                                      child: ListTile(
-                                        leading: Icon(Icons.edit, color: Colors.blue),
-                                        title: Text('Edit'),
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                    ),
-                                    const PopupMenuItem(
-                                      value: 'delete',
-                                      child: ListTile(
-                                        leading: Icon(Icons.delete, color: Colors.red),
-                                        title: Text('Delete'),
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              DataCell(Icon(
-                                isPending ? Icons.timer_outlined : Icons.check_circle_rounded,
-                                color: isPending ? Colors.orange : Colors.green,
-                                size: 22,
-                              )),
-                              DataCell(Text(data['timestamp'] ?? '', style: const TextStyle(fontSize: 12))),
-                              DataCell(Text(bp1, style: const TextStyle(fontWeight: FontWeight.w500))),
-                              DataCell(Text(bp2)),
-                              DataCell(Text(bp3)),
-                              DataCell(Text(sugarStr, style: const TextStyle(fontWeight: FontWeight.w500))),
-                              DataCell(Row(
-                                mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (data['bp_image_path'] != null || data['bp_storage_path'] != null) 
-                                      _buildImageButton(data['bp_image_path'], data['bp_storage_path'], 'BP 1'),
-                                    if (data['bp_image_path2'] != null || data['bp_storage_path2'] != null) 
-                                      _buildImageButton(data['bp_image_path2'], data['bp_storage_path2'], 'BP 2'),
-                                    if (data['bp_image_path3'] != null || data['bp_storage_path3'] != null) 
-                                      _buildImageButton(data['bp_image_path3'], data['bp_storage_path3'], 'BP 3'),
-                                    if (data['sugar_image_path'] != null || data['sugar_storage_path'] != null) 
-                                      _buildImageButton(data['sugar_image_path'], data['sugar_storage_path'], 'Sugar'),
-                                  ],
-                              )),
-                            ]);
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-              ),
+  Widget _buildList(List<QueryDocumentSnapshot> docs) => ListView.separated(
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+    itemCount: docs.length,
+    separatorBuilder: (_, __) => const SizedBox(height: 6),
+    itemBuilder: (context, index) {
+      final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
+      final familyCode = (data['Family_Code'] ?? data['Family_code'] ?? 'N/A').toString();
+      final name = (data['Name'] ?? 'N/A').toString();
+      final needsSync = data['needs_zoho_sync'] == true || data['is_temporary'] == true;
+      return Card(
+        elevation: 0, color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.grey.shade200)),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          onTap: !_isAdmin ? null : () => setState(() { if (_selectedIds.contains(doc.id)) _selectedIds.remove(doc.id); else _selectedIds.add(doc.id); }),
+          leading: reportItemLeading(isAdmin: _isAdmin, isSelected: _selectedIds.contains(doc.id), onToggle: () => setState(() { if (_selectedIds.contains(doc.id)) _selectedIds.remove(doc.id); else _selectedIds.add(doc.id); }), index: index, needsSync: needsSync),
+          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+          subtitle: Text(familyCode, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 20),
+            onSelected: (v) { if (v == 'edit') Navigator.push(context, MaterialPageRoute(builder: (_) => HealthReadingsPage(existingData: data, docId: doc.id))); else if (v == 'delete') _deleteRecord(doc.id); },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: Colors.blue, size: 18), title: Text('Edit'), contentPadding: EdgeInsets.zero, dense: true)),
+              const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red, size: 18), title: Text('Delete'), contentPadding: EdgeInsets.zero, dense: true)),
             ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildImageButton(String? localPath, String? storagePath, String label) {
-    if (localPath == null && storagePath == null) return const SizedBox.shrink();
-    
-    return IconButton(
-      icon: const Icon(Icons.image, size: 20, color: Colors.blue),
-      tooltip: 'View $label',
-      onPressed: () {
-        showDialog(
-          context: context,
-          builder: (context) => Dialog(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.6,
-                    maxWidth: MediaQuery.of(context).size.width * 0.8,
-                  ),
-                  child: _buildImageDisplay(localPath, storagePath),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildImageDisplay(String? localPath, String? storagePath) {
-    // 1. Try local file first (fastest, keeps original quality)
-    if (localPath != null && File(localPath).existsSync()) {
-      return Image.file(File(localPath), fit: BoxFit.contain);
-    }
-    
-    // 2. Fallback to Firebase Storage
-    if (storagePath != null) {
-      return FutureBuilder<String>(
-        future: FirebaseStorage.instance.ref(storagePath).getDownloadURL(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox(
-              height: 100,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (snapshot.hasError) {
-            final errStr = snapshot.error.toString();
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: SelectableText('Error loading image from cloud: $errStr', style: const TextStyle(color: Colors.red)),
-            );
-          }
-          if (!snapshot.hasData) return const Text('No cloud image found');
-          
-          return Image.network(
-            snapshot.data!,
-            fit: BoxFit.contain,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const SizedBox(
-                height: 100,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            },
-          );
-        },
+        ),
       );
-    }
-    
-    debugPrint('DEBUG IMAGE RENDER: localPath=$localPath, storagePath=$storagePath');
-    
-    return const Padding(
-      padding: EdgeInsets.all(16.0),
-      child: Text('Image not found locally or in cloud'),
-    );
-  }
+    },
+  );
 
-  DataColumn _buildHeaderWithSearch(String label) {
-    return DataColumn(
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-          if (label != 'Actions' && label != 'Sync' && label != 'Images') ...[
-            const SizedBox(width: 4),
-            IconButton(
-              icon: const Icon(Icons.search, size: 16, color: Colors.grey),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              onPressed: () => setState(() {
-                _searchField = label;
-                _isSearchingActive = true;
-              }),
-            ),
-          ],
-        ],
-      ),
-    );
+  Widget _buildBanner(bool fromCache, bool syncing, int count) {
+    final label = fromCache ? 'Offline mode' : syncing ? 'Online – syncing...' : 'Online – synced';
+    final bgColor = fromCache ? Colors.orange.shade100 : Colors.green.shade100;
+    final textColor = fromCache ? Colors.orange.shade800 : Colors.green.shade800;
+    return Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16), color: bgColor,
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: textColor)),
+        Text('$count records', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor)),
+      ]));
   }
 }

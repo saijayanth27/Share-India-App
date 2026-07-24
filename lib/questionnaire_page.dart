@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'local_database_service.dart';
 import 'widget.dart';
 
 class QuestionnairePage extends StatefulWidget {
@@ -19,7 +20,11 @@ class QuestionnairePage extends StatefulWidget {
 
 class _QuestionnairePageState extends State<QuestionnairePage> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   bool _isSaving = false;
+  bool _isActionActive = false; // Add this
+  final FocusNode _familyCodeNode = FocusNode();
+  bool _familyIdReadOnly = true;
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
@@ -41,6 +46,12 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   // --- Lookups ---
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+  // Location (auto-populated from Family Code)
+  String? _locationVillage;
+  String? _locationMandal;
+  String? _locationDistrict;
+  String? _locationState;
+
 
   // --- Measurements ---
   final _heightCm = TextEditingController();
@@ -48,7 +59,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   String? generalHealthStatus;
 
   // --- Hypertension ---
-  String? hasHypertension = '(2) No';
+  String? hasHypertension; // Was (2) No
   final _hypertensionDays = TextEditingController();
   String? hypertensionDuration;
   String? hypertensionMedicine;
@@ -56,7 +67,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   final _hypertensionOtherMedicine = TextEditingController();
 
   // --- Diabetes ---
-  String? hasDiabetes = '(2) No';
+  String? hasDiabetes; // Was (2) No
   final _diabetesDays = TextEditingController();
   String? diabetesDuration;
   String? diabetesMedicine;
@@ -64,41 +75,41 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   final _diabetesOtherMedicine = TextEditingController();
 
   // --- Tobacco & Alcohol ---
-  String? smokesNow = '(2) No';
+  String? smokesNow;
   List<Map<String, dynamic>> tobaccoProductsPresent = [];
-  String? smokedPast = '(2) No';
+  String? smokedPast;
   List<Map<String, dynamic>> tobaccoProductsPast = [];
-  String? drinksAlcohol = '(2) No';
+  String? drinksAlcohol;
   final _alcoholDuration = TextEditingController();
   String? alcoholDurationUnit;
   List<Map<String, dynamic>> alcoholProducts = [];
 
   // --- Systemic Review ---
-  String? sufferGeneralHealth = '(2) No';
+  String? sufferGeneralHealth;
   String? generalHealthStatusDetail;
   final _generalHealthOther = TextEditingController();
-  String? sufferVision = '(2) No';
+  String? sufferVision;
   String? visionStatusDetail;
   final _visionOther = TextEditingController();
-  String? sufferEnt = '(2) No';
+  String? sufferEnt;
   String? entStatusDetail;
   final _entOther = TextEditingController();
-  String? sufferRespiratory = '(2) No';
+  String? sufferRespiratory;
   String? respiratoryStatusDetail;
   final _respiratoryOther = TextEditingController();
-  String? sufferGastro = '(2) No';
+  String? sufferGastro;
   String? gastroStatusDetail;
   final _gastroOther = TextEditingController();
-  String? sufferGenitourinary = '(2) No';
+  String? sufferGenitourinary;
   String? genitourinaryStatusDetail;
   final _genitourinaryOther = TextEditingController();
-  String? sufferMusclesBones = '(2) No';
+  String? sufferMusclesBones;
   String? musclesBonesStatusDetail;
   final _musclesBonesOther = TextEditingController();
-  String? sufferSkin = '(2) No';
+  String? sufferSkin;
   String? skinStatusDetail;
   final _skinOther = TextEditingController();
-  String? sufferBlood = '(2) No';
+  String? sufferBlood;
   String? bloodStatusDetail;
   final _bloodOther = TextEditingController();
 
@@ -141,33 +152,97 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   void initState() {
     super.initState();
     if (widget.existingData != null) {
+      _isEditMode = true;
+      _editDocId = widget.docId;
       _loadExistingData();
+      final familyCode = (widget.existingData!['Family_Code'] ?? widget.existingData!['Family_code'] ?? '').toString();
+      if (familyCode.isNotEmpty) {
+        _fetchMembersByFamily(familyCode);
+        _fetchExistingRecords(familyCode);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _familyCodeNode.dispose();
+    _registrationNumber.dispose();
+    _familyCodeController.dispose();
+    _nameController.dispose();
+    _age.dispose();
+    _contactTel.dispose();
+    _heightCm.dispose();
+    _weightKg.dispose();
+    _hypertensionDays.dispose();
+    _hypertensionDosage.dispose();
+    _hypertensionOtherMedicine.dispose();
+    _diabetesDays.dispose();
+    _diabetesOtherMedicine.dispose();
+    _alcoholDuration.dispose();
+    _generalHealthOther.dispose();
+    _visionOther.dispose();
+    _entOther.dispose();
+    _respiratoryOther.dispose();
+    _gastroOther.dispose();
+    _genitourinaryOther.dispose();
+    _musclesBonesOther.dispose();
+    _skinOther.dispose();
+    _bloodOther.dispose();
+    _idController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
     setState(() => _isLoadingMembers = true);
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('personal_details')
-          .where('Family_Code', isEqualTo: familyCode)
-          .get(const GetOptions(source: Source.serverAndCache));
-      final localMembers = await DataCacheService().fetchMembersLocally(familyCode);
+      final fCode = familyCode.trim().toUpperCase();
+      if (fCode.isEmpty) {
+        setState(() => _isLoadingMembers = false);
+        return;
+      }
+
+      // 1. Fetch Local Members immediately (Fastest for offline)
+      final localMembers = await DataCacheService().fetchMembersLocally(fCode);
+      
+      // 2. Try Firestore for fresh data, but with a short timeout
+      List<Map<String, dynamic>> firestoreMembers = [];
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('personal_details')
+            .where('Family_Code', isEqualTo: fCode)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 3));
+        
+        firestoreMembers = snapshot.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+      } catch (e) {
+        debugPrint('Questionnaire: Firestore lookup failed/timeout, relying on LOCAL: $e');
+      }
+
       final Map<String, Map<String, dynamic>> memberMap = {};
       final Set<String> allNames = {};
-      void processMember(Map<String, dynamic> data) {
+      
+      // Process both, preferring Firestore but ensuring Local captures everything else
+      final combined = [...firestoreMembers, ...localMembers];
+
+      for (var data in combined) {
         final name = data['Name']?.toString() ?? '';
-        if (name.isEmpty) return;
+        if (name.isEmpty) continue;
+        
+        // Only include members aged 18 or older for the questionnaire
+        final age = int.tryParse(data['Age']?.toString() ?? '0') ?? 0;
+        if (age < 18) continue;
+
         memberMap[name] = data;
         allNames.add(name);
       }
-      for (var doc in snapshot.docs) processMember(doc.data());
-      for (var local in localMembers) processMember(local);
+
       setState(() {
         _allMembersData = memberMap;
         familyMemberNames = allNames.toList()..sort();
-        selectedFamilyCode = familyCode;
+        selectedFamilyCode = fCode;
       });
+          _fetchFamilyLocation(familyCode);
     } catch (e) {
       debugPrint('Error fetching members: $e');
     } finally {
@@ -181,7 +256,8 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       final snapshot = await FirebaseFirestore.instance
           .collection('questionnaire')
           .where('Family_Code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
@@ -216,7 +292,8 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
             .where('Family_Code_Creation', isEqualTo: fCode)
             .where('Name', isEqualTo: name)
             .limit(1)
-            .get();
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
 
         if (snapshot.docs.isNotEmpty) {
           final doc = snapshot.docs.first;
@@ -248,6 +325,10 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     selectedFamilyCode = d['Family_Code_Creation'] ?? d['Family_Code'] ?? d['Family_code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
+    _locationVillage  = (d['Village']  ?? d['village'])?.toString();
+    _locationMandal   = (d['Mandal']   ?? d['mandal'])?.toString();
+    _locationDistrict = (d['District'] ?? d['district'])?.toString();
+    _locationState    = (d['State']    ?? d['state'])?.toString();
     _nameController.text = selectedMemberName ?? '';
     selectedGender = d['Gender'];
     _age.text = d['Age']?.toString() ?? '';
@@ -268,10 +349,10 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       }
     }
     
-    interviewersName = d['Interviewer_s_Name'];
-    _heightCm.text = d['Height_cm']?.toString() ?? '';
+    interviewersName = matchInterviewerName(d['Interviewer_s_Name'] ?? d['Interviewer_Name'] ?? d['INTNAME'], interviewerList);
+    _heightCm.text = d['Height_CM']?.toString() ?? '';
     _weightKg.text = d['Weight_Kg']?.toString() ?? '';
-    generalHealthStatus = d['General_Health_Status'];
+    generalHealthStatus = d['What_is_your_general_health_status'];
 
     // Hypertension
     hasHypertension = d['Have_you_ever_been_diagnosed_screened_with_hypertension'] ?? '(2) No';
@@ -336,7 +417,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     bloodStatusDetail = d['If_yes8'];
     _bloodOther.text = d['If_Others_Please_Mention15']?.toString() ?? '';
 
-    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+    if (!_isEditMode && selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -344,12 +425,16 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
+      _isActionActive = false;
       _registrationNumber.clear();
-      _familyCodeController.clear();
       _nameController.clear();
-      selectedFamilyCode = null;
+      // selectedFamilyCode = null; // Preserved
       selectedMemberName = null;
       selectedGender = null;
+      _locationVillage = null;
+      _locationMandal = null;
+      _locationDistrict = null;
+      _locationState = null;
       _age.clear();
       _contactTel.clear();
       dateOfInterview = DateTime.now();
@@ -358,59 +443,60 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       _heightCm.clear();
       _weightKg.clear();
       generalHealthStatus = null;
-      hasHypertension = '(2) No';
+      hasHypertension = null; // Cleaned
       _hypertensionDays.clear();
       hypertensionDuration = null;
       hypertensionMedicine = null;
       _hypertensionDosage.clear();
       _hypertensionOtherMedicine.clear();
 
-      hasDiabetes = '(2) No';
+      hasDiabetes = null; // Cleaned
       _diabetesDays.clear();
       diabetesDuration = null;
       diabetesMedicine = null;
       diabetesStrength = null;
       _diabetesOtherMedicine.clear();
 
-      smokesNow = '(2) No';
+      smokesNow = null; // Cleaned
       tobaccoProductsPresent = [];
-      smokedPast = '(2) No';
+      smokedPast = null; // Cleaned
       tobaccoProductsPast = [];
-      drinksAlcohol = '(2) No';
+      drinksAlcohol = null; // Cleaned
       _alcoholDuration.clear();
       alcoholDurationUnit = null;
       alcoholProducts = [];
 
-      sufferGeneralHealth = '(2) No';
+      sufferGeneralHealth = null;
       generalHealthStatusDetail = null;
       _generalHealthOther.clear();
-      sufferVision = '(2) No';
+      sufferVision = null;
       visionStatusDetail = null;
       _visionOther.clear();
-      sufferEnt = '(2) No';
+      sufferEnt = null;
       entStatusDetail = null;
       _entOther.clear();
-      sufferRespiratory = '(2) No';
+      sufferRespiratory = null;
       respiratoryStatusDetail = null;
       _respiratoryOther.clear();
-      sufferGastro = '(2) No';
+      sufferGastro = null;
       gastroStatusDetail = null;
       _gastroOther.clear();
-      sufferGenitourinary = '(2) No';
+      sufferGenitourinary = null;
       genitourinaryStatusDetail = null;
       _genitourinaryOther.clear();
-      sufferMusclesBones = '(2) No';
+      sufferMusclesBones = null;
       musclesBonesStatusDetail = null;
       _musclesBonesOther.clear();
-      sufferSkin = '(2) No';
+      sufferSkin = null;
       skinStatusDetail = null;
       _skinOther.clear();
-      sufferBlood = '(2) No';
+      sufferBlood = null;
       bloodStatusDetail = null;
       _bloodOther.clear();
 
       familyMemberNames = [];
       _existingRecords = [];
+      // _familyCodeController.text = 'TSRRMED'; // Preserved
     });
   }
 
@@ -431,6 +517,10 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         'Family_Code_Creation': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
+        'Village': _locationVillage,
+        'Mandal': _locationMandal,
+        'District': _locationDistrict,
+        'State': _locationState,
         'Age': int.tryParse(_age.text),
         'Contact_Tel': int.tryParse(_contactTel.text),
         'Date_of_Interview': dateOfInterview != null ? DateFormat('dd-MMM-yyyy').format(dateOfInterview!) : null,
@@ -537,64 +627,127 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         ));
       }
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() {
+        _isSaving = false;
+        _isActionActive = false;
+      });
     }
   }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(title: const Text('Main Questionnaire'), elevation: 0),
       body: Stack(
         children: [
           SingleChildScrollView(
             key: const PageStorageKey('questionnaire_scroll'),
+            controller: _scrollController,
             padding: const EdgeInsets.all(16.0),
             child: Form(
               key: _formKey,
               child: Column(
                 children: [
-                  formActionButtons(
-                      context: context,
-                      isEditMode: _isEditMode,
-                      onNew: () { setState(() { _isEditMode = false; _resetForm(); }); },
-                      onSave: _save,
-                      onEdit: () {
-                        setState(() {
-                          _isEditMode = true;
-                          final code = _familyCodeController.text.trim();
-                          if (code.isNotEmpty) {
-                            _fetchMembersByFamily(code);
-                            _fetchExistingRecords(code);
-                          }
-                        });
-                      },
-                      onCancel: _resetForm,
-                      onExit: () => Navigator.pop(context),
-                      isSaving: _isSaving,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildIdentitySection(),
-                    const SizedBox(height: 16),
-                    _buildMeasurementSection(),
-                    const SizedBox(height: 16),
-                    _buildHypertensionSection(),
-                    const SizedBox(height: 16),
-                    _buildDiabetesSection(),
-                    const SizedBox(height: 16),
-                    _buildHabitsSection(),
-                    const SizedBox(height: 16),
-                    _buildSystemicReview(),
-                    const SizedBox(height: 40),
-                  ],
-                ),
+                  _buildIdentitySection(),
+                  const SizedBox(height: 16),
+                  _buildMeasurementSection(),
+                  const SizedBox(height: 16),
+                  _buildHypertensionSection(),
+                  const SizedBox(height: 16),
+                  _buildDiabetesSection(),
+                  const SizedBox(height: 16),
+                  _buildHabitsSection(),
+                  const SizedBox(height: 16),
+                  _buildSystemicReview(),
+                  const SizedBox(height: 40),
+                ],
               ),
             ),
+          ),
           if (_isSaving)
             Container(
               color: Colors.black.withOpacity(0.3),
               child: const Center(child: CircularProgressIndicator()),
             ),
+        ],
+      ),
+      bottomNavigationBar: _isSaving
+          ? null
+          : formActionButtons(
+              context: context,
+              isEditMode: _isEditMode,
+              onNew: () {
+                setState(() {
+                  _isEditMode = false;
+                  _resetForm();
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                });
+              },
+              onSave: _save,
+              onEdit: () {
+                setState(() {
+                  _isEditMode = true;
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                  final code = _familyCodeController.text.trim();
+                  if (code.isNotEmpty) {
+                    _fetchMembersByFamily(code);
+                    _fetchExistingRecords(code);
+                  }
+                });
+              },
+              onCancel: () {
+                setState(() {
+                  _isActionActive = false;
+                  _resetForm();
+                });
+              },
+              onExit: () => Navigator.pop(context),
+              isSaving: _isSaving,
+              isActionActive: _isActionActive,
+            ),
+    );
+  }
+
+
+  Future<void> _fetchFamilyLocation(String familyCode) async {
+    try {
+      var detail = await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim().toUpperCase());
+      detail ??= await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim());
+
+      if (detail == null) {
+        final snap = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .doc(familyCode.trim().toUpperCase())
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        if (snap.exists) detail = snap.data();
+      }
+
+      if (detail != null && mounted) {
+        setState(() {
+          _locationVillage  = (detail!['village']  ?? detail['Village'])?.toString();
+          _locationMandal   = (detail['mandal']    ?? detail['Mandal'])?.toString();
+          _locationDistrict = (detail['district']  ?? detail['District'])?.toString();
+          _locationState    = (detail['state']     ?? detail['State'])?.toString();
+        });
+      }
+    } catch (e) {
+      debugPrint('_fetchFamilyLocation: $e');
+    }
+  }
+
+  Widget _buildLocationRow(String label, String? value) {
+    if (value == null || value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 60, child: Text('$label:', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
         ],
       ),
     );
@@ -606,11 +759,14 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       title: 'Member Identity',
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField('Registration Number', _registrationNumber, enabled: _isActionActive, isNumericOnly: true),
         const SizedBox(height: 12),
         formSearchField(
           'Family Code',
           _familyCodeController,
+          isUpperCase: true,
+          readOnly: _familyIdReadOnly,
+          focusNode: _familyCodeNode,
           onSearch: () {
             if (_familyCodeController.text.isNotEmpty) {
               _fetchMembersByFamily(_familyCodeController.text);
@@ -620,6 +776,35 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           isLoading: _isLoadingMembers,
         ),
         const SizedBox(height: 12),
+        if (_locationVillage != null || _locationMandal != null || _locationDistrict != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 4),
+                      Text('Location', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade700, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildLocationRow('Village', _locationVillage),
+                  _buildLocationRow('Mandal', _locationMandal),
+                  _buildLocationRow('District', _locationDistrict),
+                  _buildLocationRow('State', _locationState),
+                ],
+              ),
+            ),
+          ),
         formSearchableDropdown(
           context,
           'Name',
@@ -630,28 +815,29 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
         const SizedBox(height: 12),
         const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: formRadioOption(label: '(1) Male', value: '(1) Male', groupValue: selectedGender, enabled: _isActionActive, onChanged: (v) => setState(() => selectedGender = v))),
+            Expanded(child: formRadioOption(label: '(0) Female', value: '(0) Female', groupValue: selectedGender, enabled: _isActionActive, onChanged: (v) => setState(() => selectedGender = v))),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField('Age', _age, enabled: _isActionActive, isNumericOnly: true)),
             const SizedBox(width: 12),
-            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
+            Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v), enabled: _isActionActive)),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Contact Tel', _contactTel, keyboardType: TextInputType.phone),
+        formTextField('Contact Tel', _contactTel, enabled: _isActionActive, isNumericOnly: true),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+         formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v as String?), enabled: _isActionActive),
         const SizedBox(height: 16),
         _buildImagePicker(),
       ],
@@ -665,7 +851,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         const Text('Profile Image', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         InkWell(
-          onTap: _pickImage,
+          onTap: !_isActionActive ? null : _pickImage,
           child: Container(
             height: 150, width: double.infinity,
             decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
@@ -684,13 +870,13 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       children: [
         Row(
           children: [
-            Expanded(child: formTextField('Height (cm)', _heightCm, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField('Height (cm)', _heightCm, enabled: _isActionActive, isNumericOnly: true)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('Weight (kg)', _weightKg, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField('Weight (kg)', _weightKg, enabled: _isActionActive, isNumericOnly: true)),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, '1. What is your general health status?', ['(1) Excellent', '(2) Good', '(3) Fair', '(4) Poor'], generalHealthStatus, (v) => setState(() => generalHealthStatus = v)),
+         formSearchableDropdown(context, '1. What is your general health status?', ['(1) Excellent', '(2) Good', '(3) Fair', '(4) Poor'], generalHealthStatus, (v) => setState(() => generalHealthStatus = v as String?), enabled: _isActionActive),
       ],
     );
   }
@@ -704,25 +890,29 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         const Text('2. Have you ever been diagnosed/screened with hypertension?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: hasHypertension, onChanged: (v) => setState(() => hasHypertension = v), contentPadding: EdgeInsets.zero, dense: true)),
-          ],
+         Row(
+           children: [
+             formRadioOption(label: '(1) Yes', value: '(1) Yes', groupValue: hasHypertension, enabled: _isActionActive, onChanged: (v) => setState(() => hasHypertension = v as String?)),
+             const SizedBox(width: 16),
+             formRadioOption(label: '(2) No', value: '(2) No', groupValue: hasHypertension, enabled: _isActionActive, onChanged: (v) => setState(() => hasHypertension = v as String?)),
+           ],
+         ),],
         ),
         if (hasHypertension == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('(2a) If Yes, since how many had?', _hypertensionDays)),
+               Expanded(child: formTextField('(2a) If Yes, since how many had?', _hypertensionDays, enabled: _isActionActive)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], hypertensionDuration, (v) => setState(() => hypertensionDuration = v))),
+                Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], hypertensionDuration, (v) => setState(() => hypertensionDuration = v as String?), enabled: _isActionActive)),
             ],
           ),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, '(2b) Are you currently using any medicine\'s?', hypertensionMeds, hypertensionMedicine, (v) => setState(() => hypertensionMedicine = v)),
+            formSearchableDropdown(context, '(2b) Are you currently using any medicine\'s?', hypertensionMeds, hypertensionMedicine, (v) => setState(() => hypertensionMedicine = v as String?), enabled: _isActionActive),
           const SizedBox(height: 12),
-          formTextField('Dosage', _hypertensionDosage),
+           formTextField('Dosage', _hypertensionDosage, enabled: _isActionActive),
           const SizedBox(height: 12),
-          formTextField('Any other Medicine name', _hypertensionOtherMedicine),
+           formTextField('Any other Medicine name', _hypertensionOtherMedicine, enabled: _isActionActive),
         ],
       ],
     );
@@ -737,25 +927,26 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         const Text('3. Have you ever been diagnosed/screened with Diabetes?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: hasDiabetes, onChanged: (v) => setState(() => hasDiabetes = v), contentPadding: EdgeInsets.zero, dense: true)),
+            formRadioOption(label: '(1) Yes', value: '(1) Yes', groupValue: hasDiabetes, enabled: _isActionActive, onChanged: (v) => setState(() => hasDiabetes = v as String?)),
+            const SizedBox(width: 16),
+            formRadioOption(label: '(2) No', value: '(2) No', groupValue: hasDiabetes, enabled: _isActionActive, onChanged: (v) => setState(() => hasDiabetes = v as String?)),
           ],
         ),
         if (hasDiabetes == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('(3a) If Yes, since how many had?', _diabetesDays, keyboardType: TextInputType.number)),
+               Expanded(child: formTextField('(3a) If Yes, since how many had?', _diabetesDays, enabled: _isActionActive, keyboardType: TextInputType.number)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], diabetesDuration, (v) => setState(() => diabetesDuration = v))),
+                Expanded(child: formSearchableDropdown(context, 'Duration', ['(1) Years', '(2) Months', '(3) Days'], diabetesDuration, (v) => setState(() => diabetesDuration = v as String?), enabled: _isActionActive)),
             ],
           ),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, '(3b) Are you currently using any medicine\'s?', diabetesMeds, diabetesMedicine, (v) => setState(() => diabetesMedicine = v)),
+            formSearchableDropdown(context, '(3b) Are you currently using any medicine\'s?', diabetesMeds, diabetesMedicine, (v) => setState(() => diabetesMedicine = v as String?), enabled: _isActionActive),
           const SizedBox(height: 12),
-          formSearchableDropdown(context, 'Strength', diabetesStrengths, diabetesStrength, (v) => setState(() => diabetesStrength = v)),
+            formSearchableDropdown(context, 'Strength', diabetesStrengths, diabetesStrength, (v) => setState(() => diabetesStrength = v as String?), enabled: _isActionActive),
           const SizedBox(height: 12),
-          formTextField('Any other Medicine name', _diabetesOtherMedicine),
+           formTextField('Any other Medicine name', _diabetesOtherMedicine, enabled: _isActionActive),
         ],
       ],
     );
@@ -768,25 +959,27 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       icon: Icons.smoke_free_outlined,
       children: [
         const Text('4. Do you smoke/chew tobacco related products now?', style: TextStyle(fontWeight: FontWeight.w500)),
-        Row(
-          children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: smokesNow, onChanged: (v) => setState(() => smokesNow = v), contentPadding: EdgeInsets.zero, dense: true)),
-          ],
-        ),
+         Row(
+           children: [
+             formRadioOption(label: '(1) Yes', value: '(1) Yes', groupValue: smokesNow, enabled: _isActionActive, onChanged: (v) => setState(() => smokesNow = v as String?)),
+             const SizedBox(width: 16),
+             formRadioOption(label: '(2) No', value: '(2) No', groupValue: smokesNow, enabled: _isActionActive, onChanged: (v) => setState(() => smokesNow = v as String?)),
+           ],
+         ),
         if (smokesNow == '(1) Yes') ...[
           const Text('Products List (Present)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
           const SizedBox(height: 8),
           _buildTobaccoProductsList(tobaccoProductsPresent),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPresent), icon: const Icon(Icons.add), label: const Text('Add Product')),
+          ElevatedButton.icon(onPressed: !_isActionActive ? null : () => _addTobaccoProduct(tobaccoProductsPresent), icon: const Icon(Icons.add), label: const Text('Add Product')),
         ],
         const Divider(height: 32),
         const Text('5. Have you ever smoke/chew in the past?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: smokedPast, onChanged: (v) => setState(() => smokedPast = v), contentPadding: EdgeInsets.zero, dense: true)),
+            formRadioOption(label: '(1) Yes', value: '(1) Yes', groupValue: smokedPast, enabled: _isActionActive, onChanged: (v) => setState(() => smokedPast = v as String?)),
+            const SizedBox(width: 16),
+            formRadioOption(label: '(2) No', value: '(2) No', groupValue: smokedPast, enabled: _isActionActive, onChanged: (v) => setState(() => smokedPast = v as String?)),
           ],
         ),
         if (smokedPast == '(1) Yes') ...[
@@ -794,23 +987,24 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           const SizedBox(height: 8),
           _buildTobaccoProductsList(tobaccoProductsPast),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: () => _addTobaccoProduct(tobaccoProductsPast), icon: const Icon(Icons.add), label: const Text('Add Product')),
+          ElevatedButton.icon(onPressed: !_isActionActive ? null : () => _addTobaccoProduct(tobaccoProductsPast), icon: const Icon(Icons.add), label: const Text('Add Product')),
         ],
         const Divider(height: 32),
         const Text('6. Do you drink/consume Alcohol?', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Yes'), value: '(1) Yes', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(2) No'), value: '(2) No', groupValue: drinksAlcohol, onChanged: (v) => setState(() => drinksAlcohol = v), contentPadding: EdgeInsets.zero, dense: true)),
+            formRadioOption(label: '(1) Yes', value: '(1) Yes', groupValue: drinksAlcohol, enabled: _isActionActive, onChanged: (v) => setState(() => drinksAlcohol = v as String?)),
+            const SizedBox(width: 16),
+            formRadioOption(label: '(2) No', value: '(2) No', groupValue: drinksAlcohol, enabled: _isActionActive, onChanged: (v) => setState(() => drinksAlcohol = v as String?)),
           ],
         ),
         if (drinksAlcohol == '(1) Yes') ...[
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: formTextField('Duration', _alcoholDuration, keyboardType: TextInputType.number)),
+               Expanded(child: formTextField('Duration', _alcoholDuration, enabled: _isActionActive, keyboardType: TextInputType.number)),
               const SizedBox(width: 8),
-              Expanded(child: formSearchableDropdown(context, 'Unit', ['(1) Years', '(2) Months', '(3) Days'], alcoholDurationUnit, (v) => setState(() => alcoholDurationUnit = v))),
+                Expanded(child: formSearchableDropdown(context, 'Unit', ['(1) Years', '(2) Months', '(3) Days'], alcoholDurationUnit, (v) => setState(() => alcoholDurationUnit = v as String?), enabled: _isActionActive)),
             ],
           ),
           const SizedBox(height: 12),
@@ -818,7 +1012,7 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
           const SizedBox(height: 8),
           _buildAlcoholProductsList(),
           const SizedBox(height: 8),
-          ElevatedButton.icon(onPressed: _addAlcoholProduct, icon: const Icon(Icons.add), label: const Text('Add Item')),
+          ElevatedButton.icon(onPressed: !_isActionActive ? null : _addAlcoholProduct, icon: const Icon(Icons.add), label: const Text('Add Item')),
         ],
       ],
     );
@@ -839,28 +1033,28 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Tobacco Name', tobaccoNames, item['Tobacco_Name'], (v) => setState(() => item['Tobacco_Name'] = v))),
-                    IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => products.removeAt(index))),
+                      Expanded(child: formSearchableDropdown(context, 'Tobacco Name', tobaccoNames, item['Tobacco_Name'], (v) => setState(() => item['Tobacco_Name'] = v as String?), enabled: _isActionActive)),
+                     IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: !_isActionActive ? null : () => setState(() => products.removeAt(index))),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Habit', ['(1) Yes', '(0) No'], item['Product_Habit'], (v) => setState(() => item['Product_Habit'] = v))),
+                      Expanded(child: formSearchableDropdown(context, 'Habit', ['(1) Yes', '(0) No'], item['Product_Habit'], (v) => setState(() => item['Product_Habit'] = v as String?), enabled: _isActionActive)),
                     const SizedBox(width: 8),
-                    Expanded(child: formTextField('Days', TextEditingController(text: item['Days']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Days'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                     Expanded(child: formTextField('Days', TextEditingController(text: item['Days']?.toString() ?? '')..addListener(() {}), enabled: _isActionActive, onChanged: (v) => item['Days'] = int.tryParse(v), keyboardType: TextInputType.number)),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: formSearchableDropdown(context, 'Months/Years', ['(1) Years', '(2) Months', '(3) Days'], item['Months_years'], (v) => setState(() => item['Months_years'] = v))),
+                      Expanded(child: formSearchableDropdown(context, 'Months/Years', ['(1) Years', '(2) Months', '(3) Days'], item['Months_years'], (v) => setState(() => item['Months_years'] = v as String?), enabled: _isActionActive)),
                     const SizedBox(width: 8),
-                    Expanded(child: formTextField('Qty', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                     Expanded(child: formTextField('Qty', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), enabled: _isActionActive, onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
                   ],
                 ),
                 const SizedBox(height: 8),
-                formSearchableDropdown(context, 'Type', ['(1) Number', '(2) Packets'], item['Type_field'], (v) => setState(() => item['Type_field'] = v)),
+                 formSearchableDropdown(context, 'Type', ['(1) Number', '(2) Packets'], item['Type_field'], (v) => setState(() => item['Type_field'] = v as String?), enabled: _isActionActive),
               ],
             ),
           ),
@@ -882,31 +1076,31 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
             padding: const EdgeInsets.all(8.0),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(child: formSearchableDropdown(context, 'Item', alcoholItems, item['Item'], (v) => setState(() => item['Item'] = v))),
-                    IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => alcoholProducts.removeAt(index))),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                formTextField('If Others Please Mention', TextEditingController(text: item['If_Others_Please_Mention'] ?? '')..addListener(() {}), onChanged: (v) => item['If_Others_Please_Mention'] = v),
-                const SizedBox(height: 8),
-                formSearchableDropdown(context, 'Frequency', alcoholFrequencies, item['Frequent'], (v) => setState(() => item['Frequent'] = v)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: formTextField('Quantity', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
-                    const SizedBox(width: 8),
-                    Expanded(child: formSearchableDropdown(context, 'Unit', alcoholUnits, item['Units'], (v) => setState(() => item['Units'] = v))),
-                  ],
-                ),
-              ],
-            ),
+              Row(
+                children: [
+                    Expanded(child: formSearchableDropdown(context, 'Item', alcoholItems, item['Item'], (v) => setState(() => item['Item'] = v as String?), enabled: _isActionActive)),
+                   IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: !_isActionActive ? null : () => setState(() => alcoholProducts.removeAt(index))),
+                ],
+              ),
+              const SizedBox(height: 8),
+               formTextField('If Others Please Mention', TextEditingController(text: item['If_Others_Please_Mention'] ?? '')..addListener(() {}), enabled: _isActionActive, onChanged: (v) => item['If_Others_Please_Mention'] = v),
+              const SizedBox(height: 8),
+                formSearchableDropdown(context, 'Frequency', alcoholFrequencies, item['Frequent'], (v) => setState(() => item['Frequent'] = v as String?), enabled: _isActionActive),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                   Expanded(child: formTextField('Quantity', TextEditingController(text: item['Quantity']?.toString() ?? '')..addListener(() {}), enabled: _isActionActive, onChanged: (v) => item['Quantity'] = int.tryParse(v), keyboardType: TextInputType.number)),
+                  const SizedBox(width: 8),
+                    Expanded(child: formSearchableDropdown(context, 'Unit', alcoholUnits, item['Units'], (v) => setState(() => item['Units'] = v as String?), enabled: _isActionActive)),
+                ],
+              ),
+            ],
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   void _addTobaccoProduct(List<Map<String, dynamic>> products) {
     setState(() { products.add({'Tobacco_Name': null, 'Product_Habit': '(1) Yes', 'Days': null, 'Months_years': null, 'Quantity': null, 'Type_field': null}); });
@@ -925,108 +1119,108 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
         _buildReviewItem(
           '7. Did you suffer from General Health problems?',
           sufferGeneralHealth,
-          (v) => setState(() => sufferGeneralHealth = v),
+          (v) => setState(() => sufferGeneralHealth = v as String?),
           details: sufferGeneralHealth == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Weight gain', '(2) Weight loss'], generalHealthStatusDetail, (v) => setState(() => generalHealthStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _generalHealthOther),
+                formSearchableDropdown(context, 'Details', ['(1) Weight gain', '(2) Weight loss'], generalHealthStatusDetail, (v) => setState(() => generalHealthStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _generalHealthOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '8. Did you suffer from vision problems?',
           sufferVision,
-          (v) => setState(() => sufferVision = v),
+          (v) => setState(() => sufferVision = v as String?),
           details: sufferVision == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Near sightedness', '(2) Far sightedness', '(3) Any Other'], visionStatusDetail, (v) => setState(() => visionStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _visionOther),
+                formSearchableDropdown(context, 'Details', ['(1) Near sightedness', '(2) Far sightedness', '(3) Any Other'], visionStatusDetail, (v) => setState(() => visionStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _visionOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '9. Did you suffer from Ear, Nose and Throat problems?',
           sufferEnt,
-          (v) => setState(() => sufferEnt = v),
+          (v) => setState(() => sufferEnt = v as String?),
           details: sufferEnt == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Ear', '(2) Nose', '(3) Throat', '(4) Any Other'], entStatusDetail, (v) => setState(() => entStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _entOther),
+                formSearchableDropdown(context, 'Details', ['(1) Ear', '(2) Nose', '(3) Throat', '(4) Any Other'], entStatusDetail, (v) => setState(() => entStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _entOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '10. Did you suffer from Respiratory problems?',
           sufferRespiratory,
-          (v) => setState(() => sufferRespiratory = v),
+          (v) => setState(() => sufferRespiratory = v as String?),
           details: sufferRespiratory == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Aasthma', '(2) COPD', '(3) Any Other'], respiratoryStatusDetail, (v) => setState(() => respiratoryStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _respiratoryOther),
+                formSearchableDropdown(context, 'Details', ['(1) Aasthma', '(2) COPD', '(3) Any Other'], respiratoryStatusDetail, (v) => setState(() => respiratoryStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _respiratoryOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '11. Did you suffer from Gastrointestinal problems?',
           sufferGastro,
-          (v) => setState(() => sufferGastro = v),
+          (v) => setState(() => sufferGastro = v as String?),
           details: sufferGastro == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Heart burn', '(2) Abdominal Pain', '(3) Any Other'], gastroStatusDetail, (v) => setState(() => gastroStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _gastroOther),
+                formSearchableDropdown(context, 'Details', ['(1) Heart burn', '(2) Abdominal Pain', '(3) Any Other'], gastroStatusDetail, (v) => setState(() => gastroStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _gastroOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '12. Did you suffer from Genitourinary problems?',
           sufferGenitourinary,
-          (v) => setState(() => sufferGenitourinary = v),
+          (v) => setState(() => sufferGenitourinary = v as String?),
           details: sufferGenitourinary == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Burning in urine', '(2) Increase frequency of urine', '(3) Any Other'], genitourinaryStatusDetail, (v) => setState(() => genitourinaryStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _genitourinaryOther),
+                formSearchableDropdown(context, 'Details', ['(1) Burning in urine', '(2) Increase frequency of urine', '(3) Any Other'], genitourinaryStatusDetail, (v) => setState(() => genitourinaryStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _genitourinaryOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '13. Did you suffer from Muscles or bones problems?',
           sufferMusclesBones,
-          (v) => setState(() => sufferMusclesBones = v),
+          (v) => setState(() => sufferMusclesBones = v as String?),
           details: sufferMusclesBones == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Arthritis', '(2) Spondylitis', '(3) Any Other'], musclesBonesStatusDetail, (v) => setState(() => musclesBonesStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _musclesBonesOther),
+                formSearchableDropdown(context, 'Details', ['(1) Arthritis', '(2) Spondylitis', '(3) Any Other'], musclesBonesStatusDetail, (v) => setState(() => musclesBonesStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _musclesBonesOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '14. Did you suffer from Skin problems?',
           sufferSkin,
-          (v) => setState(() => sufferSkin = v),
+          (v) => setState(() => sufferSkin = v as String?),
           details: sufferSkin == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Skin rash', '(2) Skin dryness', '(3) Itching', '(4) Any Other'], skinStatusDetail, (v) => setState(() => skinStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _skinOther),
+                formSearchableDropdown(context, 'Details', ['(1) Skin rash', '(2) Skin dryness', '(3) Itching', '(4) Any Other'], skinStatusDetail, (v) => setState(() => skinStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _skinOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
         _buildReviewItem(
           '15. Did you suffer from blood related problems?',
           sufferBlood,
-          (v) => setState(() => sufferBlood = v),
+          (v) => setState(() => sufferBlood = v as String?),
           details: sufferBlood == '(1) Yes' ? Column(
             children: [
-              formSearchableDropdown(context, 'Details', ['(1) Anemia', '(2) Bruising or excessive bleeding', '(3) Any Other'], bloodStatusDetail, (v) => setState(() => bloodStatusDetail = v)),
-              const SizedBox(height: 8),
-              formTextField('If Others Please Mention', _bloodOther),
+                formSearchableDropdown(context, 'Details', ['(1) Anemia', '(2) Bruising or excessive bleeding', '(3) Any Other'], bloodStatusDetail, (v) => setState(() => bloodStatusDetail = v as String?), enabled: _isActionActive),
+               const SizedBox(height: 8),
+               formTextField('If Others Please Mention', _bloodOther, enabled: _isActionActive),
             ],
           ) : null,
         ),
@@ -1039,9 +1233,9 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-        Row(children: [
-          Expanded(child: RadioListTile<String>(value: '(1) Yes', title: const Text('Yes', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
-          Expanded(child: RadioListTile<String>(value: '(2) No', title: const Text('No', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: onChanged, contentPadding: EdgeInsets.zero, dense: true)),
+         Row(children: [
+          Expanded(child: RadioListTile<String>(value: '(1) Yes', title: const Text('Yes', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: !_isActionActive ? null : (v) => onChanged(v as String?), contentPadding: EdgeInsets.zero, dense: true)),
+          Expanded(child: RadioListTile<String>(value: '(2) No', title: const Text('No', style: TextStyle(fontSize: 12)), groupValue: val, onChanged: !_isActionActive ? null : (v) => onChanged(v as String?), contentPadding: EdgeInsets.zero, dense: true)),
         ]),
         if (details != null) Padding(padding: const EdgeInsets.only(left: 16, bottom: 12), child: details),
         const Divider(),
@@ -1049,16 +1243,22 @@ class _QuestionnairePageState extends State<QuestionnairePage> {
     );
   }
 
-  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked, {bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         InkWell(
-          onTap: () async {
+           onTap: !enabled ? null : () async {
+            final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
             final picked = await showDatePicker(context: context, initialDate: selectedDate ?? DateTime.now(), firstDate: DateTime(1900), lastDate: DateTime.now());
-            if (picked != null) onPicked(picked);
+            if (picked != null) {
+              onPicked(picked);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients) _scrollController.jumpTo(offset);
+              });
+            }
           },
           child: InputDecorator(
             decoration: InputDecoration(isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), suffixIcon: const Icon(Icons.calendar_today, size: 18)),

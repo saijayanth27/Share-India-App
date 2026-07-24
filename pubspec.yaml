@@ -104,10 +104,14 @@ dependencies:
   sqflite: ^2.3.0
   path: ^1.8.3
   connectivity_plus: ^5.0.2
+  
+  
   flutter_dotenv: ^5.1.0
   cupertino_icons: ^1.0.2
   firebase_core: ^2.4.1
+  firebase_auth: ^4.19.6
   cloud_firestore: ^4.3.2
+
   firebase_storage: ^11.6.0
   http: ^1.2.0
   image_picker: ^1.2.1
@@ -117,6 +121,7 @@ dependencies:
   intl: ^0.20.2
   google_generative_ai: ^0.4.7
   path_provider: ^2.0.15
+  shared_preferences: ^2.5.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

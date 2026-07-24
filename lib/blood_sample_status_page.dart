@@ -1,8 +1,14 @@
 import "package:flutter/material.dart";
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'local_database_service.dart';
+import 'sync_service.dart';
 import 'widget.dart';
 
 class BloodSampleStatusPage extends StatefulWidget {
@@ -17,11 +23,19 @@ class BloodSampleStatusPage extends StatefulWidget {
 
 class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   bool _isSaving = false;
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
   bool _isLoadingMembers = false;
+  bool _isActionActive = false;
+  final FocusNode _familyCodeNode = FocusNode();
+  bool _familyIdReadOnly = true;
+
+  bool _isDownloadingSamp = false;
+  bool _sampAlreadyDownloaded = false;
+  String? _sampDownloadedAt;
 
   // --- Controllers & State Variables ---
   final _registrationNumber = TextEditingController();
@@ -35,6 +49,9 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   DateTime? dateOfInterview = DateTime.now();
   String? interviewersName;
   String? notDoneReason;
+  List<Map<String, dynamic>> _allPersonRecords = [];
+  List<String> _availableVisitDates = [];
+  String? _selectedVisitDate;
 
   // Status Fields
   String? collectBloodSample;
@@ -56,14 +73,91 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
 
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+  // Location (auto-populated from Family Code)
+  String? _locationVillage;
+  String? _locationMandal;
+  String? _locationDistrict;
+  String? _locationState;
+
 
   final List<String> interviewerList = ['KIRANMAI K', 'REVATHI CH', 'RAMADEVI Y', 'LAVANYA KASPOJU', 'PUSHPA K', 'G RAMADEVI', 'BHASKAR K', 'ASHA', 'KUSUMA G', 'B JYOTHI', 'RAMADEVI G', 'LAVANYA METU', 'N POOJA', 'POOJA N', 'K BHASKAR', 'LAVANYA M', 'LAVANYA METTU'];
 
   @override
   void initState() {
     super.initState();
+    _loadSampDownloadStatus();
     if (widget.existingData != null) {
+      _isEditMode = true;
+      _editDocId = widget.docId;
       _loadExistingData();
+      final familyCode = (widget.existingData!['Family_Code'] ?? widget.existingData!['Family_code'] ?? '').toString();
+      if (familyCode.isNotEmpty) {
+        _fetchMembersByFamily(familyCode);
+        _fetchExistingRecords(familyCode);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _familyCodeNode.dispose();
+    _registrationNumber.dispose();
+    _familyCodeController.dispose();
+    _nameController.dispose();
+    _age.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSampDownloadStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ts = prefs.getString('blood_sample_download_timestamp');
+    if (mounted) setState(() { _sampAlreadyDownloaded = ts != null; _sampDownloadedAt = ts; });
+  }
+
+  Future<void> _downloadSampFromStorage() async {
+    if (_isDownloadingSamp) return;
+    final prefs = await SharedPreferences.getInstance();
+
+    if (_sampAlreadyDownloaded) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Already Downloaded'),
+          content: Text('Blood Sample data was downloaded on $_sampDownloadedAt.\n\nDownload again to refresh?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Re-download')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    setState(() => _isDownloadingSamp = true);
+    try {
+      final ref = FirebaseStorage.instance.ref('exports/blood_sample_records.json');
+      final url = await ref.getDownloadURL();
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+      final List<dynamic> jsonList = jsonDecode(response.body);
+      final records = jsonList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      await LocalDatabaseService().saveBloodSampleRecords(records, clearFirst: true);
+      final downloadedAt = DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now());
+      await prefs.setString('blood_sample_download_timestamp', downloadedAt);
+      if (mounted) {
+        setState(() { _sampAlreadyDownloaded = true; _sampDownloadedAt = downloadedAt; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Blood Sample data downloaded (${records.length} records)'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Download failed: $e'), backgroundColor: Colors.red,
+      ));
+    } finally {
+      if (mounted) setState(() => _isDownloadingSamp = false);
     }
   }
 
@@ -80,6 +174,11 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
+
+        // Filter: only members aged 18 or older
+        final age = int.tryParse(data['Age']?.toString() ?? '0') ?? 0;
+        if (age < 18) return;
+
         memberMap[name] = data;
         allNames.add(name);
       }
@@ -90,6 +189,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         familyMemberNames = allNames.toList()..sort();
         selectedFamilyCode = familyCode;
       });
+          _fetchFamilyLocation(familyCode);
     } catch (e) {
       debugPrint('Error fetching members: $e');
     } finally {
@@ -103,7 +203,8 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       final snapshot = await FirebaseFirestore.instance
           .collection('blood_sample_status')
           .where('Family_code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
@@ -114,18 +215,40 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     }
   }
 
+  String? _dateStringFromRecord(Map<String, dynamic> r) {
+    final raw = r['Date_of_Interview'] ?? r['Interview_Date'];
+    if (raw == null) return null;
+    if (raw is Timestamp) return DateFormat('dd-MMM-yyyy').format(raw.toDate());
+    try { return DateFormat('dd-MMM-yyyy').format(DateFormat('dd-MMM-yyyy').parse(raw.toString())); } catch (_) {}
+    try { return DateFormat('dd-MMM-yyyy').format(DateTime.parse(raw.toString())); } catch (_) {}
+    return raw.toString();
+  }
+
+  void _onVisitDateSelected(String? dateStr) {
+    if (dateStr == null) return;
+    setState(() => _selectedVisitDate = dateStr);
+    final rec = _allPersonRecords.firstWhere(
+      (r) => _dateStringFromRecord(r) == dateStr,
+      orElse: () => _allPersonRecords.first,
+    );
+    _editDocId = rec['firestoreDocId']?.toString();
+    setState(() => _populateForm(rec));
+  }
+
   void _onNameSelected(String? name) async {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
+      _allPersonRecords = [];
+      _availableVisitDates = [];
+      _selectedVisitDate = null;
     });
-    
-    if (name == null) return;
 
+    if (name == null) return;
     final baseData = _allMembersData[name];
     if (baseData != null && !_isEditMode) {
       _registrationNumber.text = baseData['Registration_Number']?.toString() ?? '';
-      selectedGender = baseData['Gender']?.toString();
+      selectedGender = normalizeGender(baseData['Gender']);
       _age.text = baseData['Age']?.toString() ?? '';
     }
 
@@ -133,25 +256,43 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       setState(() => _isLoadingMembers = true);
       try {
         final fCode = _familyCodeController.text.trim();
-        final snapshot = await FirebaseFirestore.instance
-            .collection('blood_sample_status')
-            .where('Family_code', isEqualTo: fCode)
-            .where('Name', isEqualTo: name)
-            .limit(1)
-            .get();
-
-        if (snapshot.docs.isNotEmpty) {
-          final doc = snapshot.docs.first;
-          setState(() {
-            _editDocId = doc.id;
-            final merged = {...?baseData, ...doc.data()};
-            _populateForm(merged);
-          });
-        } else if (baseData != null) {
-          _populateForm(baseData);
+        List<Map<String, dynamic>> records = [];
+        final localRecord = await LocalDatabaseService().getBloodSampleRecordByName(fCode, name);
+        try {
+          var snapshot = await FirebaseFirestore.instance
+              .collection('blood_sample_status')
+              .where('Family_code', isEqualTo: fCode)
+              .where('Name', isEqualTo: name)
+              .orderBy('clientUpdatedAt', descending: true)
+              .get()
+              .timeout(const Duration(seconds: 5));
+          if (snapshot.docs.isEmpty) {
+            snapshot = await FirebaseFirestore.instance
+                .collection('blood_sample_status')
+                .where('Family_Code', isEqualTo: fCode)
+                .where('Name', isEqualTo: name)
+                .orderBy('clientUpdatedAt', descending: true)
+                .get()
+                .timeout(const Duration(seconds: 5));
+          }
+          for (final doc in snapshot.docs) {
+            records.add({...?baseData, ...?localRecord, ...doc.data(), 'firestoreDocId': doc.id});
+          }
+        } catch (e) {
+          debugPrint('BloodSample: Firestore lookup failed: $e');
+        }
+        if (records.isEmpty && localRecord != null) records.add({...?baseData, ...localRecord});
+        if (records.isEmpty && baseData != null) records.add(baseData);
+        final dates = records.map((r) => _dateStringFromRecord(r)).where((d) => d != null).cast<String>().toList();
+        if (mounted) {
+          setState(() { _allPersonRecords = records; _availableVisitDates = dates; });
+          if (records.length == 1) {
+            _editDocId = records.first['firestoreDocId']?.toString();
+            setState(() => _populateForm(records.first));
+          }
         }
       } catch (e) {
-        debugPrint('Error fetching sample status record: $e');
+        debugPrint('Error in BloodSample _onNameSelected: $e');
         if (baseData != null) _populateForm(baseData);
       } finally {
         if (mounted) setState(() => _isLoadingMembers = false);
@@ -165,16 +306,29 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
     });
   }
 
+  String? _normCollect(dynamic raw) {
+    if (raw == null) return null;
+    final s = raw.toString().trim();
+    if (s == '1' || s == '(1) Collected') return '(1) Collected';
+    if (s == '0' || s == '(0) Not Collected') return '(0) Not Collected';
+    return s.isEmpty ? null : s;
+  }
+
   void _populateForm(Map<String, dynamic> d) {
-    _registrationNumber.text = d['Registration_Number'] ?? '';
+    _registrationNumber.text = (d['Registration_Number'] ?? d['REGNO'] ?? d['Regno'] ?? '').toString();
     selectedFamilyCode = d['Family_code'] ?? d['Family_Code'] ?? d['Family_ID'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
+    _locationVillage  = (d['Village']  ?? d['village'])?.toString();
+    _locationMandal   = (d['Mandal']   ?? d['mandal'])?.toString();
+    _locationDistrict = (d['District'] ?? d['district'])?.toString();
+    _locationState    = (d['State']    ?? d['state'])?.toString();
     _nameController.text = selectedMemberName ?? '';
-    selectedGender = d['Gender'];
+    selectedGender = normalizeGender(d['Gender']);
     _age.text = d['Age']?.toString() ?? '';
-    
-    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'];
+
+    // Date: app field → TETRA INTDT fallback
+    final rawDate = d['Date_of_Interview'] ?? d['Interview_Date'] ?? d['INTDT'];
     if (rawDate != null) {
       if (rawDate is Timestamp) {
         dateOfInterview = rawDate.toDate();
@@ -188,17 +342,21 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         }
       }
     }
-    
-    interviewersName = d['Interviewer_s_Name'];
-    notDoneReason = d['Not_Done_Reason'];
 
-    collectBloodSample = d['Collect_Blood_Sample'];
-    collectHBA1C = d['Collect_HBA1C'];
-    collectThyroid = d['Collect_Thyroid'];
-    collectCRE = d['Collect_CRE'];
-    collectSputumTB = d['Collect_Sputum_TB'];
-    collectVaginalSwabHPV = d['Collect_Vaginal_Swab_HPV'];
-    collectUrine = d['Collect_Urine'];
+    interviewersName = matchInterviewerName(d['Interviewer_s_Name'] ?? d['interviewer_name'] ?? d['interviewer'] ?? d['Interviewer_Name'] ?? d['INTNAME'], interviewerList);
+    // Not-done reason: NA_DL numeric codes from TETRA
+    final naCode = {'1': '(1) Not available', '2': '(2) Refused for current visit', '3': '(3) Door Locked', '4': '(4) Other'};
+    final rawNaDl = d['Not_Done_Reason'] ?? d['NA_DL'];
+    notDoneReason = (rawNaDl != null) ? (naCode[rawNaDl.toString()] ?? rawNaDl.toString()) : null;
+
+    // Collect status: app field OR TETRA SAMP field; normalize raw 1/0 codes
+    collectBloodSample = _normCollect(d['Collect_Blood_Sample'] ?? d['CBP']);
+    collectHBA1C = _normCollect(d['Collect_HBA1C'] ?? d['HBA1C']);
+    collectThyroid = _normCollect(d['Collect_Thyroid'] ?? d['THYROID']);
+    collectCRE = _normCollect(d['Collect_CRE'] ?? d['CRE']);
+    collectSputumTB = _normCollect(d['Collect_Sputum_TB'] ?? d['SPUTUM']);
+    collectVaginalSwabHPV = _normCollect(d['Collect_Vaginal_Swab_HPV'] ?? d['VS']);
+    collectUrine = _normCollect(d['Collect_Urine'] ?? d['URINE']);
 
     DateTime? _parseSampleDate(dynamic val) {
       if (val == null) return null;
@@ -208,15 +366,23 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       }());
     }
 
-    if (d['Date_CBP'] != null) dateCBP = _parseSampleDate(d['Date_CBP']);
-    if (d['Date_HBA1C'] != null) dateHBA1C = _parseSampleDate(d['Date_HBA1C']);
-    if (d['Date_Thyroid'] != null) dateThyroid = _parseSampleDate(d['Date_Thyroid']);
-    if (d['Date_CRE'] != null) dateCRE = _parseSampleDate(d['Date_CRE']);
-    if (d['Date_Sputum_TB'] != null) dateSputumTB = _parseSampleDate(d['Date_Sputum_TB']);
-    if (d['Date_Vaginal_Swab_HPV'] != null) dateVaginalSwabHPV = _parseSampleDate(d['Date_Vaginal_Swab_HPV']);
-    if (d['Date_Urine'] != null) dateUrine = _parseSampleDate(d['Date_Urine']);
+    // Sample dates: app field OR TETRA SAMP DT* fields
+    final dateCBPRaw = d['Date_CBP'] ?? d['DTCBP'];
+    if (dateCBPRaw != null) dateCBP = _parseSampleDate(dateCBPRaw);
+    final dateHBA1CRaw = d['Date_HBA1C'] ?? d['DTHBA1C'];
+    if (dateHBA1CRaw != null) dateHBA1C = _parseSampleDate(dateHBA1CRaw);
+    final dateThyroidRaw = d['Date_Thyroid'] ?? d['DTTHYROID'];
+    if (dateThyroidRaw != null) dateThyroid = _parseSampleDate(dateThyroidRaw);
+    final dateCRERaw = d['Date_CRE'] ?? d['DTCRE'];
+    if (dateCRERaw != null) dateCRE = _parseSampleDate(dateCRERaw);
+    final dateSputumRaw = d['Date_Sputum_TB'] ?? d['DTSPUTUM'];
+    if (dateSputumRaw != null) dateSputumTB = _parseSampleDate(dateSputumRaw);
+    final dateVSRaw = d['Date_Vaginal_Swab_HPV'] ?? d['DTVS'];
+    if (dateVSRaw != null) dateVaginalSwabHPV = _parseSampleDate(dateVSRaw);
+    final dateUrineRaw = d['Date_Urine'] ?? d['DTURINE'];
+    if (dateUrineRaw != null) dateUrine = _parseSampleDate(dateUrineRaw);
 
-    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+    if (!_isEditMode && selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -224,12 +390,17 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
+      _isActionActive = false;
       _registrationNumber.clear();
-      _familyCodeController.clear();
+      // _familyCodeController.text = 'TSRRMED'; // Preserved
       _nameController.clear();
-      selectedFamilyCode = null;
+      // selectedFamilyCode = null; // Preserved
       selectedMemberName = null;
       selectedGender = null;
+      _locationVillage = null;
+      _locationMandal = null;
+      _locationDistrict = null;
+      _locationState = null;
       _age.clear();
       dateOfInterview = DateTime.now();
       interviewersName = null;
@@ -250,6 +421,9 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       dateUrine = null;
       familyMemberNames = [];
       _existingRecords = [];
+      _allPersonRecords = [];
+      _availableVisitDates = [];
+      _selectedVisitDate = null;
     });
   }
 
@@ -263,6 +437,10 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
+        'Village': _locationVillage,
+        'Mandal': _locationMandal,
+        'District': _locationDistrict,
+        'State': _locationState,
         'Age': int.tryParse(_age.text),
         'Date_of_Interview': dateOfInterview != null ? Timestamp.fromDate(dateOfInterview!) : null,
         'Interviewer_s_Name': interviewersName,
@@ -306,68 +484,47 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         }
       }
 
-      // 2. Background Sync (Non-blocking)
-      _performBloodSampleStatusSync(data);
+      // 2. Trigger Background Sync (Handles Firestore push)
+      SyncService().syncPendingSubmissions();
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() {
+        _isSaving = false;
+        _isActionActive = false;
+      });
     }
   }
 
-  void _performBloodSampleStatusSync(Map<String, dynamic> data) async {
-    try {
-      final String? docId = data['firestoreDocId'] as String?;
-      if (docId != null && docId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('blood_sample_status').doc(docId).set(data, SetOptions(merge: true));
-      } else {
-        await FirebaseFirestore.instance.collection('blood_sample_status').add(data);
-      }
-    } catch (e) {
-      debugPrint('Blood Sample Status Background Sync Error: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Blood Sample Status'), elevation: 0),
+      appBar: AppBar(
+        title: const Text('Blood Sample Status'),
+        elevation: 0,
+        actions: [
+          _isDownloadingSamp
+              ? const Padding(padding: EdgeInsets.all(14), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+              : IconButton(
+                  icon: Icon(Icons.cloud_download_outlined, color: _sampAlreadyDownloaded ? Colors.greenAccent : Colors.white),
+                  tooltip: _sampAlreadyDownloaded ? 'Downloaded: $_sampDownloadedAt' : 'Download for offline',
+                  onPressed: _downloadSampFromStorage,
+                ),
+        ],
+      ),
       body: Stack(
         children: [
           SingleChildScrollView(
             key: const PageStorageKey('blood_sample_status_scroll'),
+            controller: _scrollController,
             padding: const EdgeInsets.all(16.0),
             child: Form(
               key: _formKey,
               child: Column(
                 children: [
-                  formActionButtons(
-                      context: context,
-                      isEditMode: _isEditMode,
-                      onNew: () {
-                        setState(() {
-                          _isEditMode = false;
-                          _resetForm();
-                        });
-                      },
-                      onSave: _save,
-                      onEdit: () {
-                        setState(() {
-                          _isEditMode = true;
-                          final code = _familyCodeController.text.trim();
-                          if (code.isNotEmpty) {
-                            _fetchMembersByFamily(code);
-                            _fetchExistingRecords(code);
-                          }
-                        });
-                      },
-                      onCancel: _resetForm,
-                      onExit: () => Navigator.pop(context),
-                      isSaving: _isSaving,
-                    ),
-                    const SizedBox(height: 16),
                     _buildIdentitySection(),
                     const SizedBox(height: 16),
                     buildSectionCard(
@@ -380,7 +537,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
                         _buildCollectionRow('Thyroid (T3/T4/TSH)', collectThyroid, dateThyroid, (v) => setState(() => collectThyroid = v), (d) => setState(() => dateThyroid = d)),
                         _buildCollectionRow('Creatinine (CRE)', collectCRE, dateCRE, (v) => setState(() => collectCRE = v), (d) => setState(() => dateCRE = d)),
                         _buildCollectionRow('Sputum (TB)', collectSputumTB, dateSputumTB, (v) => setState(() => collectSputumTB = v), (d) => setState(() => dateSputumTB = d)),
-                        _buildCollectionRow('Vaginal Swab (HPV)', collectVaginalSwabHPV, dateVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v), (d) => setState(() => dateVaginalSwabHPV = d)),
+                        _buildCollectionRow('Vaginal Swab (HPV)', collectVaginalSwabHPV, dateVaginalSwabHPV, (v) => setState(() => collectVaginalSwabHPV = v), (d) => setState(() => dateVaginalSwabHPV = d), enabled: selectedGender != '(1) Male'),
                         _buildCollectionRow('Urine', collectUrine, dateUrine, (v) => setState(() => collectUrine = v), (d) => setState(() => dateUrine = d)),
                       ],
                     ),
@@ -396,6 +553,85 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
             ),
         ],
       ),
+      bottomNavigationBar: _isSaving
+          ? null
+          : formActionButtons(
+              context: context,
+              isEditMode: _isEditMode,
+              onNew: () {
+                setState(() {
+                  _isEditMode = false;
+                  _resetForm();
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                });
+              },
+              onSave: _save,
+              onEdit: () {
+                setState(() {
+                  _isEditMode = true;
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                  final code = _familyCodeController.text.trim();
+                  if (code.isNotEmpty) {
+                    _fetchMembersByFamily(code);
+                    _fetchExistingRecords(code);
+                  }
+                });
+              },
+              onCancel: () {
+                setState(() {
+                  _isActionActive = false;
+                  _resetForm();
+                });
+              },
+              onExit: () => Navigator.pop(context),
+              isSaving: _isSaving,
+              isActionActive: _isActionActive,
+            ),
+    );
+  }
+
+
+  Future<void> _fetchFamilyLocation(String familyCode) async {
+    try {
+      var detail = await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim().toUpperCase());
+      detail ??= await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim());
+
+      if (detail == null) {
+        final snap = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .doc(familyCode.trim().toUpperCase())
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        if (snap.exists) detail = snap.data();
+      }
+
+      if (detail != null && mounted) {
+        setState(() {
+          _locationVillage  = (detail!['village']  ?? detail['Village'])?.toString();
+          _locationMandal   = (detail['mandal']    ?? detail['Mandal'])?.toString();
+          _locationDistrict = (detail['district']  ?? detail['District'])?.toString();
+          _locationState    = (detail['state']     ?? detail['State'])?.toString();
+        });
+      }
+    } catch (e) {
+      debugPrint('_fetchFamilyLocation: $e');
+    }
+  }
+
+  Widget _buildLocationRow(String label, String? value) {
+    if (value == null || value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 60, child: Text('$label:', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+        ],
+      ),
     );
   }
 
@@ -405,7 +641,7 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
       title: 'Member Identity',
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumber),
+        formTextField('Registration Number', _registrationNumber, enabled: _isActionActive),
         const SizedBox(height: 12),
         formSearchField(
           'Family Code',
@@ -417,8 +653,39 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
             }
           },
           isLoading: _isLoadingMembers,
+          readOnly: _familyIdReadOnly,
+          focusNode: _familyCodeNode,
         ),
         const SizedBox(height: 12),
+        if (_locationVillage != null || _locationMandal != null || _locationDistrict != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 4),
+                      Text('Location', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade700, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildLocationRow('Village', _locationVillage),
+                  _buildLocationRow('Mandal', _locationMandal),
+                  _buildLocationRow('District', _locationDistrict),
+                  _buildLocationRow('State', _locationState),
+                ],
+              ),
+            ),
+          ),
         formSearchableDropdown(
           context,
           'Name',
@@ -429,39 +696,50 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
           selectedMemberName,
           _onNameSelected,
           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
+        if (_isEditMode && _availableVisitDates.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          formSearchableDropdown(
+            context, 'Select Visit Date', _availableVisitDates, _selectedVisitDate,
+            (v) => _onVisitDateSelected(v?.toString()),
+            enabled: _isActionActive,
+            key: ValueKey('visit_${_availableVisitDates.length}'),
+          ),
+        ],
         const SizedBox(height: 12),
         const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() { selectedGender = v as String?; collectVaginalSwabHPV = null; dateVaginalSwabHPV = null; }), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() => selectedGender = v as String?), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Age', _age, keyboardType: TextInputType.number)),
+            Expanded(child: formTextField('Age', _age, enabled: _isActionActive, keyboardType: TextInputType.number)),
             const SizedBox(width: 12),
             Expanded(child: _buildDatePicker('Interview Date', dateOfInterview, (v) => setState(() => dateOfInterview = v))),
           ],
         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v)),
+        formSearchableDropdown(context, 'Interviewer Name', interviewerList, interviewersName, (v) => setState(() => interviewersName = v as String?), enabled: _isActionActive),
       ],
     );
   }
 
-  Widget _buildCollectionRow(String label, String? value, DateTime? date, ValueChanged<String?> onChanged, Function(DateTime) onDateChanged) {
+  Widget _buildCollectionRow(String label, String? value, DateTime? date, ValueChanged<String?> onChanged, Function(DateTime) onDateChanged, {bool enabled = true}) {
+    final isEnabled = _isActionActive && enabled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isEnabled ? Colors.black87 : Colors.grey.shade400)),
         Row(
           children: [
-            Expanded(child: formSearchableDropdown(context, 'Status', ['(1) Collected', '(0) Not Collected'], value, onChanged)),
+            Expanded(child: formSearchableDropdown(context, 'Status', ['(1) Collected', '(0) Not Collected'], value, onChanged, enabled: isEnabled)),
             if (value == '(1) Collected') ...[
               const SizedBox(width: 12),
               Expanded(child: _buildDatePicker('Date', date, onDateChanged)),
@@ -480,14 +758,20 @@ class _BloodSampleStatusPageState extends State<BloodSampleStatusPage> {
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         InkWell(
-          onTap: () async {
+          onTap: !_isActionActive ? null : () async {
+            final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
             final picked = await showDatePicker(
               context: context,
               initialDate: selectedDate ?? DateTime.now(),
               firstDate: DateTime(2020),
               lastDate: DateTime.now().add(const Duration(days: 365)),
             );
-            if (picked != null) onPicked(picked);
+            if (picked != null) {
+              onPicked(picked);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients) _scrollController.jumpTo(offset);
+              });
+            }
           },
           child: InputDecorator(
             decoration: InputDecoration(

@@ -24,31 +24,31 @@ class LocationService {
       
       if (cachedData != null) {
         final decoded = json.decode(cachedData) as Map<String, dynamic>;
-        // Merge with local mapping to ensure codes are always present 
-        // even if Firestore data is partial or missing codes.
         _locationData = decoded;
-        debugPrint('LocationService: Loaded data from cache');
+        debugPrint('LocationService: Initialized with cached data.');
       } else {
         _locationData = locationMapping;
-        debugPrint('LocationService: No cache found, using default mapping');
+        debugPrint('LocationService: No cache found, using default mapping.');
       }
-
     } catch (e) {
       debugPrint('LocationService Error loading cache: $e');
       _locationData = locationMapping;
     }
 
     _isInitialized = true;
-    
-    // Refresh from Firebase in the background
+    // Initial refresh to get the standard data (telangana) and discover others
     refreshFromFirebase();
   }
 
-  Future<void> refreshFromFirebase() async {
+  Future<void> refreshFromFirebase({String? stateId}) async {
     try {
+      // 1. If no stateId is provided, we fetch 'telangana' by default 
+      // but also discover all other available states to update the UI later.
+      final targetId = (stateId ?? 'telangana').toLowerCase();
+      
       final doc = await FirebaseFirestore.instance
           .collection('locations')
-          .doc('telangana')
+          .doc(targetId)
           .get();
 
       if (doc.exists && doc.data() != null) {
@@ -59,11 +59,32 @@ class LocationService {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_storageKey, json.encode(firestoreData));
         
-        debugPrint('LocationService: Successfully refreshed from Firebase');
+        debugPrint('LocationService: Refreshed data for $targetId');
       }
+
+      // 2. Discover all states to ensure the State dropdown is accurate
+      final statesSnapshot = await FirebaseFirestore.instance
+          .collection('locations')
+          .get(const GetOptions(source: Source.serverAndCache));
+      
+      final states = statesSnapshot.docs.map((d) => d.id.toUpperCase()).toList();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('available_states', json.encode(states));
+      
     } catch (e) {
       debugPrint('LocationService: Error refreshing from Firebase: $e');
     }
+  }
+
+  Future<List<String>> getAvailableStates() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('available_states');
+      if (cached != null) {
+        return (json.decode(cached) as List).cast<String>();
+      }
+    } catch (_) {}
+    return ['Telangana'];
   }
 
   // Simplified merge is no longer needed if Firestore is the source of truth

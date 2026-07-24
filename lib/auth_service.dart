@@ -9,6 +9,7 @@ class AuthService {
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
+  bool? _isAdminCached;
 
   User? get currentUser => _auth.currentUser;
 
@@ -18,11 +19,15 @@ class AuthService {
     final user = currentUser;
     if (user == null) return false;
 
+    // Return cached value if available
+    if (_isAdminCached != null) return _isAdminCached!;
+
     try {
       final doc = await _db.collection('users').doc(user.uid).get();
       if (doc.exists) {
         final data = doc.data();
-        return data?['role'] == 'admin';
+        _isAdminCached = data?['role'] == 'admin';
+        return _isAdminCached!;
       }
       
       // If no doc exists, check if email is in a hardcoded admin list for initial setup
@@ -34,6 +39,7 @@ class AuthService {
           'role': 'admin',
           'createdAt': FieldValue.serverTimestamp(),
         });
+        _isAdminCached = true;
         return true;
       }
     } catch (e) {
@@ -43,6 +49,7 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    _isAdminCached = null; // Clear cache on sign out
     await _auth.signOut();
   }
 }

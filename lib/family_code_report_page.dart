@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'personal_details_page.dart';
+import 'main.dart';
 import 'app_drawer.dart';
 import 'widget.dart';
 import 'auth_service.dart';
 
-class PersonalDetailsReportPage extends StatefulWidget {
-  const PersonalDetailsReportPage({super.key});
+class FamilyCodeReportPage extends StatefulWidget {
+  const FamilyCodeReportPage({super.key});
 
   @override
-  State<PersonalDetailsReportPage> createState() => _PersonalDetailsReportPageState();
+  State<FamilyCodeReportPage> createState() => _FamilyCodeReportPageState();
 }
 
-class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
+class _FamilyCodeReportPageState extends State<FamilyCodeReportPage> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   bool _isAdmin = false;
@@ -24,7 +24,7 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
   void initState() {
     super.initState();
     _reportStream = FirebaseFirestore.instance
-        .collection('personal_details')
+        .collection('Family Code Creation')
         .snapshots(includeMetadataChanges: true);
     
     _searchController.addListener(() {
@@ -49,7 +49,7 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              FirebaseFirestore.instance.collection('personal_details').doc(docId).delete();
+              FirebaseFirestore.instance.collection('Family Code Creation').doc(docId).delete();
               Navigator.pop(context);
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
@@ -75,7 +75,7 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
     if (confirmed != true || !mounted) return;
     final batch = FirebaseFirestore.instance.batch();
     for (final id in _selectedIds) {
-      batch.delete(FirebaseFirestore.instance.collection('personal_details').doc(id));
+      batch.delete(FirebaseFirestore.instance.collection('Family Code Creation').doc(id));
     }
     await batch.commit();
     if (mounted) setState(() => _selectedIds.clear());
@@ -86,14 +86,14 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Personal Details Report', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Family Code Report', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.indigo.shade700, Colors.indigo.shade400],
+              colors: [Colors.blue.shade700, Colors.teal.shade400],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -125,8 +125,8 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
             final q = _searchQuery.toLowerCase();
             docs = docs.where((doc) {
               final d = doc.data() as Map<String, dynamic>;
-              final fc = (d['Family_Code'] ?? d['Family_code'] ?? '').toString().toLowerCase();
-              final name = (d['Name'] ?? '').toString().toLowerCase();
+              final fc = (d['family_id'] ?? '').toString().toLowerCase();
+              final name = (d['head_of_family'] ?? d['Head_of_the_family'] ?? '').toString().toLowerCase();
               return fc.contains(q) || name.contains(q);
             }).toList();
           }
@@ -145,7 +145,7 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
                         textCapitalization: TextCapitalization.characters,
                         inputFormatters: [UpperCaseTextFormatter()],
                         decoration: InputDecoration(
-                          hintText: 'Search by Family Code or Name...',
+                          hintText: 'Search by Family Code or Head Name...',
                           prefixIcon: const Icon(Icons.search, size: 20),
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
@@ -198,8 +198,8 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
                     itemBuilder: (context, index) {
                       final doc = docs[index];
                       final data = doc.data() as Map<String, dynamic>;
-                      final familyCode = (data['Family_Code'] ?? data['Family_code'] ?? 'N/A').toString();
-                      final name = (data['Name'] ?? 'N/A').toString();
+                      final familyCode = (data['family_id'] ?? 'N/A').toString();
+                      final name = (data['head_of_family'] ?? data['Head_of_the_family'] ?? 'N/A').toString();
                       final needsSync = data['needs_zoho_sync'] == true || data['is_temporary'] == true;
                       return Card(
                         elevation: 0,
@@ -221,7 +221,7 @@ class _PersonalDetailsReportPageState extends State<PersonalDetailsReportPage> {
                             onSelected: (value) {
                               if (value == 'edit') {
                                 Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => PersonalDetailsPage(existingData: data, docId: doc.id),
+                                  builder: (_) => FamilyFormPage(existingData: data, docId: doc.id),
                                 ));
                               } else if (value == 'delete') {
                                 _deleteRecord(doc.id);

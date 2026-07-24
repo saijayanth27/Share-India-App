@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'local_database_service.dart';
+import 'sync_service.dart';
 import 'widget.dart';
 
 class MedicinesEntryPage extends StatefulWidget {
@@ -17,20 +19,27 @@ class MedicinesEntryPage extends StatefulWidget {
 
 class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   bool _isSaving = false;
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
   bool _isLoadingMembers = false;
+  bool _isActionActive = false; // Add this
+  final FocusNode _familyCodeNode = FocusNode();
+  bool _familyIdReadOnly = true;
 
   // --- Main Form Controllers & State ---
   String? selectedFamilyCode;
-  final _familyCodeController = TextEditingController(text: 'TSRRMED');
+  final _familyCodeController = TextEditingController();
   final _nameController = TextEditingController();
   final _regNoController = TextEditingController();
   String? selectedGender;
-  DateTime? selectedDate = DateTime.now();
+  DateTime? selectedDate;
   String? selectedInterviewer;
+  List<Map<String, dynamic>> _allPersonRecords = [];
+  List<String> _availableVisitDates = [];
+  String? _selectedVisitDate;
   String? selectedMemberName;
   final _ageController = TextEditingController();
   String? selectedSource;
@@ -44,6 +53,12 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   // Dropdown Options
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+  // Location (auto-populated from Family Code)
+  String? _locationVillage;
+  String? _locationMandal;
+  String? _locationDistrict;
+  String? _locationState;
+
 
   final List<String> interviewers = ["KIRANMAI K", "LAVANYA KASPOJU", "RAMADEVI Y", "REVATHI CH"];
   final List<String> messageSources = ["104", "COMPANY", "GOVT", "Other", "PVT", "TETRA"];
@@ -150,8 +165,29 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     super.initState();
     medicineCategories = medicineForMap.keys.toList()..sort();
     if (widget.existingData != null) {
+      _isEditMode = true;
+      _editDocId = widget.docId;
       _loadExistingData();
+      final familyCode = (widget.existingData!['Family_Code'] ?? widget.existingData!['Family_code'] ?? '').toString();
+      if (familyCode.isNotEmpty) {
+        _fetchMembersByFamily(familyCode);
+        _fetchExistingRecords(familyCode);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _familyCodeNode.dispose();
+    _familyCodeController.dispose();
+    _nameController.dispose();
+    _regNoController.dispose();
+    _ageController.dispose();
+    _otherSourceController.dispose();
+    _doctorNameController.dispose();
+    _remarksController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
@@ -167,6 +203,11 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
+
+        // Filter: only members aged 18 or older
+        final age = int.tryParse(data['Age']?.toString() ?? '0') ?? 0;
+        if (age < 18) return;
+
         memberMap[name] = data;
         allNames.add(name);
       }
@@ -177,6 +218,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         familyMemberNames = allNames.toList()..sort();
         selectedFamilyCode = familyCode;
       });
+          _fetchFamilyLocation(familyCode);
     } catch (e) {
       debugPrint('Error fetching members: $e');
     } finally {
@@ -190,7 +232,8 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
       final snapshot = await FirebaseFirestore.instance
           .collection('medicines_entry')
           .where('Family_code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
@@ -201,44 +244,82 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     }
   }
 
+  String? _dateStringFromRecord(Map<String, dynamic> r) {
+    final raw = r['Date'] ?? r['Date_field'] ?? r['Date_of_Interview'] ?? r['Interview_Date'];
+    if (raw == null) return null;
+    if (raw is Timestamp) return DateFormat('dd-MMM-yyyy').format(raw.toDate());
+    try { return DateFormat('dd-MMM-yyyy').format(DateFormat('dd-MMM-yyyy').parse(raw.toString())); } catch (_) {}
+    try { return DateFormat('dd-MMM-yyyy').format(DateTime.parse(raw.toString())); } catch (_) {}
+    return raw.toString();
+  }
+
+  void _onVisitDateSelected(String? dateStr) {
+    if (dateStr == null) return;
+    setState(() => _selectedVisitDate = dateStr);
+    final rec = _allPersonRecords.firstWhere(
+      (r) => _dateStringFromRecord(r) == dateStr,
+      orElse: () => _allPersonRecords.first,
+    );
+    _editDocId = rec['firestoreDocId']?.toString();
+    setState(() => _populateForm(rec));
+  }
+
   void _onNameSelected(String? name) async {
     setState(() {
       selectedMemberName = name;
       _nameController.text = name ?? '';
+      _allPersonRecords = [];
+      _availableVisitDates = [];
+      _selectedVisitDate = null;
     });
-    
+
     if (name == null) return;
 
     final baseData = _allMembersData[name];
     if (baseData != null && !_isEditMode) {
-      _regNoController.text = baseData['Registration_Number']?.toString() ?? '';
+      _regNoController.text = (baseData['uniq_Registration_Number'] ?? baseData['Registration_Number'] ?? baseData['Registration_Number1'] ?? '').toString();
       selectedGender = baseData['Gender']?.toString();
-      _ageController.text = baseData['Age']?.toString() ?? '';
     }
 
     if (_isEditMode) {
       setState(() => _isLoadingMembers = true);
       try {
         final fCode = _familyCodeController.text.trim();
-        final snapshot = await FirebaseFirestore.instance
-            .collection('medicines_entry')
-            .where('Family_code', isEqualTo: fCode)
-            .where('Name', isEqualTo: name)
-            .limit(1)
-            .get();
-
-        if (snapshot.docs.isNotEmpty) {
-          final doc = snapshot.docs.first;
-          setState(() {
-            _editDocId = doc.id;
-            final merged = {...?baseData, ...doc.data()};
-            _populateForm(merged);
-          });
-        } else if (baseData != null) {
-          _populateForm(baseData);
+        List<Map<String, dynamic>> records = [];
+        try {
+          var snapshot = await FirebaseFirestore.instance
+              .collection('medicines_entry')
+              .where('Family_code', isEqualTo: fCode)
+              .where('Name', isEqualTo: name)
+              .orderBy('clientUpdatedAt', descending: true)
+              .get()
+              .timeout(const Duration(seconds: 5));
+          if (snapshot.docs.isEmpty) {
+            snapshot = await FirebaseFirestore.instance
+                .collection('medicines_entry')
+                .where('Family_Code', isEqualTo: fCode)
+                .where('Name', isEqualTo: name)
+                .orderBy('clientUpdatedAt', descending: true)
+                .get()
+                .timeout(const Duration(seconds: 5));
+          }
+          for (final doc in snapshot.docs) {
+            records.add({...?baseData, ...doc.data(), 'firestoreDocId': doc.id});
+          }
+        } catch (e) {
+          debugPrint('Medicines: Firestore lookup failed: $e');
+        }
+        if (records.isEmpty && baseData != null) records.add(baseData);
+        final dates = records.map((r) => _dateStringFromRecord(r)).where((d) => d != null).cast<String>().toList();
+        if (mounted) {
+          setState(() { _allPersonRecords = records; _availableVisitDates = dates; });
+          if (records.length == 1) {
+            _editDocId = records.first['firestoreDocId']?.toString();
+            setState(() => _populateForm(records.first));
+          }
         }
       } catch (e) {
-        debugPrint('Error fetching medicines record: $e');
+        debugPrint('Error in Medicines _onNameSelected: $e');
         if (baseData != null) _populateForm(baseData);
       } finally {
         if (mounted) setState(() => _isLoadingMembers = false);
@@ -253,15 +334,20 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   }
 
   void _populateForm(Map<String, dynamic> d) {
-    _regNoController.text = d['Registration_Number'] ?? '';
+    _regNoController.text = (d['Registration_Number'] ?? d['REGNO'] ?? d['Regno'] ?? '').toString();
     selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
+    _locationVillage  = (d['Village']  ?? d['village'])?.toString();
+    _locationMandal   = (d['Mandal']   ?? d['mandal'])?.toString();
+    _locationDistrict = (d['District'] ?? d['district'])?.toString();
+    _locationState    = (d['State']    ?? d['state'])?.toString();
     _nameController.text = selectedMemberName ?? '';
-    selectedGender = d['Gender'];
+    selectedGender = normalizeGender(d['Gender']);
     _ageController.text = d['Age']?.toString() ?? '';
-    
-    final rawDate = d['Date'] ?? d['Interview_Date'] ?? d['Date_of_Interview'];
+
+    // Date: app field → TETRA INTDT → RXMED MED_DT fallback
+    final rawDate = d['Date'] ?? d['Interview_Date'] ?? d['Date_of_Interview'] ?? d['INTDT'] ?? d['MED_DT'];
     if (rawDate != null) {
       if (rawDate is Timestamp) {
         selectedDate = rawDate.toDate();
@@ -275,19 +361,21 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         }
       }
     }
-    
-    selectedInterviewer = d['Interviewer_s_Name_ID'];
-    selectedSource = d['Source_of_Medicine'];
-    _otherSourceController.text = d['Other']?.toString() ?? '';
-    _doctorNameController.text = d['Doctor_Name']?.toString() ?? '';
-    _remarksController.text = d['Remarks']?.toString() ?? '';
+
+    selectedInterviewer = matchInterviewerName(d['Interviewer_s_Name_ID'] ?? d['Interviewer_s_Name'] ?? d['Interviewer_Name'] ?? d['INTNAME'], interviewers);
+    // Source → TETRA/RXMED MED_SOURCE fallback
+    selectedSource = d['Source_of_Medicine'] ?? d['MED_SOURCE'];
+    _otherSourceController.text = (d['Other'] ?? d['MED_SOURCE_OTH'] ?? '').toString();
+    // Doctor name → RXMED MED_DOC fallback
+    _doctorNameController.text = (d['Doctor_Name'] ?? d['MED_DOC'] ?? '').toString();
+    _remarksController.text = (d['Remarks'] ?? d['REMARKS'] ?? '').toString();
     
     prescriptionList.clear();
     if (d['SubForm1'] != null) {
       prescriptionList.addAll(List<Map<String, dynamic>>.from(d['SubForm1']));
     }
 
-    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+    if (!_isEditMode && selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -295,20 +383,28 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
+      _isActionActive = false;
       _regNoController.clear();
-      _familyCodeController.clear();
+      // _familyCodeController.clear(); // Preserved
       _nameController.clear();
-      selectedFamilyCode = null;
+      // selectedFamilyCode = null; // Preserved
       selectedMemberName = null;
       selectedGender = null;
+      _locationVillage = null;
+      _locationMandal = null;
+      _locationDistrict = null;
+      _locationState = null;
       _ageController.clear();
-      selectedDate = DateTime.now();
+      selectedDate = null;
       selectedInterviewer = null;
       selectedSource = null;
       _otherSourceController.clear();
       _doctorNameController.clear();
       _remarksController.clear();
       prescriptionList.clear();
+      _allPersonRecords = [];
+      _availableVisitDates = [];
+      _selectedVisitDate = null;
       familyMemberNames = [];
       _existingRecords = [];
     });
@@ -324,6 +420,10 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         'Family_Code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
+        'Village': _locationVillage,
+        'Mandal': _locationMandal,
+        'District': _locationDistrict,
+        'State': _locationState,
         'Age': int.tryParse(_ageController.text),
         'Date_field': selectedDate != null ? DateFormat('dd-MMM-yyyy').format(selectedDate!) : null,
         'Interviewer_s_Name_ID': selectedInterviewer,
@@ -359,28 +459,19 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         }
       }
 
-      // 2. Background Sync (Non-blocking)
-      _performMedicinesSync(data);
+      // 2. Trigger Background Sync (Handles Firestore push)
+      SyncService().syncPendingSubmissions();
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() {
+        _isSaving = false;
+        _isActionActive = false;
+      });
     }
   }
 
-  void _performMedicinesSync(Map<String, dynamic> data) async {
-    try {
-      final String? docId = data['firestoreDocId'] as String?;
-      if (docId != null && docId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('medicines_entry').doc(docId).set(data, SetOptions(merge: true));
-      } else {
-        await FirebaseFirestore.instance.collection('medicines_entry').add(data);
-      }
-    } catch (e) {
-      debugPrint('Medicines Background Sync Error: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -390,36 +481,12 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16.0),
               child: Form(
                 key: _formKey,
                 child: Column(
                   children: [
-                    formActionButtons(
-                      context: context,
-                      isEditMode: _isEditMode,
-                      onNew: () {
-                        setState(() {
-                          _isEditMode = false;
-                          _resetForm();
-                        });
-                      },
-                      onSave: _save,
-                      onEdit: () {
-                        setState(() {
-                          _isEditMode = true;
-                          final code = _familyCodeController.text.trim();
-                          if (code.isNotEmpty) {
-                            _fetchMembersByFamily(code);
-                            _fetchExistingRecords(code);
-                          }
-                        });
-                      },
-                      onCancel: _resetForm,
-                      onExit: () => Navigator.pop(context),
-                      isSaving: _isSaving,
-                    ),
-                    const SizedBox(height: 16),
                     _buildIdentitySection(),
                     const SizedBox(height: 16),
                     _buildPrescriptionList(),
@@ -429,15 +496,22 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                       title: 'Medicine Details',
                       icon: Icons.medication_outlined,
                       children: [
-                        _buildDatePicker('Date', selectedDate, (v) => setState(() => selectedDate = v)),
+                        _buildDatePicker('Date', selectedDate,
+                            (v) => setState(() => selectedDate = v), enabled: _isActionActive),
                         const SizedBox(height: 16),
-                        formSearchableDropdown(context, 'Source of Medicine:', messageSources, selectedSource, (v) => setState(() => selectedSource = v)),
+                        formSearchableDropdown(
+                            context, 'Source of Medicine:', messageSources,
+                            selectedSource,
+                            (v) => setState(() => selectedSource = v as String?),
+                            enabled: _isActionActive),
                         const SizedBox(height: 16),
-                        formTextField('Other ?', _otherSourceController),
+                        formTextField('Other ?', _otherSourceController, enabled: _isActionActive),
                         const SizedBox(height: 16),
-                        formTextField('Doctor Name', _doctorNameController),
+                        formTextField('Doctor Name', _doctorNameController, enabled: _isActionActive),
                         const SizedBox(height: 16),
-                        formTextField('Remarks', _remarksController, maxLines: 2),
+                        formTextField('Remarks', _remarksController,
+                            enabled: _isActionActive,
+                            maxLines: 2),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -445,6 +519,85 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                 ),
               ),
             ),
+      bottomNavigationBar: _isSaving
+          ? null
+          : formActionButtons(
+              context: context,
+              isEditMode: _isEditMode,
+              onNew: () {
+                setState(() {
+                  _isEditMode = false;
+                  _resetForm();
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                });
+              },
+              onSave: _save,
+              onEdit: () {
+                setState(() {
+                  _isEditMode = true;
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                  final code = _familyCodeController.text.trim();
+                  if (code.isNotEmpty) {
+                    _fetchMembersByFamily(code);
+                    _fetchExistingRecords(code);
+                  }
+                });
+              },
+              onCancel: () {
+                setState(() {
+                  _isActionActive = false;
+                  _resetForm();
+                });
+              },
+              onExit: () => Navigator.pop(context),
+              isSaving: _isSaving,
+              isActionActive: _isActionActive,
+            ),
+    );
+  }
+
+
+  Future<void> _fetchFamilyLocation(String familyCode) async {
+    try {
+      var detail = await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim().toUpperCase());
+      detail ??= await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim());
+
+      if (detail == null) {
+        final snap = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .doc(familyCode.trim().toUpperCase())
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        if (snap.exists) detail = snap.data();
+      }
+
+      if (detail != null && mounted) {
+        setState(() {
+          _locationVillage  = (detail!['village']  ?? detail['Village'])?.toString();
+          _locationMandal   = (detail['mandal']    ?? detail['Mandal'])?.toString();
+          _locationDistrict = (detail['district']  ?? detail['District'])?.toString();
+          _locationState    = (detail['state']     ?? detail['State'])?.toString();
+        });
+      }
+    } catch (e) {
+      debugPrint('_fetchFamilyLocation: $e');
+    }
+  }
+
+  Widget _buildLocationRow(String label, String? value) {
+    if (value == null || value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 60, child: Text('$label:', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+        ],
+      ),
     );
   }
 
@@ -464,8 +617,40 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
             }
           },
           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
+          readOnly: _familyIdReadOnly,
+          focusNode: _familyCodeNode,
         ),
         const SizedBox(height: 12),
+        if (_locationVillage != null || _locationMandal != null || _locationDistrict != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 4),
+                      Text('Location', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade700, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildLocationRow('Village', _locationVillage),
+                  _buildLocationRow('Mandal', _locationMandal),
+                  _buildLocationRow('District', _locationDistrict),
+                  _buildLocationRow('State', _locationState),
+                ],
+              ),
+            ),
+          ),
         formSearchableDropdown(
           context,
           'Name',
@@ -473,29 +658,39 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
               .where((n) => n.isNotEmpty)
               .toList()
             ..sort()),
-          selectedMemberName,
-          _onNameSelected,
-          isLoading: _isLoadingMembers,
+           selectedMemberName,
+           (v) => _onNameSelected(v as String?),
+           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
+        if (_isEditMode && _availableVisitDates.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          formSearchableDropdown(
+            context, 'Select Visit Date', _availableVisitDates, _selectedVisitDate,
+            (v) => _onVisitDateSelected(v?.toString()),
+            enabled: _isActionActive,
+            key: ValueKey('med_visit_${_availableVisitDates.length}'),
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: formTextField('Registration Number', _regNoController)),
+             Expanded(child: formTextField('Registration Number', _regNoController, enabled: _isActionActive)),
             const SizedBox(width: 12),
-            Expanded(child: formTextField('Age', _ageController, keyboardType: TextInputType.number)),
+             Expanded(child: formTextField('Age', _ageController, enabled: _isActionActive, keyboardType: TextInputType.number)),
           ],
         ),
         const SizedBox(height: 12),
         const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
-        Row(
-          children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-          ],
-        ),
+         Row(
+           children: [
+              Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() => selectedGender = v as String?), contentPadding: EdgeInsets.zero, dense: true)),
+              Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() => selectedGender = v as String?), contentPadding: EdgeInsets.zero, dense: true)),
+           ],
+         ),
         const SizedBox(height: 12),
-        formSearchableDropdown(context, 'Interviewer’s Name/ID', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v)),
+          formSearchableDropdown(context, 'Interviewer’s Name/ID', interviewers, selectedInterviewer, (v) => setState(() => selectedInterviewer = v as String?), enabled: _isActionActive),
       ],
     );
   }
@@ -530,14 +725,15 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                             medicineCategories,
                             item['Medicine_For'],
                             (v) {
-                              setState(() {
-                                item['Medicine_For'] = v;
-                                item['Medicines'] = null; // Reset medicine on category change
-                              });
-                            },
+                               setState(() {
+                                 item['Medicine_For'] = v as String?;
+                                 item['Medicines'] = null; // Reset medicine on category change
+                               });
+                             },
+                            enabled: _isActionActive,
                           ),
                         ),
-                        IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => prescriptionList.removeAt(index))),
+                         IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: !_isActionActive ? null : () => setState(() => prescriptionList.removeAt(index))),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -545,26 +741,27 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
                       context,
                       'Medicines',
                       medForId != null ? (staticMedicines[medForId] ?? []) : [],
-                      item['Medicines'],
-                      (v) => setState(() => item['Medicines'] = v),
+                       item['Medicines'],
+                        (v) => setState(() => item['Medicines'] = v as String?),
+                       enabled: _isActionActive,
                       hint: medFor == null ? 'Select category first' : '-Select Medicine-',
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: formTextField('Duration(Days)', TextEditingController(text: item['Duration_Days'] ?? '')..selection = TextSelection.fromPosition(TextPosition(offset: item['Duration_Days']?.length ?? 0)), onChanged: (v) => item['Duration_Days'] = v)),
+                         Expanded(child: formTextField('Duration(Days)', TextEditingController(text: item['Duration_Days'] ?? '')..selection = TextSelection.fromPosition(TextPosition(offset: item['Duration_Days']?.length ?? 0)), enabled: _isActionActive, onChanged: (v) => item['Duration_Days'] = v)),
                         const SizedBox(width: 8),
-                        Expanded(child: formSearchableDropdown(context, 'Dosage', dosagesList, item['Dosage'], (v) => setState(() => item['Dosage'] = v))),
+                          Expanded(child: formSearchableDropdown(context, 'Dosage', dosagesList, item['Dosage'], (v) => setState(() => item['Dosage'] = v as String?), enabled: _isActionActive)),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: formSearchableDropdown(context, 'Morning', timeSlots, item['Morning'], (v) => setState(() => item['Morning'] = v))),
-                        const SizedBox(width: 4),
-                        Expanded(child: formSearchableDropdown(context, 'Afternoon', timeSlots, item['Afternoon'], (v) => setState(() => item['Afternoon'] = v))),
-                        const SizedBox(width: 4),
-                        Expanded(child: formSearchableDropdown(context, 'Night', timeSlots, item['Night'], (v) => setState(() => item['Night'] = v))),
+                          Expanded(child: formSearchableDropdown(context, 'Morning', timeSlots, item['Morning'], (v) => setState(() => item['Morning'] = v as String?), enabled: _isActionActive)),
+                         const SizedBox(width: 4),
+                          Expanded(child: formSearchableDropdown(context, 'Afternoon', timeSlots, item['Afternoon'], (v) => setState(() => item['Afternoon'] = v as String?), enabled: _isActionActive)),
+                         const SizedBox(width: 4),
+                          Expanded(child: formSearchableDropdown(context, 'Night', timeSlots, item['Night'], (v) => setState(() => item['Night'] = v as String?), enabled: _isActionActive)),
                       ],
                     ),
                   ],
@@ -575,7 +772,7 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
         ),
         const SizedBox(height: 8),
         ElevatedButton.icon(
-          onPressed: () => setState(() => prescriptionList.add({'Medicine_For': '', 'Medicines': '', 'Duration_Days': '', 'Dosage': null, 'Morning': null, 'Afternoon': null, 'Night': null})),
+           onPressed: !_isActionActive ? null : () => setState(() => prescriptionList.add({'Medicine_For': '', 'Medicines': '', 'Duration_Days': '', 'Dosage': null, 'Morning': null, 'Afternoon': null, 'Night': null})),
           icon: const Icon(Icons.add),
           label: const Text('Add Medicine'),
         ),
@@ -583,21 +780,27 @@ class _MedicinesEntryPageState extends State<MedicinesEntryPage> {
     );
   }
 
-  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        InkWell(
-          onTap: () async {
+   Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked, {bool enabled = true}) {
+     return Column(
+       crossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+         const SizedBox(height: 6),
+         InkWell(
+            onTap: !enabled ? null : () async {
+            final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
             final picked = await showDatePicker(
               context: context,
               initialDate: selectedDate ?? DateTime.now(),
               firstDate: DateTime(1900),
               lastDate: DateTime.now(),
             );
-            if (picked != null) onPicked(picked);
+            if (picked != null) {
+              onPicked(picked);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients) _scrollController.jumpTo(offset);
+              });
+            }
           },
           child: InputDecorator(
             decoration: InputDecoration(

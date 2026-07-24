@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'app_drawer.dart';
 import 'data_cache_service.dart';
+import 'local_database_service.dart';
+import 'sync_service.dart';
 import 'widget.dart';
 
 class DoctorPrescriptionsPage extends StatefulWidget {
@@ -17,11 +19,15 @@ class DoctorPrescriptionsPage extends StatefulWidget {
 
 class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollController = ScrollController();
   bool _isSaving = false;
   bool _isEditMode = false;
   String? _editDocId;
   List<Map<String, dynamic>> _existingRecords = [];
   bool _isLoadingMembers = false;
+  bool _isActionActive = false; // Add this
+  final FocusNode _familyCodeNode = FocusNode();
+  bool _familyIdReadOnly = true;
 
   // --- Controllers & State ---
   String? selectedFamilyCode;
@@ -35,6 +41,12 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
 
   List<String> familyMemberNames = [];
   Map<String, Map<String, dynamic>> _allMembersData = {};
+  // Location (auto-populated from Family Code)
+  String? _locationVillage;
+  String? _locationMandal;
+  String? _locationDistrict;
+  String? _locationState;
+
 
   final List<Map<String, dynamic>> _medicines = [];
   final _medicineNameController = TextEditingController();
@@ -47,8 +59,31 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   void initState() {
     super.initState();
     if (widget.existingData != null) {
+      _isEditMode = true;
+      _editDocId = widget.docId;
       _loadExistingData();
+      final familyCode = (widget.existingData!['Family_Code'] ?? widget.existingData!['Family_code'] ?? '').toString();
+      if (familyCode.isNotEmpty) {
+        _fetchMembersByFamily(familyCode);
+        _fetchExistingRecords(familyCode);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _familyCodeNode.dispose();
+    _familyCodeController.dispose();
+    _nameController.dispose();
+    _registrationNumberController.dispose();
+    _ageController.dispose();
+    _medicineNameController.dispose();
+    _dosageController.dispose();
+    _frequencyController.dispose();
+    _durationController.dispose();
+    _remarksController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMembersByFamily(String familyCode) async {
@@ -64,6 +99,11 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       void processMember(Map<String, dynamic> data) {
         final name = data['Name']?.toString() ?? '';
         if (name.isEmpty) return;
+
+        // Filter: only members aged 18 or older
+        final age = int.tryParse(data['Age']?.toString() ?? '0') ?? 0;
+        if (age < 18) return;
+
         memberMap[name] = data;
         allNames.add(name);
       }
@@ -74,6 +114,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
         familyMemberNames = allNames.toList()..sort();
         selectedFamilyCode = familyCode;
       });
+          _fetchFamilyLocation(familyCode);
     } catch (e) {
       debugPrint('Error fetching members: $e');
     } finally {
@@ -87,7 +128,8 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       final snapshot = await FirebaseFirestore.instance
           .collection('doctor_prescriptions')
           .where('Family_code', isEqualTo: familyCode)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       setState(() {
         _existingRecords = snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         _isLoadingMembers = false;
@@ -109,7 +151,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     final baseData = _allMembersData[name];
     if (baseData != null && !_isEditMode) {
       _registrationNumberController.text = baseData['Registration_Number']?.toString() ?? '';
-      selectedGender = baseData['Gender']?.toString();
+      selectedGender = normalizeGender(baseData['Gender']);
       _ageController.text = baseData['Age']?.toString() ?? '';
     }
 
@@ -122,7 +164,8 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
             .where('Family_code', isEqualTo: fCode)
             .where('Name', isEqualTo: name)
             .limit(1)
-            .get();
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
 
         if (snapshot.docs.isNotEmpty) {
           final doc = snapshot.docs.first;
@@ -154,8 +197,12 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
     selectedFamilyCode = d['Family_code'] ?? d['Family_Code'];
     _familyCodeController.text = selectedFamilyCode ?? '';
     selectedMemberName = d['Name'];
+    _locationVillage  = (d['Village']  ?? d['village'])?.toString();
+    _locationMandal   = (d['Mandal']   ?? d['mandal'])?.toString();
+    _locationDistrict = (d['District'] ?? d['district'])?.toString();
+    _locationState    = (d['State']    ?? d['state'])?.toString();
     _nameController.text = selectedMemberName ?? '';
-    selectedGender = d['Gender'];
+    selectedGender = normalizeGender(d['Gender']);
     _ageController.text = d['Age']?.toString() ?? '';
     
     final rawPrescriptionDate = d['Prescription_Date'] ?? d['Date'];
@@ -178,7 +225,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       _medicines.addAll(List<Map<String, dynamic>>.from(d['Medicines']));
     }
 
-    if (selectedFamilyCode != null && familyMemberNames.isEmpty) {
+    if (!_isEditMode && selectedFamilyCode != null && familyMemberNames.isEmpty) {
       _fetchMembersByFamily(selectedFamilyCode!);
     }
   }
@@ -186,15 +233,20 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
   void _resetForm() {
     _formKey.currentState?.reset();
     setState(() {
+      _isActionActive = false;
       _registrationNumberController.clear();
       _nameController.clear();
-      selectedFamilyCode = null;
+      // selectedFamilyCode = null; // Preserved
       selectedMemberName = null;
       selectedGender = null;
+      _locationVillage = null;
+      _locationMandal = null;
+      _locationDistrict = null;
+      _locationState = null;
       _ageController.clear();
       selectedPrescriptionDate = DateTime.now();
       _medicines.clear();
-      _familyCodeController.clear();
+      // _familyCodeController.text = 'TSRRMED'; // Preserved
       familyMemberNames = [];
       _existingRecords = [];
     });
@@ -228,6 +280,10 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
         'Family_code': selectedFamilyCode ?? _familyCodeController.text,
         'Name': _isEditMode ? selectedMemberName : _nameController.text,
         'Gender': selectedGender,
+        'Village': _locationVillage,
+        'Mandal': _locationMandal,
+        'District': _locationDistrict,
+        'State': _locationState,
         'Age': int.tryParse(_ageController.text),
         'Prescription_Date': selectedPrescriptionDate != null ? Timestamp.fromDate(selectedPrescriptionDate!) : null,
         'Medicines': _medicines,
@@ -259,28 +315,19 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
         }
       }
 
-      // 2. Background Sync (Non-blocking)
-      _performPrescriptionSync(data);
+      // 2. Trigger Background Sync (Handles Firestore push)
+      SyncService().syncPendingSubmissions();
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red));
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() {
+        _isSaving = false;
+        _isActionActive = false;
+      });
     }
   }
 
-  void _performPrescriptionSync(Map<String, dynamic> data) async {
-    try {
-      final String? docId = data['firestoreDocId'] as String?;
-      if (docId != null && docId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('doctor_prescriptions').doc(docId).set(data, SetOptions(merge: true));
-      } else {
-        await FirebaseFirestore.instance.collection('doctor_prescriptions').add(data);
-      }
-    } catch (e) {
-      debugPrint('Prescription Background Sync Error: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,36 +337,12 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       body: _isSaving
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16.0),
               child: Form(
                 key: _formKey,
                 child: Column(
                   children: [
-                    formActionButtons(
-                      context: context,
-                      isEditMode: _isEditMode,
-                      onNew: () {
-                        setState(() {
-                          _isEditMode = false;
-                          _resetForm();
-                        });
-                      },
-                      onSave: _save,
-                      onEdit: () {
-                        setState(() {
-                          _isEditMode = true;
-                          final code = _familyCodeController.text.trim();
-                          if (code.isNotEmpty) {
-                            _fetchMembersByFamily(code);
-                            _fetchExistingRecords(code);
-                          }
-                        });
-                      },
-                      onCancel: _resetForm,
-                      onExit: () => Navigator.pop(context),
-                      isSaving: _isSaving,
-                    ),
-                    const SizedBox(height: 16),
                     _buildIdentitySection(),
                     const SizedBox(height: 16),
                     buildSectionCard(
@@ -327,45 +350,59 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                       title: 'Prescription Details',
                       icon: Icons.history_edu_outlined,
                       children: [
-                        _buildDatePicker('Prescription Date', selectedPrescriptionDate, (v) => setState(() => selectedPrescriptionDate = v)),
+                        _buildDatePicker('Prescription Date',
+                            selectedPrescriptionDate, (v) => setState(() => selectedPrescriptionDate = v), enabled: _isActionActive),
                         const SizedBox(height: 24),
-                        const Text('Add Medicine', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const Text('Add Medicine',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
                         const Divider(),
-                        formTextField('Medicine Name', _medicineNameController),
+                        formTextField('Medicine Name', _medicineNameController, enabled: _isActionActive),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Dosage', _dosageController)),
+                            Expanded(
+                                child:
+                                    formTextField('Dosage', _dosageController, enabled: _isActionActive)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Frequency', _frequencyController)),
+                            Expanded(
+                                child: formTextField(
+                                    'Frequency', _frequencyController, enabled: _isActionActive)),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: formTextField('Duration', _durationController)),
+                            Expanded(
+                                child: formTextField(
+                                    'Duration', _durationController, enabled: _isActionActive)),
                             const SizedBox(width: 12),
-                            Expanded(child: formTextField('Remarks', _remarksController)),
+                            Expanded(
+                                child: formTextField(
+                                    'Remarks', _remarksController, enabled: _isActionActive)),
                           ],
                         ),
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: _addMedicine,
+                            onPressed: !_isActionActive ? null : _addMedicine,
                             icon: const Icon(Icons.add),
                             label: const Text('Add to List'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blueAccent,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
                             ),
                           ),
                         ),
                         if (_medicines.isNotEmpty) ...[
                           const SizedBox(height: 24),
-                          const Text('Medicines List', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          const Text('Medicines List',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
                           ListView.builder(
                             shrinkWrap: true,
@@ -377,10 +414,13 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                                 margin: const EdgeInsets.symmetric(vertical: 4),
                                 child: ListTile(
                                   title: Text(med['name'] ?? ''),
-                                  subtitle: Text('${med['dosage'] ?? ''} - ${med['frequency'] ?? ''} (${med['duration'] ?? ''})'),
+                                  subtitle: Text(
+                                      '${med['dosage'] ?? ''} - ${med['frequency'] ?? ''} (${med['duration'] ?? ''})'),
                                   trailing: IconButton(
-                                    icon: const Icon(Icons.delete, color: Colors.redAccent),
-                                    onPressed: () => setState(() => _medicines.removeAt(index)),
+                                    icon: const Icon(Icons.delete,
+                                        color: Colors.redAccent),
+                                    onPressed: !_isActionActive ? null : () => setState(
+                                        () => _medicines.removeAt(index)),
                                   ),
                                 ),
                               );
@@ -394,6 +434,85 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
                 ),
               ),
             ),
+      bottomNavigationBar: _isSaving
+          ? null
+          : formActionButtons(
+              context: context,
+              isEditMode: _isEditMode,
+              onNew: () {
+                setState(() {
+                  _isEditMode = false;
+                  _resetForm();
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                });
+              },
+              onSave: _save,
+              onEdit: () {
+                setState(() {
+                  _isEditMode = true;
+                  _isActionActive = true;
+                  _familyIdReadOnly = false;
+                  _familyCodeNode.requestFocus();
+                  final code = _familyCodeController.text.trim();
+                  if (code.isNotEmpty) {
+                    _fetchMembersByFamily(code);
+                    _fetchExistingRecords(code);
+                  }
+                });
+              },
+              onCancel: () {
+                setState(() {
+                  _isActionActive = false;
+                  _resetForm();
+                });
+              },
+              onExit: () => Navigator.pop(context),
+              isSaving: _isSaving,
+              isActionActive: _isActionActive,
+            ),
+    );
+  }
+
+
+  Future<void> _fetchFamilyLocation(String familyCode) async {
+    try {
+      var detail = await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim().toUpperCase());
+      detail ??= await LocalDatabaseService().getSingleFamilyDetail(familyCode.trim());
+
+      if (detail == null) {
+        final snap = await FirebaseFirestore.instance
+            .collection('Family Code Creation')
+            .doc(familyCode.trim().toUpperCase())
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        if (snap.exists) detail = snap.data();
+      }
+
+      if (detail != null && mounted) {
+        setState(() {
+          _locationVillage  = (detail!['village']  ?? detail['Village'])?.toString();
+          _locationMandal   = (detail['mandal']    ?? detail['Mandal'])?.toString();
+          _locationDistrict = (detail['district']  ?? detail['District'])?.toString();
+          _locationState    = (detail['state']     ?? detail['State'])?.toString();
+        });
+      }
+    } catch (e) {
+      debugPrint('_fetchFamilyLocation: $e');
+    }
+  }
+
+  Widget _buildLocationRow(String label, String? value) {
+    if (value == null || value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 60, child: Text('$label:', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+        ],
+      ),
     );
   }
 
@@ -403,7 +522,7 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
       title: 'Patient Identity',
       icon: Icons.person_outline,
       children: [
-        formTextField('Registration Number', _registrationNumberController),
+        formTextField('Registration Number', _registrationNumberController, enabled: _isActionActive),
         const SizedBox(height: 12),
         formSearchField(
           'Family Code',
@@ -415,8 +534,40 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
             }
           },
           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
+          readOnly: _familyIdReadOnly,
+          focusNode: _familyCodeNode,
         ),
         const SizedBox(height: 12),
+        if (_locationVillage != null || _locationMandal != null || _locationDistrict != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_on_outlined, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 4),
+                      Text('Location', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade700, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildLocationRow('Village', _locationVillage),
+                  _buildLocationRow('Mandal', _locationMandal),
+                  _buildLocationRow('District', _locationDistrict),
+                  _buildLocationRow('State', _locationState),
+                ],
+              ),
+            ),
+          ),
         formSearchableDropdown(
           context,
           'Name',
@@ -425,39 +576,46 @@ class _DoctorPrescriptionsPageState extends State<DoctorPrescriptionsPage> {
               .toList()
             ..sort()),
           selectedMemberName,
-          _onNameSelected,
+          (v) => _onNameSelected(v as String?),
           isLoading: _isLoadingMembers,
+          enabled: _isActionActive,
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
         const SizedBox(height: 12),
         const Text('Gender', style: TextStyle(fontWeight: FontWeight.w500)),
         Row(
           children: [
-            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: 'Male', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
-            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: 'Female', groupValue: selectedGender, onChanged: (v) => setState(() => selectedGender = v), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(1) Male'), value: '(1) Male', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() => selectedGender = v as String?), contentPadding: EdgeInsets.zero, dense: true)),
+            Expanded(child: RadioListTile<String>(title: const Text('(0) Female'), value: '(0) Female', groupValue: selectedGender, onChanged: !_isActionActive ? null : (v) => setState(() => selectedGender = v as String?), contentPadding: EdgeInsets.zero, dense: true)),
           ],
         ),
         const SizedBox(height: 12),
-        formTextField('Age', _ageController, keyboardType: TextInputType.number),
+        formTextField('Age', _ageController, enabled: _isActionActive, keyboardType: TextInputType.number),
       ],
     );
   }
 
-  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked) {
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onPicked, {bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         InkWell(
-          onTap: () async {
+          onTap: !enabled ? null : () async {
+            final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
             final picked = await showDatePicker(
               context: context,
               initialDate: selectedDate ?? DateTime.now(),
               firstDate: DateTime(1900),
               lastDate: DateTime.now(),
             );
-            if (picked != null) onPicked(picked);
+            if (picked != null) {
+              onPicked(picked);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients) _scrollController.jumpTo(offset);
+              });
+            }
           },
           child: InputDecorator(
             decoration: InputDecoration(
