@@ -5,7 +5,10 @@ build/
 .State_District_Mandal_Village Report (1).xlsx
 .All Generations.xlsx
 *.xlsx
-firebase-importVs
+firebase-importVs/*
+!firebase-importVs/*.js
+!firebase-importVs/package.json
 analysis_output_v2.txt
 analysis_output_v3.txt
-analysis_output_v4.txtandroid/app/google-services.json
+analysis_output_v4.txt
+android/app/google-services.json
